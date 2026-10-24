@@ -68,6 +68,8 @@ export function fixtureStatus(scenario: Scenario, now = Date.now()): StatusRespo
         : null,
     halts: halted ? ["kill_switch", "drawdown"] : connected ? [] : ["broker_disconnected"],
     dayPnl: connected && scenario !== "empty" ? (halted ? -612.4 : 218.64) : undefined,
+    liveTrading: false,
+    models: { main: "openai/gpt-5.5#high", subagents: "anthropic/claude-sonnet-5-5#medium" },
     dayPnlPct: connected && scenario !== "empty" ? (halted ? -2.35 : 0.87) : undefined,
   };
 }
@@ -296,7 +298,23 @@ return { symbol: "MSFT", rsi14: msft.rsi14, aboveSma20: msft.close > msft.sma20,
 export const STREAM_REPLY =
   "Checking the open orders and the afternoon calendar. **MSFT** is holding 413 on light volume, and the entry stays valid until the 14:00 ET volatility window. I will re-quote at the next cycle and cancel the proposal if the spread widens beyond 20 bps.";
 
-export const fixtureSubagents = (now = Date.now()) =>
-  (["bull", "bear", "risk_reviewer"] as const).map((role, i) =>
-    mockRun(`sub-old-${role}`, role, now - 23 * MIN + 2500 + i * 150, true),
-  ).reverse();
+export const fixtureSubagents = (now = Date.now()) => [
+  {
+    ...mockRun("sub-bg-earnings", "researcher", now - 4 * HOUR, false),
+    name: "earnings-watch",
+    background: true,
+    symbol: undefined,
+    task: "Watch the earnings calendar for held names and report anything that moves inside the blackout window.",
+  },
+  {
+    ...mockRun("sub-bg-macro", "analyst", now - 2 * HOUR, true),
+    name: "macro-brief",
+    background: true,
+    symbol: undefined,
+    task: "Keep a running brief of rates, oil and the dollar for the regime read.",
+    endedAt: now - 20 * MIN,
+  },
+  ...(["bull", "bear", "risk_reviewer"] as const)
+    .map((role, i) => mockRun(`sub-old-${role}`, role, now - 23 * MIN + 2500 + i * 150, true))
+    .reverse(),
+];

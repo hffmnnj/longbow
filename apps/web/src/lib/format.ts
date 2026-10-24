@@ -127,3 +127,27 @@ export function isoShort(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   return Number.isNaN(d.getTime()) ? iso : isoShortFmt.format(d);
 }
+
+const isoDayFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+/** "2026-10-26" -> "Mon, Oct 26". Falls back to the input when it is not a date. */
+export function isoDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? iso : isoDayFmt.format(d);
+}
+
+/** 4.18 -> "4.18%" for yields, always two decimals. */
+export const yieldPct = (v: number): string => `${v.toFixed(2)}%`;
+
+/** Dollars without cents for axes and big figures: $25,432. */
+export function usd0(value: number): string {
+  return usd(Math.round(value)).replace(/\.00$/, "");
+}
+
+/** 41200000 -> "$41M", for dollar volume. */
+export function usdCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${Math.round(value / 1e6)}M`;
+  if (abs >= 1e3) return `$${Math.round(value / 1e3)}K`;
+  return `$${Math.round(value)}`;
+}

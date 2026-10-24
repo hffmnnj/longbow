@@ -12,6 +12,7 @@ import {
 import { ROLE_TEXT, mockHistory, mockNote, mockNotes, mockSkill, mockSkills } from "./data.ts";
 import { runWork } from "./work.ts";
 import { createMockSim } from "./sim.ts";
+import { mockEquity, mockMarket, mockPerformance, mockSymbolDetail } from "./analytics.ts";
 
 function scenarioFromUrl(): Scenario {
   const s = new URLSearchParams(location.search).get("scenario");
@@ -144,6 +145,11 @@ export function createMockApi(): Api {
     },
     history: (symbol, range) =>
       delay({ symbol, bars: mockHistory(symbol, range), source: "mock", asOf: Date.now() }, 250),
+    equity: (range) => delay(mockEquity(range, scenario === "empty"), 220),
+    performance: () => delay(mockPerformance(scenario === "empty"), 260),
+    marketOverview: () => delay(mockMarket(), 300),
+    symbolDetail: (symbol) =>
+      delay(mockSymbolDetail(symbol, { positions: status.account?.positions ?? [], orders, journal }), 260),
     simRuns: () => delay(mockSim.list()),
     simRun: async (id) => delay(mockSim.get(id)),
     simStart: async (config) => delay(mockSim.start(config), 250),

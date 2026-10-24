@@ -1,4 +1,4 @@
-import type { ChatMessage, CycleKind, SubagentRun, ToolCallSummary } from "@rh/shared";
+import type { ChatMessage, CycleKind, JournalEntry, SubagentRun, ToolCallSummary } from "@rh/shared";
 import { delegateRole } from "./toolMeta";
 
 export const isRunning = (c: ToolCallSummary) => c.durationMs === undefined && !c.isError;
@@ -46,7 +46,8 @@ export function cycleLabel(text: string): string {
 export type FeedItem =
   | { kind: "cycle" | "user" | "assistant"; key: string; message: ChatMessage }
   | { kind: "step"; key: string; code: ChatMessage; result?: ChatMessage }
-  | { kind: "tools"; key: string; messages: ChatMessage[] };
+  | { kind: "tools"; key: string; messages: ChatMessage[] }
+  | { kind: "decision"; key: string; entry: JournalEntry };
 
 export const isCode = (m: ChatMessage) => m.role === "tool" && m.toolName === "codemode" && m.code !== undefined;
 const isCodeResult = (m: ChatMessage) => m.role === "tool" && m.toolName === "codemode" && m.code === undefined;
@@ -85,4 +86,40 @@ export function liveStepKey(items: readonly FeedItem[]): string | undefined {
     if (it.kind === "step" && !it.result) return it.key;
   }
   return undefined;
+}
+
+/** When the item happened, for placing journal decisions among the messages around them. */
+export function itemTime(item: FeedItem): number {
+  switch (item.kind) {
+    case "step":
+      return item.code.at;
+    case "tools":
+      return item.messages[0]?.at ?? 0;
+    case "decision":
+      return item.entry.at;
+    default:
+      return item.message.at;
+  }
+}
+
+/**
+ * Place the agent's journal decisions in the transcript where they were made, oldest first.
+ * "none" entries are noise and entries older than the loaded transcript have no neighbours, so both are left out.
+ */
+export function withDecisions(items: readonly FeedItem[], entries: readonly JournalEntry[]): FeedItem[] {
+  const first = items[0];
+  if (!first) return items.slice();
+  const from = itemTime(first);
+  const picks = entries
+    .filter((e) => e.action !== "none" && e.at >= from)
+    .sort((a, b) => a.at - b.at)
+    .map((entry): FeedItem => ({ kind: "decision", key: `decision-${entry.id}`, entry }));
+  const out: FeedItem[] = [];
+  let d = 0;
+  for (const item of items) {
+    while (d < picks.length && itemTime(picks[d]!) <= itemTime(item)) out.push(picks[d++]!);
+    out.push(item);
+  }
+  while (d < picks.length) out.push(picks[d++]!);
+  return out;
 }
