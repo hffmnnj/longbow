@@ -39,6 +39,7 @@ describe("toolFamily", () => {
     ["notes_read", "notes"],
     ["record_decision", "journal"],
     ["submit_order", "risk"],
+    ["cancel_order", "risk"],
     ["get_risk_state", "risk"],
     ["delegate", "delegate"],
     ["sim_start", "lab"],
@@ -63,6 +64,7 @@ describe("toolIcon", () => {
     expect(toolIcon("notes_write")).toBe(Notebook01Icon);
     expect(toolIcon("record_decision")).toBe(Note01Icon);
     expect(toolIcon("submit_order")).toBe(Shield01Icon);
+    expect(toolIcon("cancel_order")).toBe(Shield01Icon);
     expect(toolIcon("sim_start")).toBe(FlaskConicalIcon);
     expect(toolIcon("mystery_tool")).toBe(Wrench01Icon);
   });
@@ -89,10 +91,12 @@ describe("toolTitle", () => {
     expect(toolTitle("delegate", '{"role":"bull"}')).toBe("Delegated to bull");
     expect(toolTitle("record_decision", '{"action":"buy","symbol":"MSFT"}')).toBe("Recorded buy MSFT");
     expect(toolTitle("submit_order", '{"symbol":"MSFT","side":"buy","quantity":3}')).toBe("Submitted buy 3 MSFT");
+    expect(toolTitle("cancel_order", '{"symbol":"MSFT"}')).toBe("Cancelled order for MSFT");
   });
 
   it("falls back to a plain sentence when the summary is missing or not arguments", () => {
     expect(toolTitle("submit_order")).toBe("Submitted order");
+    expect(toolTitle("cancel_order")).toBe("Cancelled order");
     expect(toolTitle("web_search")).toBe("Searched the web");
     expect(toolTitle("web_search", "crude oil curve WTI backwardation narrows")).toBe("Searched the web");
     expect(toolTitle("delegate", "not json")).toBe("Delegated");
@@ -142,5 +146,12 @@ describe("matchSubmitOrder", () => {
     expect(submitOrderFailed(orders[0])).toBe(false);
     expect(submitOrderFailed(orders[1])).toBe(true);
     expect(submitOrderFailed(undefined)).toBe(false);
+  });
+
+  it("treats filled orders as success and cancelled ones as neutral", () => {
+    const base = orders[0]!;
+    for (const status of ["filled", "cancelled", "held", "triggering", "partially_filled"] as const) {
+      expect(submitOrderFailed({ ...base, status })).toBe(false);
+    }
   });
 });

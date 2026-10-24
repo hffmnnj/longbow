@@ -40,7 +40,7 @@ export function toolFamily(name: string | undefined): ToolFamily {
   if (!name) return "other";
   if (name === "delegate") return "delegate";
   if (name === "codemode") return "code";
-  if (name === "submit_order" || name === "get_risk_state") return "risk";
+  if (name === "submit_order" || name === "cancel_order" || name === "get_risk_state") return "risk";
   if (name === "record_decision") return "journal";
   if (name.startsWith("rh_") || name === "get_portfolio" || name === "get_quote") return "robinhood";
   if (name === "market" || name.startsWith("market_")) return "market";
@@ -213,6 +213,8 @@ export function toolTitle(name: string, summary?: string): string {
         if (symbol) return `Submitted order for ${symbol}`;
         return "Submitted order";
       }
+      case "cancel_order":
+        return symbol ? `Cancelled order for ${symbol}` : "Cancelled order";
       case "get_risk_state":
         return "Checked risk state";
       case "delegate": {
@@ -279,6 +281,8 @@ export function toolTitle(name: string, summary?: string): string {
       return "Recorded decision";
     case "submit_order":
       return "Submitted order";
+    case "cancel_order":
+      return "Cancelled order";
     case "get_risk_state":
       return "Checked risk state";
     case "delegate":
@@ -336,7 +340,11 @@ export function matchSubmitOrder(text: string, orders: readonly OrderRecord[]): 
 
 const BAD_ORDER_STATUS = new Set(["rejected_risk", "rejected_user", "failed", "expired"]);
 
-/** True when the linked order ended badly, so the TraceLine shows the error status. */
+/**
+ * True when the linked order ended badly, so the TraceLine shows the error status.
+ * A `filled` order reads as success and a `cancelled` one as neutral: both render
+ * a plain line, the same way `submitted` and the rejections do today.
+ */
 export function submitOrderFailed(order: OrderRecord | undefined): boolean {
   return order !== undefined && BAD_ORDER_STATUS.has(order.status);
 }
