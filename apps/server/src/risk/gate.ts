@@ -8,7 +8,7 @@ import {
 } from "@rh/shared";
 import { etDayEndEpoch } from "./calendar.ts";
 import { evaluate, sevenDaysAgo } from "./engine.ts";
-import type { Broker, Clock, EventBus, Logger, MarketCalendar, OrderGate, Store } from "../ports.ts";
+import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -24,6 +24,8 @@ export interface OrderGateDeps {
   clock: Clock;
   bus: EventBus;
   log: Logger;
+  /** Free market-data provider for the earnings and liquidity entry rules. */
+  market?: MarketData;
 }
 
 function shortError(error: unknown, max = 200): string {
@@ -36,8 +38,66 @@ function failedVerdict(detail: string): RiskVerdict {
   return { approved: false, isExit: false, checks: [{ rule: "broker", ok: false, detail }] };
 }
 
+const MARKET_DATA_TIMEOUT_MS = 15_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`market data timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([work, timeout]).then(
+    (value) => {
+      if (timer !== undefined) clearTimeout(timer);
+      return value;
+    },
+    (error) => {
+      if (timer !== undefined) clearTimeout(timer);
+      throw error;
+    },
+  );
+}
+
+interface MarketInputs {
+  nextEarningsDate?: string;
+  avgDollarVolume20?: number;
+  marketDataAvailable: boolean;
+}
+
+/**
+ * Entry inputs for the earnings and liquidity rules. Never throws: the
+ * result is unavailable when no provider is wired or either fetch fails or
+ * times out, and the engine then fails those rules closed.
+ */
+async function fetchMarketInputs(
+  market: MarketData | undefined,
+  symbol: string,
+): Promise<MarketInputs> {
+  if (market === undefined) return { marketDataAvailable: false };
+  const [earnings, volume] = await Promise.all([
+    withTimeout(market.nextEarnings(symbol), MARKET_DATA_TIMEOUT_MS).then(
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const, value: undefined as string | undefined }),
+    ),
+    withTimeout(market.avgDollarVolume(symbol, 20), MARKET_DATA_TIMEOUT_MS).then(
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const, value: undefined as number | undefined }),
+    ),
+  ]);
+  if (!earnings.ok || !volume.ok) return { marketDataAvailable: false };
+  return {
+    marketDataAvailable: true,
+    ...(earnings.value === undefined ? {} : { nextEarningsDate: earnings.value }),
+    ...(volume.value === undefined ? {} : { avgDollarVolume20: volume.value }),
+  };
+}
+
+/** True when the order adds exposure (every buy, or a sell larger than the held long). */
+function isEntryOrder(side: OrderIntent["side"], heldQty: number, quantity: number): boolean {
+  return !(side === "sell" && heldQty >= quantity);
+}
+
 export function createOrderGate(deps: OrderGateDeps): OrderGate {
-  const { store, broker, calendar, clock, bus, log } = deps;
+  const { store, broker, calendar, clock, bus, log, market: marketData } = deps;
   let tail: Promise<unknown> = Promise.resolve();
   let latestSnapshot: AccountSnapshot | null = null;
 
@@ -124,6 +184,11 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
       }
       latestSnapshot = snapshot;
 
+      const heldQty = snapshot.positions.find((p) => p.symbol === valid.symbol)?.quantity ?? 0;
+      const marketInputsPromise = isEntryOrder(valid.side, heldQty, valid.quantity)
+        ? fetchMarketInputs(marketData, valid.symbol)
+        : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
+
       let quote: Awaited<ReturnType<Broker["quote"]>>;
       try {
         quote = await broker.quote(valid.symbol);
@@ -141,6 +206,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         log.warn("order failed on quote", { orderId: order.id, symbol: valid.symbol });
         return order;
       }
+      const marketInputs = await marketInputsPromise;
 
       const settings = store.getSettings();
       const market = calendar.clock(now);
@@ -163,6 +229,13 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         equityMarks: store.equityMarks(calendar.etDate(now)),
         recentOrders,
         ...(lotOpenedEtDate === undefined ? {} : { lotOpenedEtDate }),
+        ...(marketInputs.nextEarningsDate === undefined
+          ? {}
+          : { nextEarningsDate: marketInputs.nextEarningsDate }),
+        ...(marketInputs.avgDollarVolume20 === undefined
+          ? {}
+          : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
+        marketDataAvailable: marketInputs.marketDataAvailable,
         sectorOf: (symbol: string) =>
           account.positions.find((p) => p.symbol === symbol)?.sector,
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
@@ -278,10 +351,8 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
       }
 
       let snapshot: AccountSnapshot;
-      let quote: Awaited<ReturnType<Broker["quote"]>>;
       try {
         snapshot = await broker.snapshot();
-        quote = await broker.quote(existing.intent.symbol);
       } catch (error) {
         const order = store.updateOrder(id, {
           verdict: failedVerdict(`recheck failed: ${shortError(error, 150)}`),
@@ -294,6 +365,27 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         return order;
       }
       latestSnapshot = snapshot;
+
+      const heldQty = snapshot.positions.find((p) => p.symbol === existing.intent.symbol)?.quantity ?? 0;
+      const marketInputsPromise = isEntryOrder(existing.intent.side, heldQty, existing.intent.quantity)
+        ? fetchMarketInputs(marketData, existing.intent.symbol)
+        : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
+
+      let quote: Awaited<ReturnType<Broker["quote"]>>;
+      try {
+        quote = await broker.quote(existing.intent.symbol);
+      } catch (error) {
+        const order = store.updateOrder(id, {
+          verdict: failedVerdict(`recheck failed: ${shortError(error, 150)}`),
+          status: "failed",
+          error: shortError(error),
+          updatedAt: clock.now(),
+        });
+        publish(order);
+        log.warn("approval failed on market data", { orderId: id, symbol: existing.intent.symbol });
+        return order;
+      }
+      const marketInputs = await marketInputsPromise;
 
       const settings = store.getSettings();
       const checkAt = clock.now();
@@ -320,6 +412,13 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         equityMarks: store.equityMarks(calendar.etDate(checkAt)),
         recentOrders,
         ...(lotOpenedEtDate === undefined ? {} : { lotOpenedEtDate }),
+        ...(marketInputs.nextEarningsDate === undefined
+          ? {}
+          : { nextEarningsDate: marketInputs.nextEarningsDate }),
+        ...(marketInputs.avgDollarVolume20 === undefined
+          ? {}
+          : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
+        marketDataAvailable: marketInputs.marketDataAvailable,
         sectorOf: (symbol: string) =>
           snapshot.positions.find((p) => p.symbol === symbol)?.sector,
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),

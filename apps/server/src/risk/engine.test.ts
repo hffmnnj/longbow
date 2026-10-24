@@ -92,6 +92,9 @@ function passingInput(): RiskInput {
     equityMarks: { dayStart: 99_500, monthPeak: 101_000 },
     recentOrders: [],
     lotOpenedEtDate: undefined,
+    nextEarningsDate: undefined,
+    avgDollarVolume20: 50_000_000,
+    marketDataAvailable: true,
     sectorOf: (symbol: string) => (symbol === "AAPL" || symbol === "MSFT" ? "Technology" : undefined),
     tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
     now: NOW,
@@ -107,7 +110,7 @@ describe("risk engine", () => {
     const verdict = evaluate(passingInput());
     assert.equal(verdict.approved, true);
     assert.equal(verdict.isExit, false);
-    assert.equal(verdict.checks.length, 20);
+    assert.equal(verdict.checks.length, 22);
     // Risk allows 100, notional 16, position (5000-3000)/150 = 13.
     assert.equal(verdict.maxQuantity, 13);
   });
@@ -342,5 +345,37 @@ describe("risk engine", () => {
     const input = passingInput();
     input.intent = { ...input.intent, timeStopDate: "2027-02-15" };
     assert.deepEqual(failedRules(input), ["time_stop"]);
+  });
+
+  it("earnings_blackout blocks an entry three trading days before earnings", () => {
+    const input = passingInput();
+    input.nextEarningsDate = "2026-11-05";
+    assert.deepEqual(failedRules(input), ["earnings_blackout"]);
+  });
+
+  it("earnings_blackout passes when earnings are ten trading days out", () => {
+    const input = passingInput();
+    input.nextEarningsDate = "2026-11-16";
+    assert.deepEqual(failedRules(input), []);
+  });
+
+  it("liquidity blocks a buy below the dollar-volume floor", () => {
+    const input = passingInput();
+    input.avgDollarVolume20 = 1_000_000;
+    assert.deepEqual(failedRules(input), ["liquidity"]);
+  });
+
+  it("an exit passes during an earnings blackout", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, side: "sell", quantity: 5 };
+    input.nextEarningsDate = "2026-11-05";
+    input.avgDollarVolume20 = 1_000_000;
+    assert.deepEqual(failedRules(input), []);
+  });
+
+  it("an entry fails both rules when market data is unavailable", () => {
+    const input = passingInput();
+    input.marketDataAvailable = false;
+    assert.deepEqual(failedRules(input), ["earnings_blackout", "liquidity"]);
   });
 });
