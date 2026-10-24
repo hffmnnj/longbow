@@ -75,6 +75,14 @@ async function main(): Promise<void> {
     }
   };
 
+  // Fill the account card as soon as Robinhood connects, not only at the next cycle or market-hours tick.
+  let wasConnected = false;
+  broker.onChange(() => {
+    const connected = broker.status().state === "connected";
+    if (connected && !wasConnected) void refreshAccount("connect");
+    wasConnected = connected;
+  });
+
   const skills = createSkillLibrary(SKILLS_DIR);
   // Simulation runs share the live Muse credential file so a token refresh never forks it.
   const sim = createSimService({
