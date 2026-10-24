@@ -381,6 +381,156 @@ export interface StatusResponse {
   /** P&L vs the ET day's starting equity, when known. */
   dayPnl?: number;
   dayPnlPct?: number;
+  /** False while the server's hard lock keeps Robinhood read-only (HARNESS_LIVE_TRADING unset), whatever the mode. */
+  liveTrading: boolean;
+  /** Model specs as "provider/model#thinking": the lead agent and the subagent fleet. */
+  models: { main: string; subagents: string };
+}
+
+// ---------------------------------------------------------------------------
+// Analytics: the live account's history, performance, and market context.
+
+export type AnalyticsRange = "1m" | "3m" | "1y" | "all";
+
+export interface EquityPoint {
+  at: number;
+  date: string;
+  equity: number;
+  /** SPY buy-and-hold scaled to the first point's equity. */
+  benchmark?: number;
+}
+
+export interface EquityHistory {
+  /** Harness equity marks (recorded since the harness first connected), one per ET day at most for ranges over 1m. */
+  points: EquityPoint[];
+  /** What today's holdings plus today's cash would have been worth on each past day: a replay, not the account's real history. */
+  holdingsReplay: { date: string; value: number }[];
+  returnPct?: number;
+  benchmarkReturnPct?: number;
+  maxDrawdownPct?: number;
+}
+
+export interface ClosedTrade {
+  symbol: string;
+  openedAt?: number;
+  closedAt: number;
+  quantity: number;
+  entryPrice?: number;
+  exitPrice: number;
+  pnl: number;
+  pnlPct?: number;
+  /** Realized P&L over planned risk (entry minus invalidation), for harness trades with a plan. */
+  rMultiple?: number;
+  holdingDays?: number;
+  /** The agent's stated probability of a win at entry, for harness trades. */
+  probabilityWin?: number;
+  /** "harness" for trades this system opened, "robinhood" for older ones read from the broker's trade history. */
+  source: "harness" | "robinhood";
+}
+
+export interface CalibrationBucket {
+  /** Predicted win-probability bucket, for example 0.5 to 0.6. */
+  from: number;
+  to: number;
+  predicted: number;
+  realized: number;
+  count: number;
+}
+
+export interface ExposureRow {
+  symbol: string;
+  sector?: string;
+  marketValue: number;
+  weightPct: number;
+  unrealizedPnl: number;
+  /** Stop price from a held stop, a Robinhood stop order, or the thesis invalidation. */
+  stopPrice?: number;
+  /** Loss to the stop as a percent of equity. */
+  riskToStopPct?: number;
+}
+
+export interface PerformanceSummary {
+  trades: ClosedTrade[];
+  realizedPnl: number;
+  winRatePct?: number;
+  avgR?: number;
+  expectancy?: number;
+  profitFactor?: number;
+  avgHoldingDays?: number;
+  brier?: number;
+  calibration: CalibrationBucket[];
+  exposure: ExposureRow[];
+  sectors: { sector: string; weightPct: number }[];
+  /** Portfolio heat: total loss to all stops as a percent of equity. */
+  heatPct?: number;
+  ordersByStatus: Partial<Record<OrderStatus, number>>;
+}
+
+export interface TrendRow {
+  symbol: string;
+  name?: string;
+  last: number;
+  changePct1d: number;
+  return1m: number;
+  return3m: number;
+  aboveSma50: boolean;
+  aboveSma200: boolean;
+  rsi14?: number;
+  /** 3-month return minus SPY's. */
+  relStrength3m?: number;
+  /** Last 60 daily closes, oldest first. */
+  spark: number[];
+}
+
+export interface MarketOverview {
+  asOf: number;
+  /** One-line regime label such as "Sideways, elevated volatility", from the same rules as the market-regime skill. */
+  regime: string;
+  indices: TrendRow[];
+  sectors: TrendRow[];
+  volatility: {
+    vix: number;
+    vix9d?: number;
+    vix3m?: number;
+    /** Percentile of today's VIX over the past year. */
+    percentile?: number;
+    contango: boolean;
+    history: { date: string; value: number }[];
+  };
+  /** Treasury curve, short to long tenor. */
+  yields: { tenor: string; yieldPct: number }[];
+  tenYearHistory: { date: string; value: number }[];
+  breadth: { aboveSma50: number; total: number };
+  /** Economic calendar for the next 7 days. */
+  calendar: { date: string; time?: string; event: string; importance?: "high" | "medium" | "low" }[];
+  /** Earnings in the next 30 days for held and watchlist names. */
+  earnings: { symbol: string; date: string; time?: string; held: boolean }[];
+}
+
+export interface SymbolDetail {
+  symbol: string;
+  name?: string;
+  quote?: Quote;
+  position?: Position;
+  history: PriceHistory;
+  indicators: {
+    sma20?: number;
+    sma50?: number;
+    sma200?: number;
+    rsi14?: number;
+    atr14?: number;
+    avgDollarVolume?: number;
+    return1m?: number;
+    return3m?: number;
+    high52w?: number;
+    low52w?: number;
+  };
+  /** theses/<SYMBOL>.md from the agent's notes, when it exists. */
+  thesis?: NoteContent;
+  orders: OrderRecord[];
+  journal: JournalEntry[];
+  nextEarnings?: { date: string; time?: string };
+  stop?: { price: number; source: "held" | "robinhood" | "thesis" };
 }
 
 // ---------------------------------------------------------------------------
