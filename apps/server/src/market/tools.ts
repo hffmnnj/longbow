@@ -22,7 +22,7 @@ import {
   rsi,
   sma,
 } from "./indicators.ts";
-import { MarketStore } from "./market-data.ts";
+import { createPointInTimeMarketData, MarketStore } from "./market-data.ts";
 import {
   fetchEarningsCalendar,
   fetchEarningsDate,
@@ -45,6 +45,10 @@ export interface MarketExtensionDeps {
   dataDir: string;
   log: Logger;
   clock: Clock;
+  /** ET date YYYY-MM-DD the simulation has reached; absent for the live harness. */
+  asOf?: () => string | undefined;
+  /** Overridable fetch for tests; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
 }
 
 const SYMBOL_PATTERN = "^[A-Z.]{1,10}$";
@@ -204,6 +208,9 @@ const earningsCalendarSchema = Type.Object({
       name: Type.String(),
       time: Type.String({ description: "Report session; empty when not published." }),
       epsForecast: Type.Optional(Type.String()),
+      actualEps: Type.Optional(
+        Type.String({ description: "Reported EPS; only present for dates before the simulation as-of date." }),
+      ),
       marketCap: Type.Optional(Type.String()),
     }),
     { description: "Largest 50 by market cap." },
@@ -274,6 +281,7 @@ const secCompanySchema = Type.Object({
         end: Type.String(),
         value: Type.Number(),
         form: Type.String(),
+        filed: Type.Optional(Type.String({ description: "SEC filing date YYYY-MM-DD when this value was published." })),
       }),
     ),
     { description: "Last 8 reported periods per fact group, oldest first." },
@@ -292,9 +300,25 @@ const VOL_WINDOW: Record<HistoryRange, number> = {
 };
 
 export function createMarketExtension(deps: MarketExtensionDeps): Extension {
-  const { market, clock, log } = deps;
-  const store = new MarketStore({ dataDir: deps.dataDir, log, clock });
+  const { market, clock, log, asOf } = deps;
+  const store = new MarketStore({ dataDir: deps.dataDir, log, clock, asOf, fetchImpl: deps.fetchImpl });
   const cache = store.cache;
+  // Point-in-time view over the injected market for simulated dates (also
+  // safe when the injected market is already point-in-time: truncation and
+  // count-back are idempotent). The live port is used unchanged when asOf is
+  // absent. The cutoff is read per call because the simulated date advances.
+  const pit = createPointInTimeMarketData(market, () => asOf?.() ?? etDate(clock.now()));
+
+  /** "As of <date>: " prefix for every text output when simulating, else "". */
+  function tag(): string {
+    const cutoff = asOf?.();
+    return cutoff === undefined ? "" : `As of ${cutoff}: `;
+  }
+
+  /** Error result, prefixed with the simulation date when set. */
+  function fail(text: string): ReturnType<typeof err> {
+    return err(`${tag()}${text}`);
+  }
 
   const priceHistory = defineTool({
     name: "market_price_history",
@@ -310,12 +334,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 4_000, maxLines: 20 },
     async execute(args) {
       try {
-        const history = await market.history(args.symbol, args.range);
+        const history = await (asOf?.() === undefined ? market : pit).history(args.symbol, args.range);
         const bars = history.bars;
-        if (bars.length === 0) return err(`No price history found for ${args.symbol} (${args.range}).`);
+        if (bars.length === 0) return fail(`No price history found for ${args.symbol} (${args.range}).`);
         const first = bars[0];
         const last = bars[bars.length - 1];
-        if (!first || !last) return err(`No price history found for ${args.symbol} (${args.range}).`);
+        if (!first || !last) return fail(`No price history found for ${args.symbol} (${args.range}).`);
         const ret = last.close / first.close - 1;
         let high = -Infinity;
         let low = Infinity;
@@ -324,7 +348,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           if (b.low < low) low = b.low;
         }
         const text =
-          `${history.symbol} ${args.range}: ${bars.length} bars ${first.date}..${last.date}, ` +
+          `${tag()}${history.symbol} ${args.range}: ${bars.length} bars ${first.date}..${last.date}, ` +
           `last close ${last.close.toFixed(2)}, period return ${fmtPct(ret)}, ` +
           `window high ${high.toFixed(2)} low ${low.toFixed(2)}.`;
         return { output: [{ type: "text" as const, text }], structuredOutput: {
@@ -334,7 +358,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           asOf: history.asOf,
         } };
       } catch (error) {
-        return err(`Price history failed for ${args.symbol}: ${shortError(error)}`);
+        return fail(`Price history failed for ${args.symbol}: ${shortError(error)}`);
       }
     },
   });
@@ -357,7 +381,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         const range = rangeOr(args.range as RangeArg, "1y");
         const { window, full } = await store.extended(args.symbol, range);
         const last = window[window.length - 1] ?? full[full.length - 1];
-        if (!last) return err(`No price history found for ${args.symbol} (${range}).`);
+        if (!last) return fail(`No price history found for ${args.symbol} (${range}).`);
         const c = closes(full);
         const sma20 = sma(c, 20);
         const sma50 = sma(c, 50);
@@ -398,13 +422,13 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           trend: classifyTrend(last.close, sma50, sma200),
         };
         const text =
-          `${args.symbol} ${last.date}: close ${last.close.toFixed(2)}, trend ${structured.trend}, ` +
+          `${tag()}${args.symbol} ${last.date}: close ${last.close.toFixed(2)}, trend ${structured.trend}, ` +
           `RSI14 ${fmtNum(rsi14, 1)}, SMA50 ${fmtNum(sma50)} SMA200 ${fmtNum(sma200)}, ` +
           `ret1m ${fmtPct(structured.ret1m)} ret1y ${fmtPct(structured.ret1y)}, ` +
           `realizedVol20 ${fmtPct(structured.realizedVol20)} maxDD1y ${fmtPct(structured.maxDrawdown1y)}.`;
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Indicators failed for ${args.symbol}: ${shortError(error)}`);
+        return fail(`Indicators failed for ${args.symbol}: ${shortError(error)}`);
       }
     },
   });
@@ -438,16 +462,17 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
       try {
         const range = rangeOr(args.range as RangeArg, "6m");
         const benchmark = args.benchmark ?? "SPY";
+        const effective = asOf?.() === undefined ? market : pit;
         const symbols = [...new Set(args.symbols)].filter((s) => s !== benchmark);
-        const bench = await market.history(benchmark, range);
-        if (bench.bars.length < 2) return err(`No benchmark history for ${benchmark} (${range}).`);
+        const bench = await effective.history(benchmark, range);
+        if (bench.bars.length < 2) return fail(`No benchmark history for ${benchmark} (${range}).`);
         const benchCl = closes(bench.bars);
         const benchRet = periodReturn(benchCl, benchCl.length - 1) ?? 0;
         const rows: Static<typeof compareSchema>["rows"] = [];
         const series = new Map<string, { date: string; r: number }[]>();
         series.set(benchmark, dailyReturns(bench.bars));
         for (const symbol of symbols) {
-          const hist = await market.history(symbol, range);
+          const hist = await effective.history(symbol, range);
           if (hist.bars.length < 2) {
             rows.push({ symbol, returnPct: null, volPct: null, beta: null, correlation: null, relativeStrengthPct: null });
             continue;
@@ -481,11 +506,11 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           (r) => `${r.symbol}: ret ${fmtPct(r.returnPct)} vs bench ${fmtPct(r.relativeStrengthPct)} beta ${fmtNum(r.beta)} corr ${fmtNum(r.correlation)}`,
         );
         const text =
-          `Compare ${range} vs ${benchmark} (bench ret ${fmtPct(benchRet)}):\n` +
+          `${tag()}Compare ${range} vs ${benchmark} (bench ret ${fmtPct(benchRet)}):\n` +
           (lines.length === 0 ? "(no symbols)" : lines.join("\n"));
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Compare failed: ${shortError(error)}`);
+        return fail(`Compare failed: ${shortError(error)}`);
       }
     },
   });
@@ -501,26 +526,26 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 2_000, maxLines: 10 },
     async execute(args) {
       try {
-        const today = etDate(clock.now());
+        const anchor = asOf?.() ?? etDate(clock.now());
         let found: { date: string; time?: string; epsForecast?: string } | undefined;
         try {
           const single = await fetchEarningsDate(cache, args.symbol);
-          if (single !== undefined && single.date > today && calendarDays(today, single.date) <= 30) found = single;
+          if (single !== undefined && single.date > anchor && calendarDays(anchor, single.date) <= 30) found = single;
         } catch {
           // Fall through to the calendar scan.
         }
-        found ??= await findUpcomingEarnings(cache, args.symbol, today).catch(() => undefined);
+        found ??= await findUpcomingEarnings(cache, args.symbol, anchor).catch(() => undefined);
         if (found === undefined) {
           const structured = { symbol: args.symbol, nextDate: null, daysUntil: null };
           return {
-            output: [{ type: "text" as const, text: `${args.symbol}: no earnings date found in the next 30 days.` }],
+            output: [{ type: "text" as const, text: `${tag()}${args.symbol}: no earnings date found in the next 30 days.` }],
             structuredOutput: structured,
           };
         }
         const structured = {
           symbol: args.symbol,
           nextDate: found.date,
-          daysUntil: calendarDays(today, found.date),
+          daysUntil: calendarDays(anchor, found.date),
           ...(found.time === undefined ? {} : { time: found.time }),
           ...(found.epsForecast === undefined ? {} : { epsForecast: found.epsForecast }),
         };
@@ -531,13 +556,13 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           output: [
             {
               type: "text" as const,
-              text: `${args.symbol} next earnings ${found.date} (${structured.daysUntil}d${extra === "" ? "" : `, ${extra}`}).`,
+              text: `${tag()}${args.symbol} next earnings ${found.date} (${structured.daysUntil}d${extra === "" ? "" : `, ${extra}`}).`,
             },
           ],
           structuredOutput: structured,
         };
       } catch (error) {
-        return err(`Earnings lookup failed for ${args.symbol}: ${shortError(error)}`);
+        return fail(`Earnings lookup failed for ${args.symbol}: ${shortError(error)}`);
       }
     },
   });
@@ -557,6 +582,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
       try {
         const rows = await fetchEarningsCalendar(cache, args.date);
         const sorted = [...rows].sort((a, b) => (b.marketCapNum ?? 0) - (a.marketCapNum ?? 0)).slice(0, 50);
+        // Reported actuals are only known after the fact: blank them on and
+        // after the simulated date (schedules themselves are public in advance).
+        const cutoff = asOf?.();
+        const hideActual = cutoff !== undefined && args.date >= cutoff;
         const structured = {
           date: args.date,
           rows: sorted.map((r) => ({
@@ -564,6 +593,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
             name: r.name,
             time: r.time,
             ...(r.epsForecast === undefined ? {} : { epsForecast: r.epsForecast }),
+            ...(r.actualEps === undefined || hideActual ? {} : { actualEps: r.actualEps }),
             ...(r.marketCap === undefined ? {} : { marketCap: r.marketCap }),
           })),
         };
@@ -573,11 +603,11 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           .join(", ");
         const text =
           sorted.length === 0
-            ? `${args.date}: no earnings reports on the calendar.`
-            : `${args.date}: ${sorted.length} companies reporting; largest: ${top}.`;
+            ? `${tag()}${args.date}: no earnings reports on the calendar.`
+            : `${tag()}${args.date}: ${sorted.length} companies reporting; largest: ${top}.`;
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Earnings calendar failed for ${args.date}: ${shortError(error)}`);
+        return fail(`Earnings calendar failed for ${args.date}: ${shortError(error)}`);
       }
     },
   });
@@ -595,7 +625,17 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 8_000, maxLines: 40 },
     async execute(args) {
       try {
-        const events = (await fetchEconomicEvents(cache, args.date)).filter((e) => e.country === "United States");
+        const cutoff = asOf?.();
+        if (cutoff !== undefined && args.date > cutoff) {
+          return fail(`${args.date} is not available in the simulation yet (simulation date ${cutoff}).`);
+        }
+        const fetched = (await fetchEconomicEvents(cache, args.date)).filter((e) => e.country === "United States");
+        // Outcomes are only known after the fact: blank actuals for the
+        // simulated date itself.
+        const events =
+          cutoff !== undefined && args.date === cutoff
+            ? fetched.map((e) => ({ ...e, actual: undefined as string | undefined }))
+            : fetched;
         const structured = {
           date: args.date,
           events: events.map((e) => ({
@@ -609,12 +649,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         };
         const text =
           events.length === 0
-            ? `${args.date}: no US economic events on the calendar.`
-            : `${args.date}: ${events.length} US events: ` +
+            ? `${tag()}${args.date}: no US economic events on the calendar.`
+            : `${tag()}${args.date}: ${events.length} US events: ` +
               events.map((e) => `${e.time} ${e.event}`).join("; ");
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Economic calendar failed for ${args.date}: ${shortError(error)}`);
+        return fail(`Economic calendar failed for ${args.date}: ${shortError(error)}`);
       }
     },
   });
@@ -631,10 +671,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     async execute(args) {
       try {
         const range = rangeOr(args.range as RangeArg, "1y");
-        const vix = await fetchVixSeries(cache, "VIX");
-        if (vix.length === 0) return err("VIX history is empty.");
+        const cutoff = asOf?.();
+        const all = await fetchVixSeries(cache, "VIX");
+        const vix = cutoff === undefined ? all : all.filter((b) => b.date <= cutoff);
+        if (vix.length === 0) return fail("VIX history is empty.");
         const latest = vix[vix.length - 1];
-        if (!latest) return err("VIX history is empty.");
+        if (!latest) return fail("VIX history is empty.");
         const window = vix.slice(Math.max(0, vix.length - VOL_WINDOW[range])).map((b) => b.close);
         const rank = window.filter((c) => c <= latest.close).length;
         const percentile = window.length === 0 ? null : (rank / window.length) * 100;
@@ -642,8 +684,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           vix.slice(Math.max(0, vix.length - 20)).map((b) => b.close),
           Math.min(20, vix.length),
         );
-        const vix3m = await latestPoint(cache, "VIX3M");
-        const vix9d = await latestPoint(cache, "VIX9D");
+        const vix3m = await latestPoint(cache, "VIX3M", cutoff);
+        const vix9d = await latestPoint(cache, "VIX9D", cutoff);
         const term =
           vix3m === undefined ? undefined : vix3m.close >= latest.close ? "contango" : "backwardation";
         const structured = {
@@ -653,13 +695,13 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           ...(term === undefined ? {} : { termStructure: term as "contango" | "backwardation" }),
         };
         const text =
-          `VIX ${latest.close.toFixed(2)} (${latest.date}), percentile ${fmtNum(percentile, 1)}, ` +
+          `${tag()}VIX ${latest.close.toFixed(2)} (${latest.date}), percentile ${fmtNum(percentile, 1)}, ` +
           `SMA20 ${fmtNum(sma20v)}` +
           (vix3m && vix9d ? `, VIX3M ${vix3m.close.toFixed(2)} VIX9D ${vix9d.close.toFixed(2)}, ${term}` : "") +
           ".";
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Volatility lookup failed: ${shortError(error)}`);
+        return fail(`Volatility lookup failed: ${shortError(error)}`);
       }
     },
   });
@@ -675,10 +717,13 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 2_000, maxLines: 10 },
     async execute() {
       try {
-        const year = Number(etDate(clock.now()).slice(0, 4));
-        const rows = await fetchYieldCurve(cache, year);
+        const cutoff = asOf?.();
+        const anchor = cutoff ?? etDate(clock.now());
+        const year = Number(anchor.slice(0, 4));
+        const all = await fetchYieldCurve(cache, year);
+        const rows = cutoff === undefined ? all : all.filter((r) => r.date <= cutoff);
         const latest = rows[rows.length - 1];
-        if (!latest) return err("Treasury yield data is empty.");
+        if (!latest) return fail("Treasury yield data is empty.");
         const prior = rows.length > 20 ? rows[rows.length - 21] : undefined;
         const y10 = latest.curve["10Y"];
         const y2 = latest.curve["2Y"];
@@ -693,12 +738,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         };
         const bp = (v: number | null): string => (v === null ? "n/a" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}bp`);
         const text =
-          `${latest.date}: 2Y ${fmtNum(y2)}% 10Y ${fmtNum(y10)}% 30Y ${fmtNum(latest.curve["30Y"])}%, ` +
+          `${tag()}${latest.date}: 2Y ${fmtNum(y2)}% 10Y ${fmtNum(y10)}% 30Y ${fmtNum(latest.curve["30Y"])}%, ` +
           `2s10s ${bp(structured.spread2s10s)}, 3m10y ${bp(structured.spread3m10y)}, ` +
           `10Y 20d change ${bp(structured.change10y20d)}.`;
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`Yield lookup failed: ${shortError(error)}`);
+        return fail(`Yield lookup failed: ${shortError(error)}`);
       }
     },
   });
@@ -717,24 +762,37 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
       try {
         const tickers = await fetchTickerMap(cache);
         const cik = tickers.get(args.symbol);
-        if (cik === undefined) return err(`Unknown ticker ${args.symbol}: no SEC CIK mapping.`);
+        if (cik === undefined) return fail(`Unknown ticker ${args.symbol}: no SEC CIK mapping.`);
         const [info, facts] = await Promise.all([fetchCompanyInfo(cache, cik), fetchCompanyFacts(cache, cik)]);
+        const cutoff = asOf?.();
+        // Filings after the simulated date do not exist yet; fact values are
+        // only known once filed, so keep the last 8 filed on or before it.
+        const filings = cutoff === undefined ? info.filings : info.filings.filter((f) => f.filedAt <= cutoff);
+        const scopedFacts =
+          cutoff === undefined
+            ? facts
+            : Object.fromEntries(
+                Object.entries(facts).map(([group, points]) => [
+                  group,
+                  points.filter((p) => p.filed <= cutoff).slice(-8),
+                ]),
+              );
         const structured = {
           cik,
           name: info.name,
           sic: info.sic,
           sicDescription: info.sicDescription,
-          recentFilings: info.filings.map((f) => ({ ...f })),
-          facts: Object.fromEntries(Object.entries(facts).map(([group, points]) => [group, points.map((p) => ({ ...p }))])),
+          recentFilings: filings.map((f) => ({ ...f })),
+          facts: Object.fromEntries(Object.entries(scopedFacts).map(([group, points]) => [group, points.map((p) => ({ ...p }))])),
         };
-        const groups = Object.keys(facts);
+        const groups = Object.keys(scopedFacts);
         const text =
-          `${info.name} (${args.symbol}, CIK ${Number(cik)}, SIC ${info.sic} ${info.sicDescription}), ` +
-          `${info.filings.length} recent filings` +
+          `${tag()}${info.name} (${args.symbol}, CIK ${Number(cik)}, SIC ${info.sic} ${info.sicDescription}), ` +
+          `${filings.length} recent filings` +
           (groups.length === 0 ? ", no XBRL facts found." : `, facts: ${groups.join(", ")}.`);
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
-        return err(`SEC lookup failed for ${args.symbol}: ${shortError(error)}`);
+        return fail(`SEC lookup failed for ${args.symbol}: ${shortError(error)}`);
       }
     },
   });
@@ -748,10 +806,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
 async function latestPoint(
   cache: MarketCache,
   kind: VixKind,
+  cutoff?: string,
 ): Promise<{ date: string; close: number } | undefined> {
   try {
     const series = await fetchVixSeries(cache, kind);
-    const last = series[series.length - 1];
+    const scoped = cutoff === undefined ? series : series.filter((b) => b.date <= cutoff);
+    const last = scoped[scoped.length - 1];
     return last === undefined ? undefined : { date: last.date, close: last.close };
   } catch {
     return undefined;

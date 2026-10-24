@@ -134,7 +134,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
       createJournalExtension({ store, bus, clock, currentCycleId }),
       createTraderPromptExtension(),
       createSkillsExtension({ library: deps.skills, notes }),
-      createMarketExtension({ market, dataDir: runDir, log: deps.log, clock, asOf }),
+      // Transport/cache time stays real so Nasdaq accepts history windows;
+      // every agent-visible market date is independently constrained by asOf.
+      createMarketExtension({ market, dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf }),
       createSubagentExtension({ log: deps.log, maxConcurrent: 4,
         excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate", "sim_cancel_order"],
         onRun(child) { children.add(child.id); bus.publish({ type: "subagent", run: child }); if (child.status === "running") void agent?.watchChild(child.id).catch((error: unknown) => deps.log.warn("simulation child watch failed", { error: String(error) })); } }),
@@ -251,7 +253,14 @@ export function createSimService(deps: SimServiceDeps): SimService {
     },
     journal(id) { return artifacts.get(id)?.journal() ?? readJson<JournalEntry[]>(join(dir(id), "journal.json"), []); },
     orders(id) { return artifacts.get(id)?.orders() ?? readJson<OrderRecord[]>(join(dir(id), "orders.json"), []); },
-    async close() { closed = true; for (const run of runs.values()) if (run.status === "running" || run.status === "queued") { run.status = "stopped"; run.finishedAt = Date.now(); save(run); }
-      await Promise.all([...agents.values()].map((agent) => agent.abortCycle())); await work; },
+    async close() {
+      closed = true;
+      const running = [...runs.values()].filter((run) => run.status === "running").map((run) => run.id);
+      for (const run of runs.values()) if (run.status === "running" || run.status === "queued") { run.status = "stopped"; run.finishedAt = Date.now(); save(run); }
+      // A completed run can still be snapshotting/closing after its final event.
+      // Join that work rather than racing its close with an unnecessary abort.
+      await Promise.all(running.map((id) => agents.get(id)?.abortCycle()));
+      await work;
+    },
   };
 }
