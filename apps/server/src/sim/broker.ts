@@ -92,7 +92,14 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
             order.triggered = true;
           }
           const ratio = cross(a.price, b.price, intent.limitPrice, intent.side === "sell");
-          if (ratio !== undefined) fill(order, intent.limitPrice, a.at + (b.at - a.at) * ratio);
+          if (ratio !== undefined) {
+            // A resting order that can no longer fill (shares already sold, cash spent) cancels like a broker reject.
+            try {
+              fill(order, intent.limitPrice, a.at + (b.at - a.at) * ratio);
+            } catch {
+              order.status = "cancelled";
+            }
+          }
         }
         if (order.status === "open" && intent.timeInForce === "day" && now >= etInstant(bar.date, 16)) order.status = "cancelled";
         if (order.status !== "open") break;

@@ -352,6 +352,29 @@ describe("risk engine", () => {
     assert.deepEqual(failedRules(input), []);
   });
 
+  it("min_hold and day_trades allow a protective stop placed on the entry day", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 140, limitPrice: 139.5, timeInForce: "gtc" };
+    input.lotOpenedEtDate = TODAY;
+    input.recentOrders = [submittedBuy("AAPL", NOW - 3_600_000, 140)];
+    assert.deepEqual(failedRules(input), []);
+  });
+
+  it("min_hold still blocks a stop above the entry invalidation", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 146, limitPrice: 145.5, timeInForce: "gtc" };
+    input.lotOpenedEtDate = TODAY;
+    input.recentOrders = [submittedBuy("AAPL", NOW - 3_600_000, 140)];
+    assert.deepEqual(failedRules(input), ["min_hold"]);
+  });
+
+  it("limit_vs_mid rejects a sell stop whose limit sits above its trigger", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 140, limitPrice: 141, timeInForce: "gtc" };
+    input.recentOrders = [submittedBuy("AAPL", NOW - 3 * 86_400_000, 140)];
+    assert.ok(failedRules(input).includes("limit_vs_mid"));
+  });
+
   it("day_trades blocks a same-day round trip at the limit, even as a stop", () => {
     const input = passingInput();
     input.intent = { ...input.intent, side: "sell", quantity: 1 };
