@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { toast } from "svelte-sonner";
-  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import Approvals from "$lib/components/Approvals.svelte";
   import Feed from "$lib/components/Feed.svelte";
   import HaltBanner from "$lib/components/HaltBanner.svelte";
   import HistoryTabs from "$lib/components/HistoryTabs.svelte";
   import Icon from "$lib/components/Icon.svelte";
-  import Positions from "$lib/components/Positions.svelte";
+  import ControlRoom from "$lib/components/ControlRoom.svelte";
+  import MarketsView from "$lib/components/MarketsView.svelte";
+  import OrderSheet from "$lib/components/OrderSheet.svelte";
+  import PerformanceView from "$lib/components/PerformanceView.svelte";
+  import PortfolioView from "$lib/components/PortfolioView.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import LabView from "$lib/components/lab/LabView.svelte";
   import NewSimSheet from "$lib/components/lab/NewSimSheet.svelte";
@@ -17,8 +20,7 @@
   import SettingsSheet from "$lib/components/SettingsSheet.svelte";
   import SymbolSheet from "$lib/components/SymbolSheet.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
-  import { Message01Icon, Briefcase01Icon, FlashIcon, Notebook01Icon, FlaskConicalIcon } from "$lib/icons";
-  import { startClock } from "$lib/clock.svelte";
+    import { startClock } from "$lib/clock.svelte";
   import { viewport, watchViewport } from "$lib/media.svelte";
   import { haptic, registerServiceWorker, setBadge } from "$lib/pwa.svelte";
   import { ago } from "$lib/format";
@@ -26,9 +28,8 @@
   import { ui } from "$lib/ui.svelte";
   import { clock } from "$lib/clock.svelte";
   import { CloudOffIcon } from "$lib/icons";
+  import { PRIMARY_NAV, sectionFromParam } from "$lib/nav";
   import { cn } from "$lib/utils.js";
-
-  let tab = $state("feed");
 
   onMount(() => {
     const stopClock = startClock();
@@ -46,7 +47,8 @@
     }
 
     const view = url.searchParams.get("view");
-    if (view === "lab" || view === "live") ui.view = view;
+    const target = sectionFromParam(view);
+    if (target) ui.section = target;
     if (url.searchParams.get("action") === "kill") ui.confirmKill = true;
     for (const key of ["view", "action"]) url.searchParams.delete(key);
     if (view || ui.confirmKill) history.replaceState(history.state, "", url.pathname + url.search + url.hash);
@@ -62,18 +64,10 @@
     if (harness.loaded) setBadge(harness.alerts);
   });
 
-  const lab = $derived(ui.view === "lab");
-
-  const tabs = [
-    { value: "feed", label: "Feed", icon: Message01Icon },
-    { value: "approvals", label: "Approvals", icon: FlashIcon },
-    { value: "positions", label: "Positions", icon: Briefcase01Icon },
-    { value: "journal", label: "Journal", icon: Notebook01Icon },
-    { value: "lab", label: "Lab", icon: FlaskConicalIcon },
-  ];
+  const section = $derived(ui.section);
 </script>
 
-<svelte:head><title>{harness.pending.length ? `(${harness.pending.length}) ` : ""}Harness</title></svelte:head>
+<svelte:head><title>{harness.pending.length ? `(${harness.pending.length}) ` : ""}Longbow</title></svelte:head>
 
 <svelte:window
   onkeydown={(e) => {
@@ -99,55 +93,60 @@
     </div>
   {/if}
 
-  {#if lab && viewport.desktop}
+  {#if section === "lab"}
     <main class="flex min-h-0 flex-1 flex-col"><LabView /></main>
-  {:else if viewport.desktop}
+  {:else if viewport.desktop && (section === "feed" || section === "history")}
     <main class="grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div class="border-border min-h-0 border-r"><Feed /></div>
       <div class="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
         <Approvals />
-        <Positions />
-        <HistoryTabs class="min-h-[17rem] flex-1" />
+        <PortfolioView compact />
+        <HistoryTabs class="min-h-[22rem] flex-1" />
       </div>
     </main>
+  {:else if section === "feed"}
+    <main class="flex min-h-0 flex-1 flex-col">
+      {#if harness.pending.length > 0}
+        <div class="border-border max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b p-3"><Approvals /></div>
+      {/if}
+      <div class="min-h-0 flex-1"><Feed /></div>
+    </main>
   {:else}
-    <Tabs.Root
-      bind:value={() => (lab ? "lab" : tab), (v) => {
-        ui.view = v === "lab" ? "lab" : "live";
-        if (v !== "lab") tab = v;
-      }}
-      class="min-h-0 flex-1 gap-0"
-    >
-      <main class="min-h-0 flex-1">
-        <Tabs.Content value="lab" class="flex h-full flex-col"><LabView /></Tabs.Content>
-        <Tabs.Content value="feed" class="h-full"><Feed /></Tabs.Content>
-        <Tabs.Content value="approvals" class="h-full overflow-y-auto p-3"><Approvals showEmpty /></Tabs.Content>
-        <Tabs.Content value="positions" class="h-full overflow-y-auto p-3"><Positions /></Tabs.Content>
-        <Tabs.Content value="journal" class="flex h-full flex-col p-3"><HistoryTabs class="flex-1" /></Tabs.Content>
-      </main>
-      <Tabs.List class="bg-bar border-border pb-safe grid h-auto! w-full shrink-0 grid-cols-5 rounded-none border-t p-0">
-        {#each tabs as t (t.value)}
-          <Tabs.Trigger
-            value={t.value}
-            class={cn(
-              "text-muted-foreground data-[state=active]:text-foreground relative h-14! min-w-0 flex-col gap-0.5 rounded-none text-[11px] font-medium",
-              t.value === "lab" && "data-[state=active]:text-lab",
-              "border-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:after:opacity-100 after:!inset-x-4 after:!bottom-auto after:!top-0",
-            )}
-          >
-            <span class="relative">
-              <Icon icon={t.icon} class="size-5" />
-              {#if t.value === "approvals" && harness.pending.length > 0}
-                <span class="num bg-warn text-background absolute -top-1.5 -right-2.5 grid min-w-4 place-items-center rounded-full px-1 text-[10px] leading-4 font-semibold">
-                  {harness.pending.length}
-                </span>
-              {/if}
-            </span>
-            {t.label}
-          </Tabs.Trigger>
-        {/each}
-      </Tabs.List>
-    </Tabs.Root>
+    <main class="px-safe min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 md:p-4">
+      {#if section === "portfolio"}<PortfolioView />
+      {:else if section === "markets"}<MarketsView />
+      {:else if section === "performance"}<PerformanceView />
+      {:else if section === "agent"}<ControlRoom />
+      {:else if section === "history"}<HistoryTabs class="min-h-[70dvh]" />{/if}
+    </main>
+  {/if}
+
+  {#if !viewport.desktop}
+    <nav aria-label="Sections" class="bg-bar border-border pb-safe px-safe grid shrink-0 grid-cols-5 border-t">
+      {#each PRIMARY_NAV as item (item.value)}
+        {@const active = section === item.value}
+        <button
+          type="button"
+          aria-current={active ? "page" : undefined}
+          onclick={() => (ui.section = item.value)}
+          class={cn(
+            "text-muted-foreground relative flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
+            "after:bg-foreground after:absolute after:inset-x-5 after:top-0 after:h-0.5 after:rounded-full after:opacity-0",
+            active && "text-foreground after:opacity-100",
+          )}
+        >
+          <span class="relative">
+            <Icon icon={item.icon} class="size-5" />
+            {#if item.value === "feed" && harness.pending.length > 0}
+              <span class="num bg-warn text-background absolute -top-1.5 -right-3 grid min-w-4 place-items-center rounded-full px-1 text-[10px] leading-4 font-semibold">
+                {harness.pending.length}
+              </span>
+            {/if}
+          </span>
+          {item.label}
+        </button>
+      {/each}
+    </nav>
   {/if}
 </div>
 
@@ -164,6 +163,7 @@
 <NewSimSheet />
 <SettingsSheet bind:open={ui.settings} />
 <SymbolSheet />
+<OrderSheet />
 <AgentSheet />
 <DocSheet />
 <CommandPalette />

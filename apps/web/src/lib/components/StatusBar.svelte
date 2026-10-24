@@ -7,11 +7,13 @@
   import Icon from "./Icon.svelte";
   import KillSwitch from "./KillSwitch.svelte";
   import ModeControl from "./ModeControl.svelte";
-  import ViewSwitch from "./lab/ViewSwitch.svelte";
+  import LiveLock from "./LiveLock.svelte";
+  import SectionNav from "./SectionNav.svelte";
   import Pnl from "./Pnl.svelte";
   import SessionChip from "./SessionChip.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
-  import { Menu01Icon, Settings02Icon, Pulse01Icon, Search01Icon } from "$lib/icons";
+  import { Menu01Icon, Settings02Icon, Search01Icon } from "$lib/icons";
+  import { SECONDARY_NAV } from "$lib/nav";
   import { ui } from "$lib/ui.svelte";
   import { usd } from "$lib/format";
   import { harness } from "$lib/store.svelte";
@@ -23,8 +25,21 @@
   const status = $derived(harness.status);
   const killed = $derived(status?.settings.killSwitch ?? false);
   const account = $derived(status?.account);
-  const lab = $derived(ui.view === "lab");
+  const lab = $derived(ui.section === "lab");
   let menuOpen = $state(false);
+  /** Runs once the menu sheet has finished closing, so the next sheet does not open underneath it. */
+  let afterMenu: (() => void) | null = null;
+  const runAfterMenu = () => {
+    const fn = afterMenu;
+    afterMenu = null;
+    fn?.();
+  };
+  function fromMenu(fn: () => void) {
+    afterMenu = fn;
+    menuOpen = false;
+    // Fallback if the close transition never reports completion (reduced motion, interrupted animation).
+    setTimeout(runAfterMenu, 350);
+  }
   let confirmDisconnect = $state(false);
 </script>
 
@@ -48,11 +63,9 @@
 {/snippet}
 
 {#snippet mark()}
-  <div class="flex items-center gap-2" aria-label="Robinhood Harness">
-    <span class={cn("grid size-7 place-items-center rounded-md transition-colors", lab ? "bg-lab text-background" : "bg-primary text-primary-foreground")}>
-      <Icon icon={Pulse01Icon} class="size-4" strokeWidth={2.2} />
-    </span>
-    <span class="hidden text-[13px] font-semibold tracking-tight min-[1500px]:inline">Harness</span>
+  <div class="flex items-center gap-2" aria-label="Longbow">
+    <img src="/brand/longbow-mark.svg" alt="" width="32" height="32" class={cn("size-8 rounded-lg transition-[filter]", lab && "hue-rotate-[60deg]")} />
+    <span class="hidden text-[15px] font-semibold tracking-tight md:inline">Longbow</span>
   </div>
 {/snippet}
 
@@ -68,31 +81,36 @@
   {/if}
 
   <!-- Desktop and tablet -->
-  <div class="hidden flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 md:flex 2xl:gap-x-6">
-    {@render mark()}
-    <ViewSwitch />
-    {@render equity()}
-    <SessionChip />
-    <BrokerChip bar />
-    <AgentChip />
-    <div class="ml-auto flex items-center gap-3">
-      <ModeControl />
-      <KillSwitch />
-      <button
-        type="button"
-        onclick={() => (ui.palette = true)}
-        aria-label="Open command palette"
-        aria-keyshortcuts="Control+K Meta+K"
-        class="border-border text-muted-foreground hover:text-foreground hover:bg-muted/60 flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors"
-      >
-        <Icon icon={Search01Icon} class="size-3.5" />
-        <kbd class="num text-[11px]">{isMac ? "⌘" : "Ctrl"} K</kbd>
-      </button>
-      <div class="flex items-center">
+  <div class="hidden md:block">
+    <div class="flex items-center gap-5 px-4 pt-2">
+      {@render mark()}
+      <SectionNav />
+      <div class="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onclick={() => (ui.palette = true)}
+          aria-label="Open command palette"
+          aria-keyshortcuts="Control+K Meta+K"
+          class="border-border text-muted-foreground hover:text-foreground hover:bg-muted/60 mr-1 flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors"
+        >
+          <Icon icon={Search01Icon} class="size-3.5" />
+          <kbd class="num text-[11px]">{isMac ? "⌘" : "Ctrl"} K</kbd>
+        </button>
         <Button variant="ghost" size="icon" onclick={onsettings} aria-label="Open settings">
           <Icon icon={Settings02Icon} />
         </Button>
         <ThemeToggle />
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2 2xl:gap-x-7">
+      {@render equity()}
+      <SessionChip />
+      <BrokerChip bar />
+      <AgentChip />
+      <div class="ml-auto flex items-center gap-3">
+        <LiveLock />
+        <ModeControl />
+        <KillSwitch />
       </div>
     </div>
   </div>
@@ -111,34 +129,40 @@
   </div>
 </header>
 
-<Sheet.Root bind:open={menuOpen}>
+<Sheet.Root bind:open={menuOpen} onOpenChangeComplete={(o) => !o && runAfterMenu()}>
   <Sheet.Content side="bottom" class="pb-safe max-h-[85dvh] gap-0 overflow-y-auto rounded-t-xl">
     <Sheet.Header class="pb-2">
-      <Sheet.Title>Controls</Sheet.Title>
-      <Sheet.Description class="sr-only">Mode, broker, agent and settings</Sheet.Description>
+      <Sheet.Title>Menu</Sheet.Title>
+      <Sheet.Description class="sr-only">Mode, broker, agent, journal, lab and settings</Sheet.Description>
     </Sheet.Header>
     <div class="flex flex-col gap-4 px-4 pb-4">
+      <LiveLock class="h-11 justify-center text-[13px]" />
       <ModeControl block />
       <div class="border-border divide-border divide-y rounded-lg border [&>*]:px-3 [&>*]:py-2.5">
         <SessionChip />
         <AgentChip />
         <BrokerChip />
       </div>
+      <nav aria-label="More" class="border-border divide-border divide-y overflow-hidden rounded-lg border">
+        {#each SECONDARY_NAV as item (item.value)}
+          <button
+            type="button"
+            class="hover:bg-muted/60 flex h-12 w-full items-center gap-3 px-3 text-left text-[14px]"
+            onclick={() => fromMenu(() => (ui.section = item.value))}
+          >
+            <Icon icon={item.icon} class="text-muted-foreground size-5" />
+            {item.label}
+          </button>
+        {/each}
+      </nav>
       <div class="flex gap-2">
-        <Button
-          variant="outline"
-          class="h-11 flex-1"
-          onclick={() => {
-            menuOpen = false;
-            onsettings();
-          }}
-        >
+        <Button variant="outline" class="h-11 flex-1" onclick={() => fromMenu(onsettings)}>
           <Icon icon={Settings02Icon} /> Settings
         </Button>
         <ThemeToggle class="border-border size-11 border" />
       </div>
       {#if status?.broker.state === "connected"}
-        <Button variant="ghost" class="text-muted-foreground h-11" onclick={() => (confirmDisconnect = true)}>
+        <Button variant="ghost" class="text-muted-foreground h-11" onclick={() => fromMenu(() => (confirmDisconnect = true))}>
           Disconnect Robinhood
         </Button>
       {/if}
@@ -152,8 +176,5 @@
   description="The agent keeps researching but cannot read the account or place orders until you reconnect."
   confirmLabel="Disconnect"
   destructive
-  onconfirm={() => {
-    menuOpen = false;
-    return harness.disconnectRobinhood();
-  }}
+  onconfirm={() => harness.disconnectRobinhood()}
 />

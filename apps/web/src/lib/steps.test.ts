@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, SubagentRun } from "@rh/shared";
-import { buildItems, cycleLabel, liveStepKey, matchRuns } from "./steps.ts";
+import type { ChatMessage, JournalEntry, SubagentRun } from "@rh/shared";
+import { buildItems, cycleLabel, liveStepKey, matchRuns, withDecisions } from "./steps.ts";
 
 const d = (role: string) => ({ name: "delegate", summary: `{"role":"${role}","symbol":"NVDA"}`, durationMs: 100 });
 
@@ -53,5 +53,28 @@ describe("buildItems", () => {
     const [first, , second] = items;
     expect(first?.kind === "step" && first.result?.id).toBe("r1");
     expect(liveStepKey(items)).toBe("c2");
+  });
+});
+
+describe("withDecisions", () => {
+  const msg = (id: string, at: number, role: ChatMessage["role"] = "assistant"): ChatMessage => ({ id, at, role, text: id });
+  const entry = (id: string, at: number, action: JournalEntry["action"] = "buy"): JournalEntry => ({
+    id, at, action, summary: id, rationale: "r", evidence: [],
+  });
+
+  it("puts each decision between the messages around it, oldest first", () => {
+    const items = buildItems([msg("a", 100), msg("b", 300), msg("c", 500)]);
+    const out = withDecisions(items, [entry("late", 400), entry("early", 200)]);
+    expect(out.map((i) => i.key)).toEqual(["a", "decision-early", "b", "decision-late", "c"]);
+  });
+
+  it("drops 'none' entries and entries from before the loaded transcript", () => {
+    const items = buildItems([msg("a", 100)]);
+    const out = withDecisions(items, [entry("noise", 150, "none"), entry("ancient", 50), entry("kept", 150)]);
+    expect(out.map((i) => i.key)).toEqual(["a", "decision-kept"]);
+  });
+
+  it("leaves an empty transcript empty rather than showing decisions with no context", () => {
+    expect(withDecisions([], [entry("x", 1)])).toEqual([]);
   });
 });

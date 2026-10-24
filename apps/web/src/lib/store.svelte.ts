@@ -1,5 +1,10 @@
 import type {
+  AnalyticsRange,
+  EquityHistory,
   HistoryRange,
+  MarketOverview,
+  PerformanceSummary,
+  SymbolDetail,
   NoteFile,
   PriceHistory,
   SettingsPatch,
@@ -24,7 +29,11 @@ export interface Loadable<T> {
   state: "loading" | "ready" | "error";
   data?: T;
   error?: string;
+  /** When `data` was fetched; stale data stays on screen while a refresh runs. */
+  at?: number;
 }
+
+const STALE_MS = 60_000;
 
 export type Connection = "connecting" | "live" | "offline";
 
@@ -44,6 +53,10 @@ class Harness {
   skills = $state<SkillSummary[]>([]);
   history = $state<Record<string, Loadable<PriceHistory>>>({});
   docs = $state<Record<string, Loadable<string>>>({});
+  equity = $state<Record<string, Loadable<EquityHistory>>>({});
+  performance = $state<Loadable<PerformanceSummary>>({ state: "loading" });
+  market = $state<Loadable<MarketOverview>>({ state: "loading" });
+  symbolDetail = $state<Record<string, Loadable<SymbolDetail>>>({});
   #outSeq = 0;
 
   calls = $derived(this.feed.calls);
@@ -172,6 +185,37 @@ class Harness {
   retryHistory(symbol: string, range: HistoryRange): void {
     delete this.history[`${symbol}:${range}`];
     void this.loadHistory(symbol, range);
+  }
+
+  /** Shared stale-while-revalidate loader for the analytics endpoints. */
+  async #load<T>(read: () => Loadable<T> | undefined, write: (v: Loadable<T>) => void, fetcher: (api: Api) => Promise<T>, force: boolean): Promise<void> {
+    const api = this.#api;
+    if (!api) return;
+    const cur = read();
+    if (!force && cur?.state === "ready" && cur.at !== undefined && Date.now() - cur.at < STALE_MS) return;
+    if (cur?.state === "loading" && cur.data === undefined && cur.at === -1) return;
+    if (!cur || cur.data === undefined) write({ state: "loading", at: -1 });
+    try {
+      write({ state: "ready", data: await fetcher(api), at: Date.now() });
+    } catch (e) {
+      write(cur?.data !== undefined ? { ...cur, error: message(e) } : { state: "error", error: message(e) });
+    }
+  }
+
+  loadEquity(range: AnalyticsRange, force = false): Promise<void> {
+    return this.#load(() => this.equity[range], (v) => (this.equity[range] = v), (a) => a.equity(range), force);
+  }
+
+  loadPerformance(force = false): Promise<void> {
+    return this.#load(() => this.performance, (v) => (this.performance = v), (a) => a.performance(), force);
+  }
+
+  loadMarket(force = false): Promise<void> {
+    return this.#load(() => this.market, (v) => (this.market = v), (a) => a.marketOverview(), force);
+  }
+
+  loadSymbolDetail(symbol: string, force = false): Promise<void> {
+    return this.#load(() => this.symbolDetail[symbol], (v) => (this.symbolDetail[symbol] = v), (a) => a.symbolDetail(symbol), force);
   }
 
   /** Markdown for a note or skill. `force` refetches without flashing the old text away. */

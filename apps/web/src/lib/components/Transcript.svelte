@@ -1,17 +1,21 @@
 <script lang="ts">
-  import type { ChatMessage, ToolCallSummary } from "@rh/shared";
+  import type { ChatMessage, JournalEntry, OrderRecord, ToolCallSummary } from "@rh/shared";
   import CycleDivider from "./CycleDivider.svelte";
+  import DecisionCard from "./DecisionCard.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
   import ToolTrace from "./ToolTrace.svelte";
   import WorkStep from "./WorkStep.svelte";
   import { Loading03Icon } from "$lib/icons";
   import { etTime } from "$lib/format";
-  import { buildItems, liveStepKey } from "$lib/steps";
+  import { buildItems, liveStepKey, withDecisions } from "$lib/steps";
   import { harness } from "$lib/store.svelte";
   import type { OutboxItem } from "$lib/reducer";
 
-  let { messages, draft = "", calls, running = false, outbox = [], agentLabel = "Agent" }: {
+  let { messages, draft = "", calls, running = false, outbox = [], agentLabel = "Agent", decisions = [], orders = [] }: {
+    /** Journal entries to show in place among the messages. */
+    decisions?: JournalEntry[];
+    orders?: OrderRecord[];
     messages: ChatMessage[];
     draft?: string;
     /** Live nested calls for the trailing running script. */
@@ -21,7 +25,8 @@
     agentLabel?: string;
   } = $props();
 
-  const items = $derived(buildItems(messages));
+  const items = $derived(withDecisions(buildItems(messages), decisions));
+  const orderById = $derived(new Map(orders.map((o) => [o.id, o])));
   const liveKey = $derived(running ? liveStepKey(items) : undefined);
   const lastIsLiveStep = $derived(liveKey !== undefined && liveKey === items.findLast((i) => i.kind === "step")?.key);
 </script>
@@ -31,6 +36,8 @@
     <div class="rise-in pt-2"><CycleDivider message={item.message} /></div>
   {:else if item.kind === "step"}
     <WorkStep code={item.code} result={item.result} live={item.key === liveKey} {calls} />
+  {:else if item.kind === "decision"}
+    <div class="rise-in"><DecisionCard entry={item.entry} order={item.entry.orderId ? orderById.get(item.entry.orderId) : undefined} /></div>
   {:else if item.kind === "tools"}
     <div class="rise-in"><ToolTrace messages={item.messages} /></div>
   {:else if item.kind === "user"}

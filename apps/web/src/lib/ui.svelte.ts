@@ -1,3 +1,6 @@
+export type Section = "feed" | "portfolio" | "markets" | "performance" | "agent" | "history" | "lab";
+export const SECTIONS: readonly Section[] = ["feed", "portfolio", "markets", "performance", "agent", "history", "lab"];
+
 /** Which overlay is open. Sheets and the palette read and write this from anywhere. */
 export const ui = $state({
   settings: false,
@@ -12,7 +15,10 @@ export const ui = $state({
   agent: null as string | null,
   /** Simulation run that owns `agent`, when the transcript belongs to the lab. */
   agentSim: null as string | null,
-  view: "live" as "live" | "lab",
+  /** The surface on screen. Lab is the simulation workspace; the rest are the live account. */
+  section: "feed" as Section,
+  /** Order open in the detail sheet. */
+  order: null as string | null,
   /** Run open in the lab. */
   run: null as string | null,
   /** Runs ticked for comparison. */
@@ -29,3 +35,5 @@ export const openAgent = (id: string, simRunId?: string) => {
   ui.agentSim = simRunId ?? null;
   ui.agent = id;
 };
+
+export const openOrder = (id: string) => (ui.order = id);

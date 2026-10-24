@@ -76,7 +76,7 @@ sw.addEventListener("fetch", (event) => {
 });
 
 sw.addEventListener("push", (event) => {
-  let payload: PushPayload = { title: "Harness", body: "" };
+  let payload: PushPayload = { title: "Longbow", body: "" };
   try {
     payload = { ...payload, ...(event.data?.json() as Partial<PushPayload>) };
   } catch {

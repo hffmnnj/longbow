@@ -1,4 +1,12 @@
 export {
+  AiBrain01Icon,
+  BarChartIcon,
+  Chip02Icon,
+  Globe02Icon,
+  SquareLock01Icon as LockIcon,
+  MoreHorizontalIcon,
+  ChartIncreaseIcon,
+  Calendar03Icon,
   ChartLineData01Icon,
   Analytics01Icon,
   BookOpen01Icon,

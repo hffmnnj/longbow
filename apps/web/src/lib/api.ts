@@ -1,7 +1,12 @@
 import {
   CSRF_HEADER,
   type ChatMessage,
+  type AnalyticsRange,
   type ConnectResponse,
+  type EquityHistory,
+  type MarketOverview,
+  type PerformanceSummary,
+  type SymbolDetail,
   type HistoryRange,
   type JournalEntry,
   type NoteContent,
@@ -56,6 +61,10 @@ export interface Api {
   notes(): Promise<NoteFile[]>;
   note(path: string): Promise<NoteContent>;
   history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
+  equity(range: AnalyticsRange): Promise<EquityHistory>;
+  performance(): Promise<PerformanceSummary>;
+  marketOverview(): Promise<MarketOverview>;
+  symbolDetail(symbol: string): Promise<SymbolDetail>;
   simRuns(): Promise<SimRun[]>;
   simRun(id: string): Promise<SimRun>;
   simStart(config: SimRunConfig): Promise<SimRun>;
@@ -172,6 +181,10 @@ export const realApi: Api = {
   note: (path) => request("GET", `/api/notes/${path.split("/").map(encodeURIComponent).join("/")}`),
   history: (symbol, range) =>
     request("GET", `/api/market/history?symbol=${encodeURIComponent(symbol)}&range=${range}`),
+  equity: (range) => request("GET", `/api/analytics/equity?range=${range}`),
+  performance: () => request("GET", "/api/analytics/performance"),
+  marketOverview: () => request("GET", "/api/market/overview"),
+  symbolDetail: (symbol) => request("GET", `/api/symbols/${encodeURIComponent(symbol)}`),
   simRuns: () => request("GET", "/api/sim/runs"),
   simRun: (id) => request("GET", `/api/sim/runs/${encodeURIComponent(id)}`),
   simStart: (config) => request("POST", "/api/sim/runs", config),
