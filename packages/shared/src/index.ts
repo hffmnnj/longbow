@@ -298,11 +298,15 @@ export interface ChatMessage {
 
 export type SubagentRole = "analyst" | "bull" | "bear" | "risk_reviewer" | "researcher";
 
-/** One `delegate` run: a read-only subagent conversation working for the lead agent. */
+/** One `delegate` run, or one named long-running `subagent` helper: a read-only conversation working for the lead agent. */
 export interface SubagentRun {
   /** The child conversation id; its transcript is GET /api/conversations/:id/messages. */
   id: string;
   role: SubagentRole;
+  /** Long-running helpers only: the name the lead agent gave it. */
+  name?: string;
+  /** True for a long-running helper that keeps its context between messages; "done" then means idle and ready for more. */
+  background?: boolean;
   symbol?: string;
   task: string;
   startedAt: number;
