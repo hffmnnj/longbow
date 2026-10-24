@@ -28,6 +28,7 @@ import {
 
 export const BACKGROUND_SUBAGENTS_EXTENSION_NAME = "background-subagents";
 export const BACKGROUND_SUBAGENT_TOOL_NAME = "subagent";
+export const HELPER_REPORT_ENTRY_KIND = "harness.helper_report";
 
 export type BackgroundSubagentStatus = "working" | "idle" | "stopped" | "failed";
 
@@ -132,6 +133,11 @@ export function createBackgroundSubagentExtension(deps: BackgroundSubagentExtens
   const log = deps.log.child("background-subagents");
   const maxWorking = Math.max(1, Math.floor(deps.maxWorking ?? 4));
 
+  const reportTag = async (api: Pick<Harness, "snapshot">, context: Context, rowId: string): Promise<{ name: string; role: string }> => {
+    const row = (await api.snapshot(BackgroundSubagentsDoc, context))?.helpers[rowId];
+    return { name: row?.name ?? "helper", role: row?.role ?? "researcher" };
+  };
+
   const emitRow = async (
     api: Pick<Harness, "snapshot">,
     context: Context,
@@ -233,6 +239,8 @@ export function createBackgroundSubagentExtension(deps: BackgroundSubagentExtens
               content: task.state.checkpoint.report,
               whenBusy: "followUp",
               requestId: `background-subagent-report:${task.id}`,
+              // Tags the input so the UI shows it as a helper report, not as the owner's message.
+              entry: { kind: HELPER_REPORT_ENTRY_KIND, data: await reportTag(api, context, task.input.rowId) },
             },
             context,
           );

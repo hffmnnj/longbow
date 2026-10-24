@@ -8,8 +8,11 @@ export function registerServiceWorker(): void {
   // Dev servers serve changing modules; a worker there would pin stale code.
   if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
   let reloading = false;
+  // The first install's clients.claim() also fires controllerchange; only an update needs a reload,
+  // and reloading then would drop one-shot params like ?view= that were already consumed.
+  const hadController = navigator.serviceWorker.controller !== null;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (reloading) return;
+    if (reloading || !hadController) return;
     reloading = true;
     window.location.reload();
   });
