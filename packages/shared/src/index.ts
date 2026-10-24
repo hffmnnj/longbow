@@ -372,23 +372,125 @@ export interface StatusResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Simulation: an accelerated, point-in-time replay of past trading days with a paper broker.
+
+const EtDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const Ticker = z.string().regex(/^[A-Z.]{1,10}$/);
+
+export const SimRunConfigSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  /** First simulated NYSE trading day (ET). Must be at least `days` trading days in the past. */
+  startDate: EtDate,
+  /** Trading days to simulate. */
+  days: z.number().int().min(1).max(60),
+  startingCash: z.number().positive().max(1_000_000),
+  /** 2: open check (10:15 ET) and close review (15:45 ET); 3 adds pre-open (09:00); 4 adds midday (12:30). */
+  cyclesPerDay: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+  watchlist: z.array(Ticker).min(1).max(30).optional(),
+  /** Extra instructions for this run's agent, for testing a strategy hypothesis. */
+  strategy: z.string().max(2000).optional(),
+  /** Overrides on the live risk settings for this run. */
+  risk: RiskConfigSchema.partial().optional(),
+});
+export type SimRunConfig = z.infer<typeof SimRunConfigSchema>;
+
+export type SimRunStatus = "queued" | "running" | "done" | "failed" | "stopped";
+
+/** End-of-day marks; `benchmark` is SPY buy-and-hold scaled to the starting cash. */
+export interface SimEquityPoint {
+  date: string;
+  equity: number;
+  cash: number;
+  benchmark: number;
+}
+
+export interface SimFill {
+  at: number;
+  date: string;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  orderId: string;
+}
+
+export interface SimMetrics {
+  returnPct: number;
+  benchmarkReturnPct: number;
+  maxDrawdownPct: number;
+  /** Annualized from daily returns; absent under 5 days. */
+  sharpe?: number;
+  trades: number;
+  /** Closed round trips that made money, percent. */
+  winRatePct?: number;
+  /** Average multiple of initial risk on closed round trips. */
+  avgR?: number;
+  /** Average share of equity invested at the close. */
+  exposurePct: number;
+  ordersSubmitted: number;
+  ordersRejected: number;
+  /** Brier score of entry `probabilityWin` against closed outcomes; lower is better. */
+  brier?: number;
+}
+
+export interface SimRun {
+  id: string;
+  createdAt: number;
+  startedBy: "user" | "agent";
+  config: SimRunConfig;
+  status: SimRunStatus;
+  /** Simulated ET date currently running. */
+  currentDate?: string;
+  progress: { day: number; days: number; cycle: number; cyclesPerDay: number };
+  equity: SimEquityPoint[];
+  positions: Position[];
+  fills: SimFill[];
+  metrics?: SimMetrics;
+  error?: string;
+  finishedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Web push (installed app notifications)
+
+export const PushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2000),
+  keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
+});
+export type PushSubscriptionInput = z.infer<typeof PushSubscriptionSchema>;
+
+/** Payload the service worker shows as a notification. */
+export interface PushPayload {
+  title: string;
+  body: string;
+  /** Path to open on click, for example "/?order=<id>". */
+  url?: string;
+  /** Collapses repeats, for example "halt" or "order-<id>". */
+  tag?: string;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP and SSE
 
 /** Mutating requests must send this header; it forces a CORS preflight the server never allows cross-origin. */
 export const CSRF_HEADER = "x-harness";
 
+/**
+ * `conversationId` is set for subagent transcripts and absent for the lead agent.
+ * `simRunId` is set for events from a simulation run and absent for the live account.
+ */
 export type ServerEvent =
   | { type: "status"; status: StatusResponse }
-  /** `conversationId` is set for subagent transcripts and absent for the lead agent. */
-  | { type: "message"; message: ChatMessage; conversationId?: string }
+  | { type: "message"; message: ChatMessage; conversationId?: string; simRunId?: string }
   /** Streaming assistant text for the in-flight turn; replaced by the committed `message`. */
-  | { type: "delta"; text: string; conversationId?: string }
-  | { type: "subagent"; run: SubagentRun }
+  | { type: "delta"; text: string; conversationId?: string; simRunId?: string }
+  | { type: "subagent"; run: SubagentRun; simRunId?: string }
   /** Live nested calls of the running Code Mode script, replaced by the committed tool message. */
-  | { type: "calls"; calls: ToolCallSummary[]; conversationId?: string }
-  | { type: "journal"; entry: JournalEntry }
-  | { type: "order"; order: OrderRecord }
-  | { type: "note"; note: NoteFile };
+  | { type: "calls"; calls: ToolCallSummary[]; conversationId?: string; simRunId?: string }
+  | { type: "journal"; entry: JournalEntry; simRunId?: string }
+  | { type: "order"; order: OrderRecord; simRunId?: string }
+  | { type: "note"; note: NoteFile; simRunId?: string }
+  | { type: "sim"; run: SimRun };
 
 export interface ConnectResponse {
   /** Robinhood sign-in URL to open in the browser. */
