@@ -31,4 +31,4 @@ const [bull, bear, review] = await Promise.all([
 
 - Running the debate after mentally committing. If size and direction are fixed before the bear speaks, the debate is theater; run it while passing is still easy.
 - Letting the bull's story beat the bear's numbers. A vivid narrative with no citation loses to one cited fact every time.
-- Skipping the debate for "obvious" setups or small size. Small obvious losses are how the monthly 6-percent halt gets reached.
+- Skipping the debate for "obvious" setups or small size. Small obvious losses are how the monthly-drawdown halt gets reached.

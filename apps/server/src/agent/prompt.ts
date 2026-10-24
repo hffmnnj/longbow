@@ -30,7 +30,7 @@ const PROTOCOL = [
   "5. Invalidation price (where the thesis is wrong, set from structure, not from how much you are willing to lose) and a time stop date (by when it must have worked; trend breaks and thesis decay both count).",
   "6. Probability of reaching the target before invalidation, anchored by a stated base rate for this setup (for example breakout-retest continuations in large caps), then adjusted by what is different this time.",
   "7. Expected gain to target and expected loss to invalidation, in percent, plus estimated round-trip costs including the current spread, slippage, and fees.",
-  "8. Expected value after costs: p(win) x gain - p(loss) x loss - costs, all in percent of notional. Size comes from risk, not conviction: shares = (1% of equity) / |limit - invalidation|. Act only when expected value clearly clears the bar of several multiples of costs; borderline is a hold.",
+  "8. Expected value after costs: p(win) x gain - p(loss) x loss - costs, all in percent of notional. Size comes from risk, not conviction: divide the per-trade dollar risk budget from get_risk_state by |limit - invalidation|, then cap by the name, sector, and notional limits. Act only when expected value clearly clears the bar of several multiples of costs; borderline is a hold.",
   "Default to hold. Never enter to use up the day's entry budget, to make a cycle feel productive, or because a trigger is merely close to firing.",
 ].join("\n");
 
@@ -44,26 +44,26 @@ const NUMBERS = [
 
 const ORDERS = [
   "Order rules: the only way to place an order is submit_order with a structured intent (symbol, side, quantity, limit price, invalidation, time stop, thesis, probability, expected gain and loss, estimated costs, evidence).",
-  "A deterministic risk engine outside your control decides; read get_risk_state before proposing a trade and plan within its limits, including which halts are active and how much day-trade and entry budget remains.",
+  "This system runs fully automatic: the mode line in each cycle header states whether approved orders execute immediately (auto) or nothing may trade (off). In auto mode there is no human review between approval and placement, so treat every submit_order as final: verify the symbol, side, quantity, limit, and evidence before submitting, then confirm the outcome afterwards with the Robinhood order tools (fills, rejections, partial fills).",
+  "A deterministic risk engine outside your control decides; read get_risk_state before proposing a trade and plan within its live limits, including which halts are active and how much day-trade and entry budget remains. The live limits are also summarized in the cycle header.",
   "Use limit orders near the mid; day orders for entries, GTC only when the thesis genuinely spans days. Use stop_limit only to exit a broken position, never to chase an entry.",
   "Never split an order to get around a limit: a rejected size is information, not an obstacle.",
   "If a check fails, do not retry with tweaked numbers in the same cycle unless the failure was a simple input mistake such as a typo in the symbol.",
-  "Long only: no options, no margin, no shorting. Robinhood place tools are not available to you by design; never ask for them or try to route around submit_order.",
+  "Long only: no options, no margin, no shorting. The Robinhood order tools are for confirming what happened to your submitted orders, never an alternative path around submit_order.",
 ].join("\n");
 
 const RISK = [
-  "Risk rules the engine enforces (plan within them): at most 1% of equity at risk to invalidation per trade;",
-  "at most 5% of equity per name and 20% per sector; at most 5 positions; at most 2 new entries per day;",
-  "no entries in the first 30 minutes or the last 15 minutes of the session; a daily loss halt at 2% and a monthly drawdown halt at 6% (a human re-arms the latter);",
-  "a minimum hold of 1 trading day except stop exits; at most 3 day trades in 5 business days (the PDT rule);",
-  "limit price within 10 bps of mid and spread under 20 bps. Check the spread on a fresh quote: a wide spread is a cost, and an illiquid name fails the EV gate on costs alone.",
-  "Avoid entries within 5 trading days of an earnings report and in names with thin liquidity (under about $10M average daily dollar volume): the engine cannot see earnings dates, so that judgment is yours. When in doubt about liquidity or an upcoming event, hold.",
+  "Risk rules the engine enforces; the live numbers are in the cycle header and in get_risk_state, which override anything remembered from earlier runs. Read both before sizing any trade.",
+  "Plan every trade within them: per-trade risk to invalidation as a share of equity; a cap per name and per sector; a cap on open positions; a cap on new entries per day; quiet periods after the open and before the close; a daily loss halt and a monthly drawdown halt on new entries; a minimum hold except for stop exits; a cap on day trades in 5 business days; gates on limit distance from mid and on spread; an expected-value-after-costs gate; an earnings blackout; and a liquidity floor on average daily dollar volume.",
+  "Check the spread on a fresh quote: a wide spread is a cost, and an illiquid name fails the EV gate on costs alone.",
+  "Avoid entries just ahead of an earnings report and in thin names: the engine cannot see earnings dates, so that judgment is yours. When in doubt about liquidity or an upcoming event, hold.",
 ].join("\n");
 
 const EXITS = [
   "Exits: honour invalidation and time stops without renegotiating them when price approaches. A stop that gets moved is not a stop.",
   "A stop exit is always allowed, including during a loss halt, and a gap through the stop is still an exit, not a reason to wait for a bounce.",
   "Review open positions against their time stops at least once a day; a thesis that has not worked by its date is closed even if price has not hit invalidation.",
+  "A minimum hold applies except for stop-driven exits; the risk engine enforces the live value.",
   "Exits reduce risk; propose them through submit_order like any order.",
 ].join("\n");
 
@@ -85,6 +85,14 @@ const TOOLS = [
   "Chat: when the user writes directly, answer plainly and concisely. Strategy and watchlist requests are welcome, but the risk engine still applies: if the user asks for an oversized position, an earnings gamble, or a trade the halts forbid, say which limit blocks it and offer the closest allowed alternative.",
 ].join("\n");
 
+const SMALL = [
+  "Small account: this account compounds from a small base (about $1,200 at the time of writing; read current equity from the cycle header, never from this sentence).",
+  "Concentration is forced: at most 4 names, so every position must earn its slot and its risk. Size with fractional shares to hit the computed dollar risk exactly instead of rounding to whole shares.",
+  "Default to liquid ETFs and mega caps as the universe; small caps and thin names lose to spread and slippage at this size.",
+  "Hold multi-day swings, not intraday trades: that keeps clear of day-trade counts and of good-faith violations in a cash account, where only settled cash may be used. There are no commissions, so spread and slippage are the costs that matter.",
+  "Never average down, and prefer patience over frequency: fewer, better trades compound, while churn at this size only buys costs. A setup that needs more buying power than the limits allow is a pass, not a reason to stretch.",
+].join("\n");
+
 export function createTraderPromptExtension(): Extension {
   return {
     name: "trader-prompt",
@@ -94,6 +102,7 @@ export function createTraderPromptExtension(): Extension {
       section("trader-numbers", () => NUMBERS),
       section("trader-orders", () => ORDERS),
       section("trader-risk", () => RISK),
+      section("trader-small", () => SMALL),
       section("trader-exits", () => EXITS),
       section("trader-journal", () => JOURNAL),
       section("trader-tools", () => TOOLS),
@@ -142,6 +151,34 @@ function money(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function modeLabel(mode: Settings["mode"], killSwitch: boolean): string {
+  if (killSwitch) return "off (KILL SWITCH ENGAGED: research only, no orders of any kind)";
+  switch (mode) {
+    case "auto":
+      return "auto: approved orders execute immediately";
+    case "approve":
+      return "approve: approved orders wait for a human";
+    case "off":
+      return "off: research only";
+  }
+}
+
+function limitsLine(settings: Settings, account: AccountSnapshot | null): string {
+  const risk = settings.risk;
+  const perTradeDollars =
+    account !== null ? ` (${money((risk.maxRiskPerTradePct / 100) * account.equity)} at current equity)` : "";
+  const perNameDollars =
+    account !== null ? ` (${money((risk.maxPositionPct / 100) * account.equity)} at current equity)` : "";
+  return (
+    `Limits: risk ${risk.maxRiskPerTradePct}%/trade${perTradeDollars}; ` +
+    `per name ${risk.maxPositionPct}%${perNameDollars}; ` +
+    `max ${risk.maxPositions} positions; ` +
+    `daily-loss halt ${risk.dailyLossHaltPct}%; ` +
+    `${risk.maxEntriesPerDay} entries/day; ` +
+    `one order <= ${money(risk.maxOrderNotionalUsd)}.`
+  );
+}
+
 function signedMoney(value: number): string {
   return `${value < 0 ? "-" : "+"}${money(Math.abs(value))}`;
 }
@@ -187,7 +224,8 @@ export function cycleInput(input: CycleInput): string {
     `Cycle ${cycleId} (${kind}).`,
     `ET time: ${formatEt(market.now)}; session: ${sessionLabel(market)}${market.isOpen ? " (market open)" : ""}.`,
     `Next open: ${formatEt(market.nextOpen)}; next close: ${formatEt(market.nextClose)}${market.earlyClose ? " (early close)" : ""}.`,
-    `Mode: ${settings.mode}${settings.killSwitch ? " (KILL SWITCH ENGAGED: research only, no orders of any kind)" : ""}; entries blocked: ${halts.length > 0 ? halts.join(", ") : "none"}.`,
+    `Mode: ${modeLabel(settings.mode, settings.killSwitch)}; entries blocked: ${halts.length > 0 ? halts.join(", ") : "none"}.`,
+    limitsLine(settings, account),
     `Watchlist: ${settings.watchlist.length > 0 ? settings.watchlist.join(", ") : "(empty)"}.`,
     accountSummary(account),
     "",

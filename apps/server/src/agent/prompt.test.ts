@@ -21,6 +21,7 @@ const settings: Settings = {
     maxSectorPct: 20,
     maxPositions: 5,
     maxOrderNotionalUsd: 2500,
+    minOrderNotionalUsd: 5,
     dailyLossHaltPct: 2,
     monthlyDrawdownHaltPct: 6,
     maxEntriesPerDay: 2,
@@ -31,6 +32,8 @@ const settings: Settings = {
     noTradeCloseMinutes: 15,
     maxDayTrades5d: 3,
     minEvToCost: 2,
+    earningsBlackoutDays: 5,
+    minAvgDollarVolumeUsd: 20_000_000,
   },
 };
 
@@ -115,6 +118,15 @@ describe("cycleInput", () => {
   it("pre_open_sets_a_plan_and_post_close_reviews_the_day", () => {
     assert.match(cycleInput(input({ kind: "pre_open" })), /trigger/i);
     assert.match(cycleInput(input({ kind: "post_close" })), /fills|review/i);
+  });
+
+  it("includes_per_trade_risk_dollars_when_account_known", () => {
+    const text = cycleInput(input({}));
+    assert.match(text, /1%\/trade/, "names the live per-trade risk percent");
+    assert.match(text, /\$102\.5/, "converts 1% of $10,250.50 equity to dollars");
+    assert.match(text, /max 5 positions/, "names the live position cap");
+    assert.match(text, /entries\/day/, "names the live entries-per-day cap");
+    assert.match(text, /approved orders execute immediately|wait for a human|research only/, "states the mode in plain words");
   });
 
   it("shows_halts_mode_and_a_missing_account", () => {
