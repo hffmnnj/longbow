@@ -113,13 +113,21 @@ function truncate(text: string, max = MAX_TOOL_TEXT): string {
 }
 
 /** Name and role carried by a helper-report entry, for the UI. */
-function helperTag(entry: EntryRecord): Pick<ChatMessage, "helperName" | "agentRole"> {
-  if (entry.kind !== HELPER_REPORT_ENTRY_KIND || !isRecord(entry.data)) return {};
-  const { name, role } = entry.data;
-  return {
-    ...(typeof name === "string" ? { helperName: name } : {}),
-    ...(typeof role === "string" ? { agentRole: role } : {}),
-  };
+// Reports delivered before entries were tagged; display only, so a misread costs nothing.
+const LEGACY_HELPER_REPORT = /^Background helper "([^"]+)" \(([^)]+)\) (?:reported|did not answer)/;
+
+/** Name and role of a helper report: from the entry tag, or the report's fixed opening line for older entries. */
+function helperTag(entry: EntryRecord, text: string): Pick<ChatMessage, "helperName" | "agentRole"> | undefined {
+  if (entry.kind === HELPER_REPORT_ENTRY_KIND) {
+    const data = isRecord(entry.data) ? entry.data : {};
+    return {
+      ...(typeof data["name"] === "string" ? { helperName: data["name"] } : {}),
+      ...(typeof data["role"] === "string" ? { agentRole: data["role"] } : {}),
+    };
+  }
+  if (entry.kind === CYCLE_ENTRY_KIND) return undefined;
+  const legacy = LEGACY_HELPER_REPORT.exec(text);
+  return legacy ? { helperName: legacy[1]!, agentRole: legacy[2]! } : undefined;
 }
 
 /** Map one transcript entry to chat messages for the UI. */
@@ -128,12 +136,14 @@ export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const message of model) {
     if (message.role === "user") {
+      const text = userText(message);
+      const helper = helperTag(entry, text);
       out.push({
         id: String(entry.id),
         at,
-        role: entry.kind === CYCLE_ENTRY_KIND ? "cycle" : entry.kind === HELPER_REPORT_ENTRY_KIND ? "helper" : "user",
-        text: userText(message),
-        ...helperTag(entry),
+        role: entry.kind === CYCLE_ENTRY_KIND ? "cycle" : helper !== undefined ? "helper" : "user",
+        text,
+        ...helper,
       });
     } else if (message.role === "assistant") {
       const text = assistantText(message);
