@@ -25,6 +25,10 @@ import { createSubagentExtension } from "./agent/subagents.ts";
 import { createPushService } from "./push/service.ts";
 import { startNotifier } from "./push/notifier.ts";
 import { mountPushRoutes } from "./http/push-routes.ts";
+import { createSimService } from "./sim/runner.ts";
+import { createSimToolsExtension } from "./sim/tools.ts";
+import { mountSimRoutes } from "./http/sim-routes.ts";
+import { credentialFilePath } from "./agent/credential-store.ts";
 
 const MAX_SUBAGENT_RUNS = 50;
 
@@ -72,6 +76,17 @@ async function main(): Promise<void> {
   };
 
   const skills = createSkillLibrary(SKILLS_DIR);
+  // Simulation runs share the live Muse credential file so a token refresh never forks it.
+  const sim = createSimService({
+    config,
+    log: log.child("sim"),
+    bus,
+    market,
+    skills,
+    calendar,
+    settings: () => store.getSettings(),
+    credentialFile: credentialFilePath(config.DATA_DIR),
+  });
   const notes = createNotes({ dir: join(config.DATA_DIR, "workspace"), bus, clock });
 
   const extensions = [
@@ -87,6 +102,7 @@ async function main(): Promise<void> {
       excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate"],
       onRun: onSubagentRun,
     }),
+    createSimToolsExtension({ sim }),
   ];
 
   agent = await TradingAgent.open({
@@ -151,6 +167,7 @@ async function main(): Promise<void> {
     subject: "mailto:hffmnnj@users.noreply.github.com",
   });
   mountPushRoutes(app, { push, log: log.child("push") });
+  mountSimRoutes(app, { sim, log: log.child("sim") });
   const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
 
   const refresher = setInterval(() => {
@@ -172,6 +189,7 @@ async function main(): Promise<void> {
     log.info("shutting down", { signal });
     clearInterval(refresher);
     stopNotifier();
+    void sim.close();
     scheduler.stop();
     for (const server of servers) server.close();
     void tradingAgent.close().finally(() => process.exit(0));
