@@ -1,42 +1,7 @@
-import type { ChatMessage, CycleKind, SubagentRun, SubagentRole, ToolCallSummary } from "@rh/shared";
-
-export interface CallChip {
-  name: string;
-  count: number;
-  failed: number;
-  running: number;
-  /** Text shown on the chip, for example `market_indicators ×3` or `delegate bull · bear`. */
-  label: string;
-}
+import type { ChatMessage, CycleKind, SubagentRun, ToolCallSummary } from "@rh/shared";
+import { delegateRole } from "./toolMeta";
 
 export const isRunning = (c: ToolCallSummary) => c.durationMs === undefined && !c.isError;
-
-const ROLES: readonly SubagentRole[] = ["analyst", "bull", "bear", "risk_reviewer", "researcher"];
-
-/** Subagent role named in a delegate call's summary (JSON arguments, possibly truncated). */
-export function delegateRole(call: ToolCallSummary): SubagentRole | undefined {
-  const m = call.summary?.match(/"role"\s*:\s*"([a-z_]+)"/);
-  const role = m?.[1] as SubagentRole | undefined;
-  return role && ROLES.includes(role) ? role : undefined;
-}
-
-/** Group nested calls by tool name in first-seen order. Delegate calls list their roles. */
-export function groupCalls(calls: readonly ToolCallSummary[]): CallChip[] {
-  const groups = new Map<string, ToolCallSummary[]>();
-  for (const c of calls) groups.set(c.name, [...(groups.get(c.name) ?? []), c]);
-  return [...groups].map(([name, list]) => {
-    const failed = list.filter((c) => c.isError).length;
-    const running = list.filter(isRunning).length;
-    const roles = name.endsWith("delegate") ? list.map(delegateRole) : [];
-    const label =
-      roles.length > 0 && roles.every(Boolean)
-        ? `${name} ${roles.join(" · ")}`
-        : list.length > 1
-          ? `${name} ×${list.length}`
-          : name;
-    return { name, count: list.length, failed, running, label };
-  });
-}
 
 /**
  * Match a step's delegate calls, in order, to subagent runs of the same role that started

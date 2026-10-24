@@ -1,26 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, SubagentRun } from "@rh/shared";
-import { buildItems, cycleLabel, groupCalls, liveStepKey, matchRuns } from "./steps.ts";
+import { buildItems, cycleLabel, liveStepKey, matchRuns } from "./steps.ts";
 
 const d = (role: string) => ({ name: "delegate", summary: `{"role":"${role}","symbol":"NVDA"}`, durationMs: 100 });
-
-describe("groupCalls", () => {
-  it("groups by tool name in first-seen order with counts and failures", () => {
-    const chips = groupCalls([
-      { name: "market_indicators", durationMs: 1 },
-      { name: "web_search", durationMs: 1 },
-      { name: "market_indicators", durationMs: 1, isError: true },
-      { name: "market_indicators" },
-    ]);
-    expect(chips.map((c) => c.label)).toEqual(["market_indicators ×3", "web_search"]);
-    expect(chips[0]).toMatchObject({ count: 3, failed: 1, running: 1 });
-  });
-
-  it("names delegate roles instead of a count, even from truncated JSON", () => {
-    const chips = groupCalls([d("bull"), d("bear"), { name: "delegate", summary: '{"role":"risk_reviewer","task":"long tex' }]);
-    expect(chips[0]?.label).toBe("delegate bull · bear · risk_reviewer");
-  });
-});
 
 describe("matchRuns", () => {
   const run = (id: string, role: SubagentRun["role"], startedAt: number): SubagentRun => ({

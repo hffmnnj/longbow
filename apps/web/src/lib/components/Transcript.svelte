@@ -3,7 +3,7 @@
   import CycleDivider from "./CycleDivider.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
-  import ToolGroup from "./ToolGroup.svelte";
+  import ToolTrace from "./ToolTrace.svelte";
   import WorkStep from "./WorkStep.svelte";
   import { Loading03Icon } from "$lib/icons";
   import { etTime } from "$lib/format";
@@ -26,13 +26,13 @@
   const lastIsLiveStep = $derived(liveKey !== undefined && liveKey === items.findLast((i) => i.kind === "step")?.key);
 </script>
 
-{#each items as item, i (item.key)}
+{#each items as item (item.key)}
   {#if item.kind === "cycle"}
     <div class="rise-in pt-2"><CycleDivider message={item.message} /></div>
   {:else if item.kind === "step"}
     <WorkStep code={item.code} result={item.result} live={item.key === liveKey} {calls} />
   {:else if item.kind === "tools"}
-    <div class="rise-in"><ToolGroup messages={item.messages} live={running && i === items.length - 1} /></div>
+    <div class="rise-in"><ToolTrace messages={item.messages} /></div>
   {:else if item.kind === "user"}
     <div class="rise-in flex flex-col items-end gap-1">
       <div class="bg-accent max-w-[85%] rounded-xl rounded-br-sm px-3.5 py-2 text-[14px] leading-relaxed break-words whitespace-pre-wrap">
