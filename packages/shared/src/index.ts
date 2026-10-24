@@ -276,6 +276,22 @@ export interface ChatMessage {
   agentRole?: string;
 }
 
+export type SubagentRole = "analyst" | "bull" | "bear" | "risk_reviewer" | "researcher";
+
+/** One `delegate` run: a read-only subagent conversation working for the lead agent. */
+export interface SubagentRun {
+  /** The child conversation id; its transcript is GET /api/conversations/:id/messages. */
+  id: string;
+  role: SubagentRole;
+  symbol?: string;
+  task: string;
+  startedAt: number;
+  endedAt?: number;
+  status: "running" | "done" | "failed";
+  /** Final answer, when done. */
+  answer?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Market data, skills, notes
 
@@ -351,9 +367,13 @@ export const CSRF_HEADER = "x-harness";
 
 export type ServerEvent =
   | { type: "status"; status: StatusResponse }
-  | { type: "message"; message: ChatMessage }
+  /** `conversationId` is set for subagent transcripts and absent for the lead agent. */
+  | { type: "message"; message: ChatMessage; conversationId?: string }
   /** Streaming assistant text for the in-flight turn; replaced by the committed `message`. */
-  | { type: "delta"; text: string }
+  | { type: "delta"; text: string; conversationId?: string }
+  | { type: "subagent"; run: SubagentRun }
+  /** Live nested calls of the running Code Mode script, replaced by the committed tool message. */
+  | { type: "calls"; calls: ToolCallSummary[]; conversationId?: string }
   | { type: "journal"; entry: JournalEntry }
   | { type: "order"; order: OrderRecord }
   | { type: "note"; note: NoteFile };

@@ -15,7 +15,9 @@ import {
   type Registry,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import type { AgentStatus, ChatMessage, CycleKind, StatusResponse } from "@rh/shared";
+import { CODEMODE_TOOL_NAME, createCodemodeExtension, type CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
+import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import type { AgentStatus, ChatMessage, CycleKind, StatusResponse, ToolCallSummary } from "@rh/shared";
 import type { AgentControl, Clock, Config, EventBus, Logger } from "../ports.ts";
 import {
   credentialFilePath,
@@ -30,6 +32,37 @@ export const CYCLE_ENTRY_KIND = "trader.cycle";
 
 const CTX = BACKGROUND_CONTEXT;
 const MAX_TOOL_TEXT = 2000;
+
+/** Tool groups for the Code Mode prompt section and `searchTools()`, by name prefix. */
+const CODEMODE_NAMESPACES: CodemodeNamespace[] = [
+  { name: "robinhood", prefix: "rh_", description: "Robinhood Trading MCP: accounts, portfolio, positions, quotes, historicals, news, fundamentals, orders (read, review, cancel)." },
+  { name: "market", prefix: "market_", description: "Free market data with structured JSON: daily bars, indicators, comparisons, earnings and economic calendars, VIX, Treasury yields." },
+  { name: "sec", prefix: "sec_", description: "SEC EDGAR filings and XBRL financial facts." },
+  { name: "skills", prefix: "skills_", description: "Trading playbooks and reference resources. Load a skill before applying it." },
+  { name: "notes", prefix: "notes_", description: "Durable markdown workspace: theses/<SYMBOL>.md, plan.md, lessons.md, watchlist.md." },
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Nested calls from a finished Code Mode result's `details.calls` or the live `pi.live.nestedTools` slots. */
+export function codemodeCalls(details: unknown): ToolCallSummary[] | undefined {
+  if (!isRecord(details) || !Array.isArray(details["calls"])) return undefined;
+  const calls: ToolCallSummary[] = [];
+  for (const call of details["calls"]) {
+    if (!isRecord(call) || typeof call["name"] !== "string") continue;
+    const error = typeof call["error"] === "string" ? call["error"] : undefined;
+    const args = typeof call["args"] === "string" ? call["args"] : undefined;
+    calls.push({
+      name: call["name"],
+      ...(call["status"] === "error" ? { isError: true } : {}),
+      ...(error ?? args ? { summary: truncate(error ?? args ?? "", 300) } : {}),
+      ...(typeof call["durationMs"] === "number" ? { durationMs: call["durationMs"] } : {}),
+    });
+  }
+  return calls;
+}
 
 export interface TradingAgentDeps {
   config: Config;
@@ -94,16 +127,21 @@ export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
       }
       for (const part of message.content) {
         if (part.type === "toolCall") {
+          const code = part.name === CODEMODE_TOOL_NAME && isRecord(part.arguments) && typeof part.arguments["code"] === "string"
+            ? part.arguments["code"]
+            : undefined;
           out.push({
             id: `t-${String(entry.id)}-${part.id}`,
             at,
             role: "tool",
-            text: `${part.name}(${JSON.stringify(part.arguments).slice(0, 500)})`,
+            text: code !== undefined ? "codemode" : `${part.name}(${JSON.stringify(part.arguments).slice(0, 500)})`,
             toolName: part.name,
+            ...(code !== undefined ? { code } : {}),
           });
         }
       }
     } else if (message.role === "toolResult") {
+      const calls = message.toolName === CODEMODE_TOOL_NAME ? codemodeCalls(message.details) : undefined;
       out.push({
         id: `r-${String(entry.id)}`,
         at,
@@ -111,6 +149,7 @@ export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
         text: truncate(toolResultText(message)),
         toolName: message.toolName,
         isError: message.isError || undefined,
+        ...(calls !== undefined ? { calls } : {}),
       });
     }
   }
@@ -132,8 +171,8 @@ export class TradingAgent implements AgentControl {
   private authFailed: string | undefined;
   private lastPublishedState: AgentStatus["state"] | undefined;
   private statusSnapshot: (() => Omit<StatusResponse, "agent"> | Promise<Omit<StatusResponse, "agent">>) | undefined;
-  private seenEntryIds = new Set<string>();
-  private seenDelta = "";
+  private sandbox: CodemodeSandbox | undefined;
+  private readonly watched = new Set<string>();
 
   private constructor(deps: TradingAgentDeps, clock: Clock) {
     this.deps = deps;
@@ -157,6 +196,12 @@ export class TradingAgent implements AgentControl {
     const registry = createRegistry();
     for (const extension of this.deps.extensions) registry.install(extension);
     this.deps.onRegistry?.(registry);
+    // Code Mode is the model's only tool: every other tool is called from its scripts.
+    this.sandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 });
+    const codemode = createCodemodeExtension({ sandbox: this.sandbox, namespaces: CODEMODE_NAMESPACES, models: false, inlineBudget: 8000 });
+    registry.install(codemode);
+    const codemodeTool = codemode.tools?.find((tool) => tool.name === CODEMODE_TOOL_NAME);
+    if (codemodeTool === undefined) throw new Error("Code Mode tool missing from its extension");
     const harness = await Harness.open(
       storage,
       {
@@ -188,11 +233,11 @@ export class TradingAgent implements AgentControl {
     });
     // An existing conversation keeps its stored model; pin it to the current one.
     await conversation.configure(
-      { model: { provider: "meta", modelId: config.MUSE_MODEL }, thinkingLevel: "high" },
+      { model: { provider: "meta", modelId: config.MUSE_MODEL }, thinkingLevel: "high", modelTools: [codemodeTool] },
       CTX,
     );
     this.conversation = conversation;
-    await this.watch();
+    await this.watchConversation(conversation);
     harness.resume();
     log.info("agent open", { model: config.MUSE_MODEL });
   }
@@ -354,8 +399,8 @@ export class TradingAgent implements AgentControl {
     }
   }
 
-  async listMessages(limit: number): Promise<ChatMessage[]> {
-    const conversation = this.requireConversation();
+  async listMessages(limit: number, conversationId?: string): Promise<ChatMessage[]> {
+    const conversation = conversationId === undefined ? this.requireConversation() : await this.childConversation(conversationId);
     const newest: ChatMessage[] = [];
     let cursor: import("@earendil-works/pi-durable").Cursor | undefined;
     const take = Math.max(0, Math.floor(limit));
@@ -375,37 +420,70 @@ export class TradingAgent implements AgentControl {
     return newest.slice(-take);
   }
 
-  private async watch(): Promise<void> {
-    const conversation = this.requireConversation();
+  private async childConversation(id: string): Promise<Conversation> {
+    const harness = this.harness;
+    if (harness === undefined) throw new Error("Agent is not open");
+    const numeric = Number(id);
+    if (!Number.isSafeInteger(numeric) || numeric <= 0) throw new Error("Unknown conversation");
+    const conversation = await harness.conversation(numeric as Parameters<HarnessType["conversation"]>[0], CTX);
+    if (conversation === undefined) throw new Error("Unknown conversation");
+    return conversation;
+  }
+
+  /** Stream a subagent's transcript to the UI while it runs. */
+  async watchChild(id: string): Promise<void> {
+    await this.watchConversation(await this.childConversation(id), id);
+  }
+
+  /** Publishes committed entries, streaming text, and live Code Mode calls for one conversation. */
+  private async watchConversation(conversation: Conversation, childId?: string): Promise<void> {
+    const key = childId ?? "root";
+    if (this.watched.has(key)) return;
+    this.watched.add(key);
+    const scope = childId !== undefined ? { conversationId: childId } : {};
+    const seenEntryIds = new Set<string>();
+    let seenDelta = "";
+    let seenCalls = "";
     const watch = await conversation.watch(CTX);
     // Baseline: committed entries already in the transcript need no replay.
-    for (const entry of watch.value.entries) this.seenEntryIds.add(String(entry.id));
+    for (const entry of watch.value.entries) seenEntryIds.add(String(entry.id));
     watch.start(async (value) => {
       for (const entry of value.entries) {
         const id = String(entry.id);
-        if (this.seenEntryIds.has(id)) continue;
-        this.seenEntryIds.add(id);
+        if (seenEntryIds.has(id)) continue;
+        seenEntryIds.add(id);
         for (const message of entryToMessages(entry, this.clock.now())) {
-          this.deps.bus.publish({ type: "message", message });
+          this.deps.bus.publish({ type: "message", message, ...scope });
         }
       }
-      const partial = value.docs["pi.live"] as
-        | { generation?: { message?: { content?: { type?: string; text?: string }[] } } }
+      const live = value.docs["pi.live"] as
+        | {
+            generation?: { message?: { content?: { type?: string; text?: string }[] } };
+            nestedTools?: { name: string; status: string; arguments?: unknown; summary?: { isError: boolean; durationMs?: number; error?: string } }[];
+          }
         | undefined;
-      const text = partial?.generation?.message?.content
+      const text = live?.generation?.message?.content
         ?.filter((part) => part.type === "text" && typeof part.text === "string")
         .map((part) => part.text as string)
         .join("") ?? "";
-      if (text.startsWith(this.seenDelta) && text.length > this.seenDelta.length) {
-        this.deps.bus.publish({ type: "delta", text: text.slice(this.seenDelta.length) });
-        this.seenDelta = text;
-      } else if (!text.startsWith(this.seenDelta)) {
+      if (text.startsWith(seenDelta) && text.length > seenDelta.length) {
+        this.deps.bus.publish({ type: "delta", text: text.slice(seenDelta.length), ...scope });
+        seenDelta = text;
+      } else if (!text.startsWith(seenDelta)) {
         // New turn replaced the partial; resync without emitting a jump.
-        this.seenDelta = text;
+        seenDelta = text;
       }
-      if (text === "") {
-        // A committed answer supersedes the partial it streamed from.
-        this.seenDelta = "";
+      if (text === "") seenDelta = "";
+      const calls: ToolCallSummary[] = (live?.nestedTools ?? []).map((slot) => ({
+        name: slot.name,
+        ...(slot.summary?.isError ? { isError: true } : {}),
+        summary: truncate(slot.summary?.error ?? JSON.stringify(slot.arguments ?? {}), 300),
+        ...(slot.summary?.durationMs !== undefined ? { durationMs: slot.summary.durationMs } : {}),
+      }));
+      const callsKey = JSON.stringify(calls);
+      if (callsKey !== seenCalls) {
+        seenCalls = callsKey;
+        this.deps.bus.publish({ type: "calls", calls, ...scope });
       }
     });
   }
@@ -415,6 +493,8 @@ export class TradingAgent implements AgentControl {
     this.harness = undefined;
     this.conversation = undefined;
     if (harness !== undefined) await harness.close(CTX);
+    await this.sandbox?.close();
+    this.sandbox = undefined;
   }
 }
 
