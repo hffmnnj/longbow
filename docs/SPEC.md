@@ -25,6 +25,14 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
   SEC EDGAR filings and XBRL facts, plus deterministic indicators computed server-side.
 - Subagents: `delegate` runs read-only analyst, bull, bear, risk reviewer, or researcher subagents,
   several in parallel.
+- Simulation: accelerated point-in-time replays of past trading days (`apps/server/src/sim/`) with a paper
+  cash broker, synthetic intraday path from daily bars, the real risk engine, and metrics against SPY
+  buy-and-hold. Runs are isolated in `${DATA_DIR}/sim/<id>/`; the live agent can start one with `sim_start`
+  to test a strategy hypothesis.
+- Installable PWA at https://longbow.example.ts.net:8443 (Tailscale serve, tailnet only) with web push for
+  fills, failures, halts, sign-in problems, the daily review, and finished simulations.
+- Defaults tuned for a small cash account in full auto: fractional shares, 1.5% risk per trade, 30% per name,
+  4 positions, $500 order cap, self-clearing drawdown halt.
 - One lead agent conversation. Scheduled cycles (pre-open, intraday every 30 min, post-close, overnight
   every 4 h) and the user's chat messages are inputs to it. Cycle request ids make them idempotent.
 - The model never sees order-placing Robinhood tools. It calls `submit_order` with a structured intent
@@ -34,7 +42,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 
 ## Not doing (v1)
 
-- No backtester, paper-trading simulator, or strategy optimizer.
+- No strategy optimizer or parameter sweeps; simulations run one at a time.
 - No options, crypto, shorting, margin use, or multi-leg orders.
 - No app login; the Tailnet plus the CSRF header is the boundary.
 - No FRED, Yahoo, or Stooq (blocked or rate-limited from this host); no paid data feeds.
@@ -54,5 +62,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 6. In `approve` mode an approved-by-risk order appears in the UI and can be approved or rejected;
    the kill switch blocks every order.
 7. The UI works at desktop and phone widths.
+9. A 5-day simulation finishes with an equity curve, fills, and metrics, and leaks no data after the simulated date.
+10. The app installs on a phone from the Tailscale HTTPS URL and a test push notification arrives.
 8. The model's only direct tool is `codemode`; a cycle's script calls market data, skills, and
    `delegate` in parallel, and the UI shows the script and its nested calls.
