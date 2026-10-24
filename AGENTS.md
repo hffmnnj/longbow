@@ -3,7 +3,7 @@
 ## Hard limits
 - Orders reach Robinhood only through `submit_order` (risk engine, review, place). Never expose Robinhood `place_*` tools to the model or bypass `apps/server/src/risk/gate.ts`.
 - Never print `~/.config/muse/auth.json`, `~/.local/share/robinhood-harness/robinhood/oauth.json`, or the websearch Authorization header in `~/.config/opencode-v2/opencode.json`.
-- Never `pkill -f "node src/main.ts"`: the pattern matches agent shells started from `apps/server`. The server is the systemd user unit `robinhood-harness`; use `systemctl --user restart robinhood-harness` and `journalctl --user -u robinhood-harness`.
+- Never `pkill -f "node src/main.ts"`: the pattern matches agent shells started from `apps/server`. The server is the systemd user unit `robinhood-harness`; use `systemctl --user restart robinhood-harness` and read logs with `journalctl _SYSTEMD_USER_UNIT=robinhood-harness.service` (the user journal is empty on this host).
 - Live orders and cancels need `HARNESS_LIVE_TRADING=1` in the systemd unit; without it the broker is read-only regardless of the app's mode. Only the owner's explicit go unlocks it.
 - The harness has its own ChatGPT login (`apps/server/scripts/codex-login.ts`); never copy OpenCode's OpenAI tokens, refresh tokens are single use.
 - Simulation events carry `simRunId`; the live UI reducer, journal, and push notifier must ignore them.
