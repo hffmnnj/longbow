@@ -21,6 +21,7 @@ import {
   brierScore,
   calibrationBuckets,
   classifyRegime,
+  economicCalendar,
   holdingsReplayValues,
   maxDrawdownPct,
   pairHarnessTrades,
@@ -380,13 +381,9 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     });
     const calendarDays = Array.from({ length: 7 }, (_, i) => etDatePlusDays(today, i));
     const calendarSettled = await mapSettled(calendarDays, FETCH_POOL, (date) => fetchEconomicEvents(cache, date));
-    const calendar: MarketOverview["calendar"] = [];
-    for (const { item, value } of calendarSettled) {
-      if (value === undefined) continue;
-      for (const event of value.filter((e) => e.country === "United States")) {
-        calendar.push({ date: item, ...(event.time === "" ? {} : { time: event.time }), event: event.event });
-      }
-    }
+    const calendar: MarketOverview["calendar"] = economicCalendar(
+      calendarSettled.flatMap(({ item, value }) => (value === undefined ? [] : [{ date: item, events: value }])),
+    );
     const account = deps.getAccount();
     const earningsUniverse = [...new Set([...(account?.positions.map((p) => p.symbol) ?? []), ...deps.store.getSettings().watchlist])].slice(0, 40);
     const heldSet = new Set(account?.positions.map((p) => p.symbol) ?? []);
