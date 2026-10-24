@@ -56,7 +56,7 @@ Breakout check plus compact watchlist summary:
 ```js
 const inds = await Promise.all(syms.map(s => tools.market_indicators({ symbol: s })));
 const setups = inds
-  .filter(x => x.close > x.donchian20.high * 0.995 && x.avgDollarVolume20 > 1e7)
+  .filter(x => x.close > x.donchian20.high * 0.995 && x.avgDollarVolume20 > 2e7) // live floor is in get_risk_state; $20M at current settings
   .map(x => ({ symbol: x.symbol, setup: "breakout", entry: x.close,
     stop: x.close - 2 * x.atr14, score: x.ret3m + x.ret6m }));
 return setups.slice(0, 5);

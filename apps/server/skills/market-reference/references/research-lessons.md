@@ -38,4 +38,4 @@ All paper-specific claims below are unverified against the original texts; treat
 2. Regime-gated setups with multipliers, re-confirmed on a two-cycle rule.
 3. Parallel debate with evidence scoring before entries.
 4. Calibration tracking (Brier score) against stated probabilities.
-5. Hard halts (daily 2 percent, monthly 6 percent) that no thesis overrides.
+5. Hard halts (the daily-loss and monthly-drawdown halts in `get_risk_state`) that no thesis overrides.

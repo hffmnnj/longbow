@@ -7,7 +7,7 @@ Use when: regime is bull-low-vol or bull-normal-vol, and a watchlist name is at 
 
 ## Rules
 
-1. Only trade breakouts in leaders: the name must have positive 3-month and 6-month relative strength against SPY (see `relative-strength-rotation`) and average dollar volume above $10M a day. No thin breakouts.
+1. Only trade breakouts in leaders: the name must have positive 3-month and 6-month relative strength against SPY (see `relative-strength-rotation`) and average dollar volume above the live floor in `get_risk_state`. No thin breakouts.
 2. Entry trigger: a daily close above the 20-day high (donchian20.high from `market_indicators`) or above the 52-week high. Intraday pokes that close back inside the range do not count.
 3. Volume confirmation: breakout-day volume at least 1.5 times the 20-session average. Compute the average from `market_price_history` bars. A high close on weak volume is a pass.
 4. Base-tightness filter: the 20 daily closes before the breakout must span a range of less than 12 percent from low to high. Wide, sloppy bases fail twice as often; skip them.

@@ -11,7 +11,7 @@ Use when: a stock in a confirmed uptrend has pulled back to a rising moving aver
 2. Buy zone: touches or undercuts the 20-day EMA by no more than 1 ATR, or touches the 50-day SMA. The first touch after at least 10 sessions away from the average is the highest quality; third and later touches weaken.
 3. RSI filter: 14-day RSI between 30 and 55 on the pullback day. Above 55 means it has not pulled back enough. Below 30 means momentum has broken and this belongs to mean-reversion or no-trade, not to this skill.
 4. Depth limit: the pullback from the swing high must be less than 12 percent and less than 3 times ATR. Deeper selloffs break the structure this setup assumes.
-5. Stop: below the pullback-day low minus 0.5 ATR. This is a tight stop by design; the size comes from `position-sizing-and-exits` so the dollar risk stays at 1 percent of equity.
+5. Stop: below the pullback-day low minus 0.5 ATR. This is a tight stop by design; the size comes from `position-sizing-and-exits` so the dollar risk stays at the live per-trade risk from `get_risk_state`.
 6. Entry timing: buy the first daily close that holds above the average after the touch, not the touch itself. Falling knives have no confirmation; one stable close is the confirmation.
 7. Time stop: if the name does not make a new 10-day high within 10 sessions of entry, exit. Pullbacks that sit are distribution.
 
