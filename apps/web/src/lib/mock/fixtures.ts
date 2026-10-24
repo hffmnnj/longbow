@@ -269,7 +269,7 @@ export const fixtureMessages = (): ChatMessage[] => {
         { name: "delegate", summary: '{"role":"risk_reviewer","symbol":"MSFT"}', durationMs: 5400 },
       ],
     },
-    { id: "m-12", at: t - 22 * MIN, role: "tool", toolName: "submit_order", text: "Queued for approval: BUY 3 MSFT limit 413.20 (risk checks passed)" },
+    { id: "m-12", at: t - 22 * MIN, role: "tool", toolName: "submit_order", text: "order ord-1: pending_approval (MSFT buy 3 @ 413.2)\nnote: a human must approve this order before it can be placed." },
     { id: "m-13", at: t - 22 * MIN + 2000, role: "assistant", text: "Proposed **3 MSFT at 413.20**. All risk checks pass; waiting for your approval." },
   ];
 };

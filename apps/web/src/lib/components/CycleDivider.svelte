@@ -1,8 +1,18 @@
 <script lang="ts">
   import type { ChatMessage } from "@rh/shared";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
+  import {
+    Trace,
+    TraceCollapsible,
+    TraceCollapsibleContent,
+    TraceCollapsibleTrigger,
+    TraceDescription,
+    TraceIcon,
+    TraceLine,
+    TraceTitle,
+  } from "$lib/components/ui/trace/index.js";
   import Icon from "./Icon.svelte";
-  import { ArrowRight01Icon } from "$lib/icons";
+  import { ArrowRight01Icon, File01Icon } from "$lib/icons";
   import { etTime } from "$lib/format";
   import { cycleLabel } from "$lib/steps";
   import { cn } from "$lib/utils.js";
@@ -12,6 +22,7 @@
 
   const title = $derived(cycleLabel(message.text));
   const hasBody = $derived(message.text.trim().includes("\n"));
+  const bodyLines = $derived(message.text.trim().split("\n").length);
 </script>
 
 <Collapsible.Root bind:open>
@@ -30,7 +41,22 @@
     <span class="bg-border h-px flex-1"></span>
   </div>
   <Collapsible.Content>
-    <pre
-      class="num text-muted-foreground bg-muted/50 mx-auto mt-2 max-h-80 max-w-prose overflow-auto rounded-md p-3 text-[12px] leading-relaxed break-words whitespace-pre-wrap">{message.text}</pre>
+    <div class="mx-auto max-w-prose pt-2">
+      <Trace>
+        <TraceCollapsible>
+          <TraceCollapsibleTrigger aria-label={`Cycle input, ${bodyLines} lines`}>
+            <TraceLine>
+              <TraceIcon><Icon icon={File01Icon} /></TraceIcon>
+              <TraceTitle>Cycle input</TraceTitle>
+              <TraceDescription>{bodyLines} {bodyLines === 1 ? "line" : "lines"}</TraceDescription>
+            </TraceLine>
+          </TraceCollapsibleTrigger>
+          <TraceCollapsibleContent>
+            <pre
+              class="num text-muted-foreground bg-muted/50 max-h-80 overflow-auto rounded-md p-3 text-[12px] leading-relaxed break-words whitespace-pre-wrap">{message.text}</pre>
+          </TraceCollapsibleContent>
+        </TraceCollapsible>
+      </Trace>
+    </div>
   </Collapsible.Content>
 </Collapsible.Root>

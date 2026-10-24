@@ -1,10 +1,8 @@
 <script lang="ts">
   import * as Sheet from "$lib/components/ui/sheet/index.js";
   import Icon from "./Icon.svelte";
-  import Markdown from "./Markdown.svelte";
   import StickyScroll from "./StickyScroll.svelte";
-  import Transcript from "./Transcript.svelte";
-  import { AlertCircleIcon, Tick02Icon } from "$lib/icons";
+  import SubagentTrace from "./SubagentTrace.svelte";
   import { durationShort } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { ROLE_META } from "$lib/roles";
@@ -14,6 +12,7 @@
   import { harness } from "$lib/store.svelte";
   import { openAgent, ui } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
+  import { AlertCircleIcon, Tick02Icon } from "$lib/icons";
 
   let last = $state("");
   let lastSim = $state<string | null>(null);
@@ -28,7 +27,6 @@
   const run = $derived(scope.feed.subagents.find((r) => r.id === id));
   const meta = $derived(run ? ROLE_META[run.role] : undefined);
   const transcript = $derived(scope.feed.transcripts[id] ?? emptyTranscript());
-  const messages = $derived(run?.answer ? transcript.messages.filter((m) => !(m.role === "assistant" && m.text === run.answer)) : transcript.messages);
   const recent = $derived(scope.feed.subagents.slice(0, 8));
   const running = $derived(run?.status === "running");
   const elapsed = $derived(run ? (run.endedAt ?? clock.now) - run.startedAt : 0);
@@ -102,13 +100,7 @@
             <h3 class="label-caps mb-1">Task</h3>
             <p class="text-[13px] leading-relaxed">{run.task}</p>
           </div>
-          <Transcript {messages} draft={transcript.draft} calls={transcript.calls} {running} agentLabel={meta?.label ?? "Agent"} />
-          {#if run.answer}
-            <section class="rise-in border-primary/40 bg-primary/8 rounded-lg border px-3.5 py-3" aria-label="Final answer">
-              <h3 class="label-caps text-primary mb-1.5">Final answer</h3>
-              <div class="text-[14px]"><Markdown text={run.answer} /></div>
-            </section>
-          {/if}
+          <SubagentTrace {run} {transcript} {running} />
         </StickyScroll>
       {/if}
     </div>
