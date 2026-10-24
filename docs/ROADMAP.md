@@ -22,12 +22,16 @@
 | 16 | UI pass 3: installable PWA, push opt-in, simulation lab | frontend | done |
 | 17 | Agent UI on the shadcn Trace component; resting protective stops | frontend-minion + coordinator | done |
 | 18 | Integration, systemd service, live simulation test, QA, PR | coordinator | done |
-| 19 | Live Robinhood sign-in and real tool-schema mapping | coordinator | blocked on the user's sign-in |
+| 19 | Live Robinhood sign-in and real tool-schema mapping, harness-held fractional stops, live-trading lock | coordinator + engineer | done |
+| 20 | Main agent on ChatGPT gpt-6.1-sol xhigh, subagents on Muse xhigh, long-running background subagents | coordinator + minion | done |
+| 21 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
 
 ## Follow-ups
 
-- Confirm Robinhood accepts fractional limit orders; if not, add dollar-based orders for fractional sizing.
-- Map broker snapshot, quote, review, and place to the real Robinhood tool schemas after first sign-in.
+- First live order is the first check of Robinhood's place and cancel response shapes; watch it.
+- Fractional stops are protected only while the harness runs during regular hours.
+- Background helper stop cannot abort a child turn already running (no abort API on the tool context).
+- Simulations run without background helpers; reports between cycles would break the fixed clock.
 - Calibration report: Brier score of `probabilityWin` against outcomes.
 - Wash-sale lot tracking.
 - Settings changes are logged but not journaled; the live mode was found off once with no record of who changed it.
