@@ -1,0 +1,21 @@
+# Robinhood harness guidance
+
+## Hard limits
+- Orders reach Robinhood only through `submit_order` (risk engine, review, place). Never expose Robinhood `place_*` tools to the model or bypass `apps/server/src/risk/gate.ts`.
+- Never print `~/.config/muse/auth.json`, `~/.local/share/robinhood-harness/robinhood/oauth.json`, or the websearch Authorization header in `~/.config/opencode-v2/opencode.json`.
+- Never `pkill -f "node src/main.ts"`: the pattern matches agent shells started from `apps/server`. The server is the systemd user unit `robinhood-harness`; use `systemctl --user restart robinhood-harness` and `journalctl --user -u robinhood-harness`.
+- Simulation events carry `simRunId`; the live UI reducer, journal, and push notifier must ignore them.
+
+## Commands
+- `bun run typecheck && bun run test` in the repo root; the web tests run separately with `bun run test` in `apps/web` (vitest, Node environment, no DOM).
+- After web changes, `bun run build` in `apps/web`; the server serves `apps/web/build` on port 4520.
+- Mutating API calls need the header `x-harness: 1` (CSRF guard), for example `curl -X PATCH -H "x-harness: 1" -H "content-type: application/json" -d '{"mode":"auto"}' http://127.0.0.1:4520/api/settings`.
+
+## Gotchas
+- Yahoo, Stooq, and FRED are blocked from this host; market data comes from Nasdaq, CBOE, Treasury, and SEC (`apps/server/src/market/market-data.ts`). Nasdaq ignores past `todate`, so fetch to today and slice.
+- The Playwright MCP browser cannot reach this machine's 127.0.0.1 or the tailnet; for local screenshots use Agent Browser (`web-visual-qa`) or headless `/usr/bin/chromium`.
+- The PWA's tailnet origin is `https://longbow.example.ts.net:8443` (`tailscale serve`); the public Funnel on :443 belongs to another project and must stay untouched.
+
+## Read when
+- Operating or rolling back the service → `docs/RUNBOOK.md`.
+- Scope and open work → `docs/SPEC.md`, `docs/ROADMAP.md`.
