@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { DEFAULT_SETTINGS, type JournalEntry, type OrderRecord } from "@rh/shared";
 import { openStore } from "./store.ts";
 import type { Clock } from "../ports.ts";
@@ -24,12 +25,27 @@ describe("store settings", () => {
     assert.deepEqual(store.getSettings(), DEFAULT_SETTINGS);
   });
 
+  it("fills risk fields added after a row was saved", () => {
+    openStore(dbPath(), clock).getSettings();
+    const { minOrderNotionalUsd: _dropped, ...oldRisk } = DEFAULT_SETTINGS.risk;
+    void _dropped;
+    const db = new DatabaseSync(dbPath());
+    db.prepare("UPDATE kv SET value = ? WHERE key = 'settings'").run(
+      JSON.stringify({ ...DEFAULT_SETTINGS, mode: "off", risk: { ...oldRisk, maxPositions: 2 } }),
+    );
+    db.close();
+    const settings = openStore(dbPath(), clock).getSettings();
+    assert.equal(settings.mode, "off");
+    assert.equal(settings.risk.maxPositions, 2);
+    assert.equal(settings.risk.minOrderNotionalUsd, DEFAULT_SETTINGS.risk.minOrderNotionalUsd);
+  });
+
   it("merges risk field by field and validates", () => {
     const store = openStore(dbPath(), clock);
     const next = store.patchSettings({ risk: { maxRiskPerTradePct: 2 } });
     assert.equal(next.risk.maxRiskPerTradePct, 2);
     assert.equal(next.risk.maxPositionPct, DEFAULT_SETTINGS.risk.maxPositionPct);
-    assert.equal(next.mode, "approve");
+    assert.equal(next.mode, DEFAULT_SETTINGS.mode);
     assert.throws(() => store.patchSettings({ risk: { maxRiskPerTradePct: -1 } }));
   });
 
