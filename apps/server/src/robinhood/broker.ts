@@ -1,15 +1,24 @@
 import { McpClient, StreamableHttpTransport, type Tool, type CallToolResult } from "@earendil-works/pi-mcp";
 import type { Extension, Registry } from "@earendil-works/pi-durable";
-import type { BrokerStatus, OrderIntent } from "@rh/shared";
+import type { BrokerStatus, OrderIntent, OrderRecord, Quote } from "@rh/shared";
 import type { Broker, Config, Logger, Clock } from "../ports.ts";
 import { RobinhoodOAuth, MCP_URL } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
-import { robinhoodExtension } from "./tools.ts";
-import { BrokerMappingError, findTool, orderMapping, parseQuote, parseSnapshot, readMapping, responseObject, textContent, tradingAccount, validateArguments } from "./mapping.ts";
+import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
+import { BrokerMappingError, findTool, orderMapping, parseOrder, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions } from "./mapping.ts";
+import { createNyseCalendar } from "../risk/calendar.ts";
 
 export interface RobinhoodBroker extends Broker {
   extension(): Extension;
   attach(registry: Registry): void;
+  quotes(symbols: string[]): Promise<Quote[]>;
+  cancelOrder(id: string): Promise<void>;
+  orderState(id: string): Promise<Partial<OrderRecord>>;
+  executeStop(intent: OrderIntent, refId: string): Promise<{ brokerOrderId: string; raw: string }>;
+}
+
+export function liveTradingLockedMessage(tool: string): string {
+  return `Live trading is locked: ${tool} was not sent to Robinhood (set HARNESS_LIVE_TRADING=1 to unlock)`;
 }
 
 export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock: Clock }): RobinhoodBroker {
@@ -26,6 +35,7 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   let refresh: Promise<void> | undefined;
   let lifecycle: Promise<unknown> = Promise.resolve();
   let generation = 0;
+  const calendar = createNyseCalendar();
 
   function publish(next: BrokerStatus) {
     state = next;
@@ -78,6 +88,8 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
       await privateWrite(store.directory, "tools.json", discovered.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
       client = current;
       setTools(discovered);
+      const accountsTool = findTool(discovered, ["get_accounts"]);
+      accountId = tradingAccount(responseObject(await current.callTool(accountsTool.name, validateArguments(accountsTool, {})))).accountId;
       publish({ state: "connected", tools: discovered.map((tool) => tool.name) });
       current.onClose(() => {
         if (version === generation) {
@@ -105,15 +117,35 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   }
   async function call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
     if (!client || state.state !== "connected") throw new Error("Robinhood is not connected");
+    // Hard lock independent of the app's mode: without HARNESS_LIVE_TRADING=1 only read tools reach Robinhood.
+    if (!robinhoodCallAllowed(name, deps.config.LIVE_TRADING)) throw new Error(liveTradingLockedMessage(name));
     try { return await client.callTool(name, args, { signal }); }
     catch { throw new Error("Robinhood tool request failed; reconcile any uncertain order before retrying"); }
   }
   async function identifyAccount() {
     if (accountId) return;
-    if (!tools.some((tool) => tool.name === "get_accounts")) return;
     const tool = findTool(tools, ["get_accounts"]);
     const identified = tradingAccount(responseObject(await call(tool.name, validateArguments(tool, {}))));
     accountId = identified.accountId;
+  }
+  async function mappedCall(name: string, args: Record<string, unknown>) {
+    return responseObject(await call(name, validateArguments(findTool(tools, [name]), args)));
+  }
+  async function execution(intent: OrderIntent): Promise<ExecutionOptions> {
+    if (Number.isInteger(intent.quantity)) return {};
+    const quote = (await fetchQuotes(mappedCall, [intent.symbol], clock.now()))[0]!;
+    return fractionalExecution(intent, quote, calendar.clock(clock.now()).isOpen);
+  }
+  async function place(intent: OrderIntent, options: ExecutionOptions) {
+    await identifyAccount();
+    const mapping = orderMapping(tools, "place", intent, accountId, options);
+    const result = await call(mapping.tool.name, mapping.args);
+    const response = responseObject(result);
+    if (response.customer_approval_required === true) throw new BrokerMappingError("Robinhood order requires customer approval; reconcile before retrying");
+    const order = response.order == null ? response : record(response.order);
+    const id = order.order_id ?? order.id;
+    if (typeof id !== "string" || !id) throw new BrokerMappingError("Robinhood order response missing order id; do not retry without reconciliation");
+    return { brokerOrderId: id, raw: JSON.stringify(order).slice(0, 12_000) };
   }
   const broker: RobinhoodBroker = {
     status: () => ({ ...state, tools: [...state.tools] }),
@@ -130,35 +162,39 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     }),
     async snapshot() {
       await identifyAccount();
-      const mapping = readMapping(tools, "snapshot", undefined, accountId);
-      const response = responseObject(await call(mapping.tool.name, mapping.args));
-      // An explicitly account-scoped request can use its direct portfolio result. Unscoped reads must identify the MCP account.
-      const scoped = accountId && Object.keys(mapping.args).some((key) => /^account/.test(key));
-      const identified = scoped ? { account: response, accountId } : tradingAccount(response);
-      accountId = identified.accountId;
-      return parseSnapshot(identified.account, clock.now());
+      return fetchSnapshot(mappedCall, accountId!, clock.now());
     },
     async quote(symbol) {
-      const mapping = readMapping(tools, "quote", symbol, accountId);
-      return parseQuote(responseObject(await call(mapping.tool.name, mapping.args)), symbol, clock.now());
+      return (await fetchQuotes(mappedCall, [symbol], clock.now()))[0]!;
+    },
+    quotes: (symbols) => fetchQuotes(mappedCall, symbols, clock.now()),
+    async cancelOrder(id) {
+      await identifyAccount();
+      await mappedCall("cancel_equity_order", { account_number: accountId, order_id: id });
+    },
+    async orderState(id) {
+      await identifyAccount();
+      const data = await mappedCall("get_equity_orders", { account_number: accountId, order_id: id });
+      const order = Array.isArray(data.orders) ? data.orders.map(record).find((o) => o.id === id) : undefined;
+      if (!order) throw new BrokerMappingError("Robinhood order not found during reconciliation");
+      return parseOrder(order);
+    },
+    async executeStop(intent, refId) {
+      if (!calendar.clock(clock.now()).isOpen) throw new BrokerMappingError("Stop execution requires regular hours");
+      await identifyAccount();
+      const mapping = orderMapping(tools, "review", intent, accountId, { market: true });
+      validateReview(responseObject(await call(mapping.tool.name, mapping.args)));
+      return place(intent, { market: true, refId });
     },
     async reviewOrder(intent: OrderIntent) {
       await identifyAccount();
-      const mapping = orderMapping(tools, "review", intent, accountId);
+      const mapping = orderMapping(tools, "review", intent, accountId, await execution(intent));
       const result = await call(mapping.tool.name, mapping.args);
       if (result.isError) throw new BrokerMappingError("Robinhood order review failed");
-      const text = textContent(result);
-      if (!text) throw new BrokerMappingError("Robinhood order review returned no text");
-      return text.slice(0, 12_000);
+      return validateReview(responseObject(result));
     },
     async placeOrder(intent: OrderIntent) {
-      await identifyAccount();
-      const mapping = orderMapping(tools, "place", intent, accountId);
-      const result = await call(mapping.tool.name, mapping.args);
-      const response = responseObject(result);
-      const id = response.order_id ?? response.id;
-      if (typeof id !== "string" || !id) throw new BrokerMappingError("Robinhood order response missing order id; do not retry without reconciliation");
-      return { brokerOrderId: id, raw: textContent(result).slice(0, 12_000) };
+      return place(intent, await execution(intent));
     },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     extension() { return robinhoodExtension({ tools, status: () => broker.status(), call }); },

@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   const notes = createNotes({ dir: join(config.DATA_DIR, "workspace"), bus, clock });
 
   const extensions = [
-    createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId }),
+    createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, cancelOrder: (id) => gate.cancel(id) }),
     await createWebsearchExtension({ configFile: config.WEBSEARCH_CONFIG_FILE, log: log.child("websearch") }),
     createJournalExtension({ store, bus, clock, currentCycleId }),
     createTraderPromptExtension(),
@@ -99,8 +99,10 @@ async function main(): Promise<void> {
     createSubagentExtension({
       log: log.child("subagents"),
       maxConcurrent: 4,
-      excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate"],
+      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision", "delegate"],
       onRun: onSubagentRun,
+      model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
+      thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
     }),
     createSimToolsExtension({ sim }),
   ];
@@ -113,6 +115,7 @@ async function main(): Promise<void> {
     extensions,
     onRegistry: (registry) => broker.attach(registry),
     cycleInput: async (kind, cycleId) => {
+      await gate.sync();
       await refreshAccount(`cycle-${cycleId}`);
       return cycleInput({
         kind,
@@ -175,6 +178,11 @@ async function main(): Promise<void> {
     void refreshAccount("interval");
   }, 5 * 60_000);
   refresher.unref();
+  const stopWatcher = setInterval(() => {
+    if (broker.status().state !== "connected") return;
+    void gate.tick().catch(() => log.warn("protective stop watcher failed; reconciliation required"));
+  }, 60_000);
+  stopWatcher.unref();
 
   const servers = config.HOSTS.map((hostname) =>
     serve({ fetch: app.fetch, port: config.PORT, hostname }, (info) => {
@@ -188,6 +196,7 @@ async function main(): Promise<void> {
     stopping = true;
     log.info("shutting down", { signal });
     clearInterval(refresher);
+    clearInterval(stopWatcher);
     stopNotifier();
     void sim.close();
     scheduler.stop();

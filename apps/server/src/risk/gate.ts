@@ -7,7 +7,8 @@ import {
   type RiskVerdict,
 } from "@rh/shared";
 import { etDayEndEpoch } from "./calendar.ts";
-import { evaluate, sevenDaysAgo } from "./engine.ts";
+import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
+import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 
 /**
@@ -96,7 +97,7 @@ function isEntryOrder(side: OrderIntent["side"], heldQty: number, quantity: numb
   return !(side === "sell" && heldQty >= quantity);
 }
 
-export function createOrderGate(deps: OrderGateDeps): OrderGate {
+export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: string): Promise<OrderRecord>; tick(): Promise<void>; sync(): Promise<void> } {
   const { store, broker, calendar, clock, bus, log, market: marketData } = deps;
   let tail: Promise<unknown> = Promise.resolve();
   let latestSnapshot: AccountSnapshot | null = null;
@@ -237,12 +238,12 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
 
       const settings = store.getSettings();
       const market = calendar.clock(now);
-      const recentOrders = store.ordersSince(sevenDaysAgo(now)).filter((o) => o.status === "submitted");
+      const recentOrders = store.ordersSince(sevenDaysAgo(now)).filter(countsAsSubmitted);
       const lotOpenedEtDate = store
         .ordersSince(0)
         .filter(
           (o) =>
-            o.status === "submitted" && o.intent.side === "buy" && o.intent.symbol === valid.symbol,
+            countsAsSubmitted(o) && o.intent.side === "buy" && o.intent.symbol === valid.symbol,
         )
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
@@ -311,6 +312,15 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
       }
 
       let review: string | undefined;
+      if (supportsTrading(broker) && isHeldStop(valid)) {
+        const reserved = store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
+        const available = snapshot.positions.find((p) => p.symbol === valid.symbol)?.sharesAvailableForSells ?? 0;
+        const sufficient = reserved + valid.quantity <= available;
+        const order = store.addOrder({ createdAt: now, updatedAt: clock.now(), ...(cycleId ? { cycleId } : {}), intent: valid, verdict,
+          status: sufficient ? "held" : "failed", ...(!sufficient ? { error: "Insufficient unreserved shares for held stop" } : {}) });
+        orderChanged(deps, order);
+        return order;
+      }
       try {
         review = await broker.reviewOrder(valid);
       } catch (error) {
@@ -328,6 +338,9 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         return order;
       }
       try {
+        if (supportsTrading(broker) && valid.side === "sell") {
+          for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
+        }
         const placed = await broker.placeOrder(valid);
         const order = store.addOrder({
           createdAt: now,
@@ -420,12 +433,12 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
       const market = calendar.clock(checkAt);
       const recentOrders = store
         .ordersSince(sevenDaysAgo(checkAt))
-        .filter((o) => o.status === "submitted");
+        .filter(countsAsSubmitted);
       const lotOpenedEtDate = store
         .ordersSince(0)
         .filter(
           (o) =>
-            o.status === "submitted" &&
+            countsAsSubmitted(o) &&
             o.intent.side === "buy" &&
             o.intent.symbol === existing.intent.symbol,
         )
@@ -472,6 +485,14 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
       }
 
       let review: string | undefined;
+      if (supportsTrading(broker) && isHeldStop(existing.intent)) {
+        const reserved = store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
+        const available = snapshot.positions.find((p) => p.symbol === existing.intent.symbol)?.sharesAvailableForSells ?? 0;
+        const sufficient = reserved + existing.intent.quantity <= available;
+        const order = store.updateOrder(id, { verdict, status: sufficient ? "held" : "failed", updatedAt: clock.now(), ...(!sufficient ? { error: "Insufficient unreserved shares for held stop" } : {}) });
+        orderChanged(deps, order);
+        return order;
+      }
       try {
         review = await broker.reviewOrder(existing.intent);
       } catch (error) {
@@ -486,6 +507,9 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         return order;
       }
       try {
+        if (supportsTrading(broker) && existing.intent.side === "sell") {
+          for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
+        }
         const placed = await broker.placeOrder(existing.intent);
         const order = store.updateOrder(id, {
           verdict,
@@ -574,5 +598,12 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
     });
   }
 
-  return { submit, approve, reject, halts };
+  return { submit, approve, reject, halts,
+    cancel: (id) => enqueue(async () => {
+      if (!supportsTrading(broker)) throw new Error("Broker does not support cancellation");
+      return cancelOrder({ ...deps, broker }, id);
+    }),
+    tick: () => enqueue(async () => { if (supportsTrading(broker)) await watchStops({ ...deps, broker }); }),
+    sync: () => enqueue(async () => { if (supportsTrading(broker)) await syncOrders({ ...deps, broker }); }),
+  };
 }

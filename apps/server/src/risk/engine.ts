@@ -52,11 +52,14 @@ export function sevenDaysAgo(now: number): number {
 function etDateOf(createdAt: number): string {
   return etDateForInstant(createdAt);
 }
+export function countsAsSubmitted(order: OrderRecord): boolean {
+  return ["submitted", "partially_filled", "filled"].includes(order.status) || (order.filledQuantity ?? 0) > 0;
+}
 
 /** Submitted buys today in ET. */
 export function countSubmittedBuysToday(recentOrders: OrderRecord[], todayEt: string): number {
   return recentOrders.filter(
-    (o) => o.status === "submitted" && o.intent.side === "buy" && etDateOf(o.createdAt) === todayEt,
+    (o) => countsAsSubmitted(o) && o.intent.side === "buy" && etDateOf(o.createdAt) === todayEt,
   ).length;
 }
 
@@ -69,7 +72,7 @@ export function countDayTrades(
   todayEt: string,
   tradingDaysBetween: (a: string, b: string) => number,
 ): number {
-  const submitted = recentOrders.filter((o) => o.status === "submitted");
+  const submitted = recentOrders.filter(countsAsSubmitted);
   const buyDays = new Set(
     submitted
       .filter((o) => o.intent.side === "buy")
@@ -77,8 +80,8 @@ export function countDayTrades(
   );
   let count = 0;
   // Resting stop orders are protection placed at entry, not same-day round trips.
-  for (const sell of submitted.filter((o) => o.intent.side === "sell" && o.intent.orderType !== "stop_limit")) {
-    const day = etDateOf(sell.createdAt);
+  for (const sell of submitted.filter((o) => o.intent.side === "sell" && (o.intent.orderType !== "stop_limit" || (o.filledQuantity ?? 0) > 0))) {
+    const day = etDateOf(sell.intent.orderType === "stop_limit" ? sell.updatedAt : sell.createdAt);
     if (buyDays.has(`${sell.intent.symbol}@${day}`) && tradingDaysBetween(day, todayEt) <= 3) {
       count++;
     }
@@ -136,7 +139,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
   const isExit = intent.side === "sell" && heldQty >= intent.quantity;
   const isEntry = !isExit;
   const todayEt = etDateForInstant(now);
-  const submitted = recentOrders.filter((o) => o.status === "submitted");
+  const submitted = recentOrders.filter(countsAsSubmitted);
 
   // 1. kill_switch: blocks every order.
   push(

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_SETTINGS, type OrderRecord } from "@rh/shared";
-import { evaluate, type RiskInput } from "./engine.ts";
+import { evaluate, countSubmittedBuysToday, countDayTrades, type RiskInput } from "./engine.ts";
 import { createNyseCalendar } from "./calendar.ts";
 
 const calendar = createNyseCalendar();
@@ -41,6 +41,16 @@ function submittedSell(symbol: string, createdAt: number): OrderRecord {
   const buy = submittedBuy(symbol, createdAt);
   return { ...buy, id: `s${buy.id}`, intent: { ...buy.intent, side: "sell" } };
 }
+
+it("filled and partially filled orders keep consuming entry and day-trade budgets", () => {
+  const buy = { ...submittedBuy("AAPL", NOW), status: "filled" as const, filledQuantity: 10 };
+  const sell = { ...submittedSell("AAPL", NOW), status: "partially_filled" as const, filledQuantity: 2 };
+  assert.equal(countSubmittedBuysToday([buy, sell], TODAY), 1);
+  assert.equal(countDayTrades([buy, sell], TODAY, () => 0), 1);
+  assert.equal(countSubmittedBuysToday([{ ...buy, status: "cancelled", filledQuantity: 0 }], TODAY), 0);
+  const stop = { ...sell, createdAt: NOW - 86_400_000, updatedAt: NOW, intent: { ...sell.intent, orderType: "stop_limit" as const } };
+  assert.equal(countDayTrades([buy, stop], TODAY, () => 0), 1);
+});
 
 /** A base input that passes every rule: change one thing per test. */
 function passingInput(): RiskInput {

@@ -5,11 +5,18 @@ import type { BrokerStatus } from "@rh/shared";
 import { textContent, validateArguments } from "./mapping.ts";
 
 export function beforeRobinhoodTool(call: { name: string }): { block: string } | undefined {
-  if (/^rh_place_/i.test(call.name)) return { block: "Order placement is only available through the deterministic order gate." };
+  if (call.name.startsWith("rh_") && call.name !== "rh_status" && !allowedTool(call.name.slice(3))) return { block: "Order placement is only available through the deterministic order gate." };
   return undefined;
 }
 export function modelTools(tools: Tool[]): Tool[] {
-  return tools.filter((tool) => !/^place_/i.test(tool.name) && tool.name !== "status" && /^[a-zA-Z0-9_-]+$/.test(tool.name));
+  return tools.filter((tool) => allowedTool(tool.name));
+}
+export function allowedTool(name: string): boolean {
+  return /^[a-z0-9_]+$/.test(name) && ((name.startsWith("get_") && !["get_crypto_account_onboarding_info", "get_limited_margin_upgrade_info", "get_option_level_upgrade_info"].includes(name)) || ["search", "run_scan", "preview_scan", "review_equity_order"].includes(name));
+}
+/** Any call to the real broker: read tools always, writes (place, cancel, ...) only with live trading unlocked. */
+export function robinhoodCallAllowed(name: string, liveTrading: boolean): boolean {
+  return liveTrading || allowedTool(name);
 }
 export function robinhoodExtension(options: {
   tools: Tool[]; status(): BrokerStatus;

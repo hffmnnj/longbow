@@ -73,6 +73,14 @@ function input(overrides: Partial<CycleInput> = {}): CycleInput {
 }
 
 describe("trader prompt sections", () => {
+  it("explains fractional execution, held protection and cancellation", async () => {
+    const sections = createTraderPromptExtension().sections ?? [];
+    const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+    assert.match(text, /fractional shares as market orders/);
+    assert.match(text, /watched every minute/);
+    assert.match(text, /Use cancel_order/);
+    assert.match(text, /cannot protect while the harness is down/);
+  });
   it("renders_stable_sections", async () => {
     const ext = createTraderPromptExtension();
     assert.equal(ext.name, "trader-prompt");

@@ -16,6 +16,7 @@ import {
 } from "@rh/shared";
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
+import { watchStops } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 
 const NOW = Date.UTC(2026, 10, 2, 15, 5, 0);
@@ -214,6 +215,97 @@ function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null }
   });
   return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
 }
+
+function liveSetup() {
+  const fixture = setup({ mode: "auto" });
+  const executions: Array<{ intent: OrderIntent; refId: string }> = [];
+  const cancellations: string[] = [];
+  const broker = Object.assign(fixture.broker, {
+    quotes: async (symbols: string[]) => Promise.all(symbols.map((s) => fixture.broker.quote(s))),
+    cancelOrder: async (id: string) => { cancellations.push(id); },
+    orderState: async (_id: string): Promise<Partial<OrderRecord>> => ({ status: "filled", filledQuantity: executions.at(-1)?.intent.quantity ?? 0, averageFillPrice: 139 }),
+    executeStop: async (intent: OrderIntent, refId: string) => {
+      const order = fixture.store.ordersSince(0).find((o) => o.status === "triggering");
+      assert.ok(order, "the fire-once transition must be persisted before broker execution");
+      executions.push({ intent, refId });
+      return { brokerOrderId: "stop-broker-id", raw: "{}" };
+    },
+  });
+  broker.snapshotValue.positions[0] = { symbol: "AAPL", quantity: 0.832971, sharesAvailableForSells: 0.832971, averageCost: 145, marketValue: 124.94565, unrealizedPnl: 0 };
+  const stop = { ...baseIntent(), side: "sell" as const, quantity: 0.832971, orderType: "stop_limit" as const, limitPrice: 139.3, stopPrice: 140, invalidationPrice: 140, timeInForce: "gtc" as const };
+  return { ...fixture, broker, executions, cancellations, stop };
+}
+
+describe("harness-held fractional protection", () => {
+  it("stores approved fractional stops without sending a Robinhood review or placement", async () => {
+    const { gate, broker, stop, events } = liveSetup();
+    const order = await gate.submit(stop);
+    assert.equal(order.status, "held", JSON.stringify(order.verdict));
+    assert.equal(broker.placeCalls, 0); assert.equal(broker.reviewCalls, 0);
+    assert.ok(events.some((e) => e.type === "journal" && e.entry.orderId === order.id));
+  });
+  it("claims before execution, sells min(quantity, available) once, and syncs the fill", async () => {
+    const { gate, broker, store, stop, executions } = liveSetup();
+    const order = await gate.submit(stop);
+    assert.equal(order.status, "held");
+    broker.snapshotValue.positions[0]!.sharesAvailableForSells = 0.205652;
+    broker.quoteValue = { ...baseQuote(), bid: 138.99, ask: 139.01, last: 139 };
+    await Promise.all([gate.tick(), gate.tick()]);
+    assert.equal(executions.length, 1); assert.equal(executions[0]!.intent.quantity, 0.205652);
+    assert.match(executions[0]!.refId, /^[a-f0-9-]{36}$/);
+    assert.equal(store.getOrder(order.id)?.status, "filled"); assert.equal(store.getOrder(order.id)?.brokerOrderId, "stop-broker-id");
+    assert.equal(store.getOrder(order.id)?.filledQuantity, 0.205652);
+  });
+  it("persists the fire-once claim across overlapping watcher invocations", async () => {
+    const f = liveSetup();
+    const order = await f.gate.submit(f.stop);
+    f.broker.quoteValue = { ...baseQuote(), last: 139 };
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const entering = new Promise<void>((resolve) => { entered = resolve; });
+    let count = 0;
+    f.broker.executeStop = async () => { count++; entered(); await wait; return { brokerOrderId: "stop-id", raw: "{}" }; };
+    const deps = { broker: f.broker, store: f.store, clock: { now: () => NOW }, calendar: createNyseCalendar(), bus: { publish: (_e: ServerEvent) => {}, subscribe: () => () => {} } };
+    const first = watchStops(deps);
+    await entering;
+    assert.equal(f.store.getOrder(order.id)?.status, "triggering");
+    await watchStops(deps);
+    assert.equal(count, 1);
+    release(); await first;
+  });
+  it("never triggers outside regular hours, above the stop, or under the kill switch", async () => {
+    const f = liveSetup();
+    await f.gate.submit(f.stop);
+    await f.gate.tick(); assert.equal(f.executions.length, 0);
+    f.broker.quoteValue = { ...baseQuote(), last: 139 };
+    f.setNow(Date.UTC(2026, 10, 2, 22)); await f.gate.tick(); assert.equal(f.executions.length, 0);
+    f.setNow(NOW); f.store.settings.killSwitch = true; await f.gate.tick(); assert.equal(f.executions.length, 0);
+    f.store.settings.killSwitch = false; f.store.settings.drawdownHalted = true;
+    await f.gate.tick(); assert.equal(f.executions.length, 1);
+  });
+  it("fails without selling unavailable shares and never retries an uncertain stop", async () => {
+    const f = liveSetup(); const order = await f.gate.submit(f.stop);
+    f.broker.quoteValue = { ...baseQuote(), last: 139 };
+    f.broker.snapshotValue.positions[0]!.sharesAvailableForSells = 0;
+    await f.gate.tick(); await f.gate.tick();
+    assert.equal(f.executions.length, 0); assert.equal(f.store.getOrder(order.id)?.status, "failed");
+    assert.match(f.store.getOrder(order.id)?.error ?? "", /No unreserved shares/);
+  });
+  it("cancels held stops locally and broker orders by saved broker id", async () => {
+    const f = liveSetup(); const held = await f.gate.submit(f.stop);
+    assert.equal((await f.gate.cancel(held.id)).status, "cancelled"); assert.deepEqual(f.cancellations, []);
+    const submitted = f.store.addOrder({ createdAt: NOW, updatedAt: NOW, intent: baseIntent(), verdict: { approved: true, isExit: false, checks: [] }, status: "submitted", brokerOrderId: "real-broker-id" });
+    f.broker.orderState = async () => ({ status: "cancelled", filledQuantity: 0 });
+    assert.equal((await f.gate.cancel(submitted.id)).status, "cancelled"); assert.deepEqual(f.cancellations, ["real-broker-id"]);
+  });
+  it("cancels held protection automatically before a plain sell", async () => {
+    const f = liveSetup(); const held = await f.gate.submit(f.stop);
+    const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 150, invalidationPrice: 160 });
+    assert.equal(sell.status, "submitted", JSON.stringify(sell.verdict));
+    assert.equal(f.store.getOrder(held.id)?.status, "cancelled"); assert.equal(f.broker.placeCalls, 1);
+  });
+});
 
 describe("order gate", () => {
   it("places an approved order exactly once in auto mode", async () => {
