@@ -8,6 +8,9 @@ describe("loadConfig", () => {
     assert.equal(config.PORT, 4520);
     assert.deepEqual(config.HOSTS, ["127.0.0.1"]);
     assert.equal(config.PUBLIC_URL, "http://127.0.0.1:4520");
+    assert.equal(config.LIVE_TRADING, false, "live trading is locked unless explicitly unlocked");
+    assert.equal(loadConfig({ HARNESS_LIVE_TRADING: "true" }).LIVE_TRADING, false, "only the exact value 1 unlocks");
+    assert.equal(loadConfig({ HARNESS_LIVE_TRADING: "1" }).LIVE_TRADING, true);
     assert.deepEqual(config.MAIN_MODEL, { provider: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "xhigh" });
     assert.deepEqual(config.SUBAGENT_MODEL, { provider: "meta", modelId: "muse-spark-1.3-contributor", thinkingLevel: "xhigh" });
     assert.equal(config.ROBINHOOD_MCP_URL, "https://agent.robinhood.com/mcp/trading");
