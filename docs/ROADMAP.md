@@ -12,11 +12,15 @@
 | 6 | Web UI | frontend | done |
 | 7 | Market data: Nasdaq bars, indicators, earnings, VIX, yields, SEC | minion | done |
 | 8 | Skills loader and notes workspace; skills content | minion x2 | done |
-| 9 | Subagents (`delegate`) | minion | in progress |
-| 10 | Code Mode wiring, earnings and liquidity in the risk engine, prompt update | coordinator | planned |
-| 11 | UI: code mode calls, subagent transcripts, price charts, skills and notes | frontend | planned |
-| 12 | Small account ($1,200) and full auto: defaults, fractional sizing, self-clearing drawdown halt, prompt and skills | coordinator + minions | in progress |
-| 13 | Integration, live Robinhood sign-in, QA, PR | coordinator | planned |
+| 9 | Subagents (`delegate`) | minion | done |
+| 10 | Code Mode wiring, earnings and liquidity in the risk engine, prompt update | coordinator | done |
+| 11 | UI: code mode calls, subagent transcripts, price charts, skills and notes | frontend | in progress |
+| 12 | Small account ($1,200) and full auto: defaults, fractional sizing, self-clearing drawdown halt, prompt and skills | coordinator + minions | done |
+| 13 | Point-in-time market data | minion | in progress |
+| 14 | Simulation engine, paper broker, metrics, sim_start/sim_results | engineer | in progress |
+| 15 | Web push notifications | minion | in progress |
+| 16 | UI pass 3: installable PWA, push opt-in, simulation lab | frontend | planned |
+| 17 | Integration, live Robinhood sign-in, live simulation test, QA, PR | coordinator | planned |
 
 ## Follow-ups
 
