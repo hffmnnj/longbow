@@ -114,7 +114,6 @@ describe("skills extension", () => {
 
   it("appends_dated_paragraphs_and_lists_notes", async () => {
     const append = tool("notes_append");
-    assert.equal(append.replay, "safe");
     await append.execute({ path: "lessons.md", text: "First lesson." }, api, context);
     const second = await append.execute({ path: "lessons.md", text: "Second lesson." }, api, context);
     assert.ok(!second.isError);
@@ -131,9 +130,12 @@ describe("skills extension", () => {
     assert.ok(files.includes("plan.md"));
   });
 
-  it("marks_reads_and_appends_replay_safe", () => {
-    for (const name of ["skills_load", "skills_read_file", "notes_list", "notes_read", "notes_append"]) {
+  it("marks_reads_replay_safe_and_writes_not", () => {
+    for (const name of ["skills_load", "skills_read_file", "notes_list", "notes_read"]) {
       assert.equal(tool(name).replay, "safe", `${name} should be replay safe`);
+    }
+    for (const name of ["notes_write", "notes_append"]) {
+      assert.notEqual(tool(name).replay, "safe", `${name} must not rerun after a crash`);
     }
   });
 });
