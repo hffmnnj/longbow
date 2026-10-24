@@ -250,6 +250,15 @@ export interface AgentStatus {
 
 export type ChatRole = "user" | "assistant" | "tool" | "cycle";
 
+/** One tool call a Code Mode script made, shown nested under the script. */
+export interface ToolCallSummary {
+  name: string;
+  isError?: boolean;
+  /** Short human summary of the arguments or result. */
+  summary?: string;
+  durationMs?: number;
+}
+
 export interface ChatMessage {
   id: string;
   at: number;
@@ -257,6 +266,63 @@ export interface ChatMessage {
   text: string;
   toolName?: string;
   isError?: boolean;
+  /** For `codemode` tool messages: the script the agent ran. */
+  code?: string;
+  /** For `codemode` tool messages: the nested tool calls the script made, in order. */
+  calls?: ToolCallSummary[];
+  /** For `delegate` tool messages: the subagent conversation, readable at GET /api/conversations/:id/messages. */
+  childConversationId?: string;
+  /** For `delegate` tool messages: the subagent role, for example "bear". */
+  agentRole?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Market data, skills, notes
+
+export const HistoryRangeSchema = z.enum(["1m", "3m", "6m", "1y", "2y", "5y"]);
+export type HistoryRange = z.infer<typeof HistoryRangeSchema>;
+
+/** One daily bar; `date` is the ET trading date YYYY-MM-DD. */
+export interface Bar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface PriceHistory {
+  symbol: string;
+  /** Oldest first. */
+  bars: Bar[];
+  source: string;
+  asOf: number;
+}
+
+export interface SkillSummary {
+  name: string;
+  description: string;
+}
+
+export interface Skill extends SkillSummary {
+  /** SKILL.md body (markdown, frontmatter removed). */
+  body: string;
+  /** Extra files in the skill folder, relative to it. */
+  files: string[];
+}
+
+/** A file in the agent's durable notes workspace (theses, plans, lessons). */
+export interface NoteFile {
+  path: string;
+  size: number;
+  updatedAt: number;
+}
+
+export interface NoteContent {
+  path: string;
+  content: string;
+  updatedAt: number;
 }
 
 export const SendMessageSchema = z.object({ text: z.string().min(1).max(8000) });
@@ -289,7 +355,8 @@ export type ServerEvent =
   /** Streaming assistant text for the in-flight turn; replaced by the committed `message`. */
   | { type: "delta"; text: string }
   | { type: "journal"; entry: JournalEntry }
-  | { type: "order"; order: OrderRecord };
+  | { type: "order"; order: OrderRecord }
+  | { type: "note"; note: NoteFile };
 
 export interface ConnectResponse {
   /** Robinhood sign-in URL to open in the browser. */

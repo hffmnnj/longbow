@@ -5,7 +5,13 @@ import type {
   ChatMessage,
   CycleKind,
   HaltReason,
+  HistoryRange,
   JournalEntry,
+  NoteContent,
+  NoteFile,
+  PriceHistory,
+  Skill,
+  SkillSummary,
   MarketClock,
   OrderIntent,
   OrderRecord,
@@ -118,6 +124,30 @@ export interface OrderGate {
   reject(id: string, reason?: string): Promise<OrderRecord>;
   /** Current halts for new entries. */
   halts(): Promise<HaltReason[]>;
+}
+
+/** Free public market data (Nasdaq daily bars and earnings calendar), cached under `${DATA_DIR}/cache`. */
+export interface MarketData {
+  history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
+  /** Next scheduled earnings date (ET, YYYY-MM-DD) within the next 30 days, or undefined when none is found. */
+  nextEarnings(symbol: string): Promise<string | undefined>;
+  /** Average daily dollar volume (close times volume) over the last `days` sessions. */
+  avgDollarVolume(symbol: string, days: number): Promise<number | undefined>;
+}
+
+/** Trading skills and resources shipped in `apps/server/skills/<name>/SKILL.md`. Read-only. */
+export interface SkillLibrary {
+  list(): SkillSummary[];
+  get(name: string): Skill | undefined;
+  /** A file inside a skill folder; rejects paths that escape it. */
+  readFile(name: string, path: string): Promise<string>;
+}
+
+/** The agent's writable notes workspace in `${DATA_DIR}/workspace`, markdown files only. */
+export interface Notes {
+  list(): Promise<NoteFile[]>;
+  read(path: string): Promise<NoteContent | undefined>;
+  write(path: string, content: string): Promise<NoteFile>;
 }
 
 export interface AgentControl {
