@@ -46,6 +46,9 @@ export function openStore(path: string, _clock: Clock): Store {
       day_high REAL NOT NULL
     );
   `);
+  // Additive migration: the latest observed equity of the day, so charts plot a close rather than the high.
+  const markColumns = db.prepare("PRAGMA table_info(equity_marks)").all() as { name: string }[];
+  if (!markColumns.some((column) => column.name === "day_last")) db.exec("ALTER TABLE equity_marks ADD COLUMN day_last REAL");
 
   const getSettings = (): ReturnType<Store["getSettings"]> => {
     const row = db.prepare("SELECT value FROM kv WHERE key = 'settings'").get() as
@@ -170,14 +173,15 @@ export function openStore(path: string, _clock: Clock): Store {
         | { day_start: number; day_high: number }
         | undefined;
       if (row === undefined) {
-        db.prepare("INSERT INTO equity_marks (et_date, day_start, day_high) VALUES (?, ?, ?)").run(
+        db.prepare("INSERT INTO equity_marks (et_date, day_start, day_high, day_last) VALUES (?, ?, ?, ?)").run(
           etDate,
           equity,
           equity,
+          equity,
         );
-      } else if (equity > row.day_high) {
-        // First observation of the day stays the day start; only the high moves.
-        db.prepare("UPDATE equity_marks SET day_high = ? WHERE et_date = ?").run(equity, etDate);
+      } else {
+        // First observation of the day stays the day start; the high only rises; the last always moves.
+        db.prepare("UPDATE equity_marks SET day_high = MAX(day_high, ?), day_last = ? WHERE et_date = ?").run(equity, equity, etDate);
       }
     },
 
@@ -193,6 +197,18 @@ export function openStore(path: string, _clock: Clock): Store {
         ...(row !== undefined ? { dayStart: row.day_start } : {}),
         ...(peak?.peak != null ? { monthPeak: peak.peak } : {}),
       };
+    },
+
+    equitySeries(): { etDate: string; dayStart: number; dayHigh: number; dayLast: number }[] {
+      const rows = db
+        .prepare("SELECT et_date, day_start, day_high, day_last FROM equity_marks ORDER BY et_date ASC")
+        .all() as { et_date: string; day_start: number; day_high: number; day_last: number | null }[];
+      return rows.map((row) => ({
+        etDate: row.et_date,
+        dayStart: row.day_start,
+        dayHigh: row.day_high,
+        dayLast: row.day_last ?? row.day_high,
+      }));
     },
   };
 }

@@ -5,8 +5,10 @@ import type { Broker, Config, Logger, Clock } from "../ports.ts";
 import { RobinhoodOAuth, MCP_URL } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
 import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
-import { BrokerMappingError, findTool, orderMapping, parseOrder, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions } from "./mapping.ts";
+import { BrokerMappingError, findTool, orderMapping, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
+
+export type { OpenStopOrder, PnlTrade };
 
 export interface RobinhoodBroker extends Broker {
   extension(): Extension;
@@ -15,6 +17,10 @@ export interface RobinhoodBroker extends Broker {
   cancelOrder(id: string): Promise<void>;
   orderState(id: string): Promise<Partial<OrderRecord>>;
   executeStop(intent: OrderIntent, refId: string): Promise<{ brokerOrderId: string; raw: string }>;
+  /** Closed trades from Robinhood's PnL hub (span "all"), oldest first. Read-only. */
+  tradeHistory(): Promise<PnlTrade[]>;
+  /** Open sell stop orders resting at Robinhood. Read-only. */
+  openStopOrders(): Promise<OpenStopOrder[]>;
 }
 
 export function liveTradingLockedMessage(tool: string): string {
@@ -168,6 +174,32 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
       return (await fetchQuotes(mappedCall, [symbol], clock.now()))[0]!;
     },
     quotes: (symbols) => fetchQuotes(mappedCall, symbols, clock.now()),
+    async tradeHistory() {
+      await identifyAccount();
+      const trades: PnlTrade[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const data = await mappedCall("get_pnl_trade_history", { account_number: accountId, span: "all", ...(cursor === undefined ? {} : { cursor }) });
+        trades.push(...parsePnlTrades(data));
+        const next = typeof data.next_cursor === "string" && data.next_cursor !== "" ? data.next_cursor : undefined;
+        if (next === undefined || next === cursor) break;
+        cursor = next;
+      }
+      return trades.sort((a, b) => a.closedAt - b.closedAt);
+    },
+    async openStopOrders() {
+      await identifyAccount();
+      const stops: OpenStopOrder[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const data = await mappedCall("get_equity_orders", { account_number: accountId, ...(cursor === undefined ? {} : { cursor }) });
+        stops.push(...parseOpenStopOrders(data));
+        const next = typeof data.next === "string" && data.next !== "" ? data.next : undefined;
+        if (next === undefined || next === cursor) break;
+        cursor = next;
+      }
+      return stops;
+    },
     async cancelOrder(id) {
       await identifyAccount();
       await mappedCall("cancel_equity_order", { account_number: accountId, order_id: id });

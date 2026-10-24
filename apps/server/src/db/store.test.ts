@@ -143,5 +143,6 @@ describe("store equity marks", () => {
     assert.deepEqual(store.equityMarks("2026-10-27"), { dayStart: 102_000, monthPeak: 102_000 });
     assert.deepEqual(store.equityMarks("2026-11-02"), { dayStart: 90_000, monthPeak: 90_000 });
     assert.deepEqual(store.equityMarks("2026-10-28"), { monthPeak: 102_000 });
+    assert.deepEqual(store.equitySeries()[0], { etDate: "2026-10-26", dayStart: 100_000, dayHigh: 101_000, dayLast: 99_000 });
   });
 });
