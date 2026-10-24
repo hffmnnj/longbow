@@ -57,10 +57,13 @@ export function openStore(path: string, _clock: Clock): Store {
     }
     const parsed: unknown = JSON.parse(row.value);
     // Merge new default fields over the stored row so upgrades add keys cheaply.
-    const merged =
-      typeof parsed === "object" && parsed !== null
-        ? { ...structuredClone(DEFAULT_SETTINGS), ...(parsed as Record<string, unknown>) }
-        : structuredClone(DEFAULT_SETTINGS);
+    const stored = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+    const storedRisk = typeof stored["risk"] === "object" && stored["risk"] !== null ? (stored["risk"] as Record<string, unknown>) : {};
+    const merged = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      ...stored,
+      risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...storedRisk },
+    };
     return SettingsSchema.parse(merged);
   };
 
