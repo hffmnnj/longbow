@@ -26,6 +26,7 @@ Open http://127.0.0.1:4520 locally or http://100.101.102.103:4520 over the Tailn
 
 - Logs: `journalctl --user -u robinhood-harness -f`
 - Stop everything now: the kill switch in the UI, or `systemctl --user stop robinhood-harness`.
+- Logs: `journalctl --user -u robinhood-harness -f`.
 - Roll back: `git checkout <previous commit> && bun install && bun run build:web && systemctl --user restart robinhood-harness`.
 - Muse sign-in expired (agent shows "needs login"): run `muse` to sign in again; the server re-seeds from
   `~/.config/muse/auth.json` on the next start.
