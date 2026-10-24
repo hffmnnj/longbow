@@ -21,6 +21,8 @@ export interface EarningsRow {
   /** Normalized: "pre-market", "after hours", "during market", or the raw value. */
   time: string;
   epsForecast?: string;
+  /** Reported EPS, present on historical calendar rows once results are out. */
+  actualEps?: string;
   marketCap?: string;
   marketCapNum?: number;
 }
@@ -159,12 +161,14 @@ export function parseEarningsCalendar(payload: unknown): EarningsRow[] {
     const name = cleanCell(row["name"]);
     if (symbol === undefined || name === undefined) continue;
     const epsForecast = cleanCell(row["epsForecast"]);
+    const actualEps = cleanCell(row["eps"]);
     const marketCap = cleanCell(row["marketCap"]);
     out.push({
       symbol,
       name,
       time: normalizeEarningsTime(row["time"]),
       ...(epsForecast === undefined ? {} : { epsForecast }),
+      ...(actualEps === undefined ? {} : { actualEps }),
       ...(marketCap === undefined ? {} : { marketCap }),
       ...(parseMarketCap(row["marketCap"]) === undefined ? {} : { marketCapNum: parseMarketCap(row["marketCap"]) }),
     });

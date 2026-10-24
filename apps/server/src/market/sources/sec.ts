@@ -31,6 +31,8 @@ export interface SecFactPoint {
   end: string;
   value: number;
   form: string;
+  /** SEC filing date YYYY-MM-DD when this value was published (falls back to `end`). */
+  filed: string;
 }
 
 export type SecFacts = Record<string, SecFactPoint[]>;
@@ -154,6 +156,7 @@ interface XbrlPoint {
   form?: unknown;
   fy?: unknown;
   fp?: unknown;
+  filed?: unknown;
 }
 
 /** Pick the last 8 reported points (oldest first) for the first matching tag. */
@@ -173,11 +176,13 @@ export function pickFactPoints(factsRoot: unknown, tags: string[]): SecFactPoint
     for (const p of points) {
       if (typeof p.end !== "string" || typeof p.val !== "number" || !Number.isFinite(p.val)) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(p.end)) continue;
+      const filed = typeof p.filed === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.filed) ? p.filed : p.end;
       clean.push({
         period: typeof p.fp === "string" && typeof p.fy === "number" ? `${p.fp} ${p.fy}` : p.end,
         end: p.end,
         value: p.val,
         form: typeof p.form === "string" ? p.form : "",
+        filed,
       });
     }
     if (clean.length === 0) continue;
