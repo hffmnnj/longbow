@@ -126,7 +126,12 @@ function installTestRegistry(tokensPerSecond?: number) {
   const registry = createRegistry();
   registry.install(defineExtension({ name: "trading", tools: [quoteTool, submitOrderTool] }));
   registry.install(defineExtension({ name: "probe-ext", tools: [probeTool] }));
-  registry.install(createSubagentExtension({ log: silentLog, excludedTools: EXCLUDED }));
+  registry.install(createSubagentExtension({
+    log: silentLog,
+    excludedTools: EXCLUDED,
+    model: { provider: "faux", modelId: "faux-1" },
+    thinkingLevel: "low",
+  }));
   return { faux, models, registry };
 }
 
@@ -185,7 +190,8 @@ describe("subagent delegate tool", () => {
           assert.ok(!names.includes("submit_order"), "child loses the excluded order tool");
           assert.ok(!names.includes("delegate"), "child cannot delegate further");
         }
-        assert.equal(agent.thinkingLevel, "medium");
+        assert.equal(agent.thinkingLevel, "low", "child runs at the fleet thinking level, not the parent's");
+        assert.deepEqual(agent.model, { provider: "faux", modelId: "faux-1" }, "child runs on the fleet model");
         assert.ok(agent.instructions?.includes("analyst"), "child instructions carry the role brief");
         assert.ok(agent.instructions?.includes("SPY"), "child instructions carry the symbol");
 

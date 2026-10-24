@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import {
   createRegistry,
@@ -18,7 +19,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { CODEMODE_TOOL_NAME, createCodemodeExtension, type CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import type { AgentStatus, ChatMessage, CycleKind, StatusResponse, ToolCallSummary } from "@rh/shared";
-import type { AgentControl, Clock, Config, EventBus, Logger } from "../ports.ts";
+import type { AgentControl, Clock, Config, EventBus, Logger, ModelSpec } from "../ports.ts";
 import {
   credentialFilePath,
   FileCredentialStore,
@@ -171,6 +172,7 @@ export class TradingAgent implements AgentControl {
   private nextCycleKind: CycleKind | undefined;
   private lastError: string | undefined;
   private authFailed: string | undefined;
+  private activeModel: ModelSpec | undefined;
   private lastPublishedState: AgentStatus["state"] | undefined;
   private statusSnapshot: (() => Omit<StatusResponse, "agent"> | Promise<Omit<StatusResponse, "agent">>) | undefined;
   private sandbox: CodemodeSandbox | undefined;
@@ -195,6 +197,9 @@ export class TradingAgent implements AgentControl {
     const credentials = new FileCredentialStore(this.deps.credentialFile ?? credentialFilePath(config.DATA_DIR));
     const models = createModels({ credentials });
     models.setProvider(metaProvider());
+    models.setProvider(openaiCodexProvider());
+    const main = await this.resolveMainModel(credentials);
+    this.activeModel = main;
     const registry = createRegistry();
     for (const extension of this.deps.extensions) registry.install(extension);
     this.deps.onRegistry?.(registry);
@@ -231,17 +236,29 @@ export class TradingAgent implements AgentControl {
     );
     this.harness = harness;
     const conversation = await harness.root(CTX, {
-      agent: { model: { provider: "meta", modelId: config.MUSE_MODEL }, thinkingLevel: "high" },
+      agent: { model: { provider: main.provider, modelId: main.modelId }, thinkingLevel: main.thinkingLevel },
     });
     // An existing conversation keeps its stored model; pin it to the current one.
     await conversation.configure(
-      { model: { provider: "meta", modelId: config.MUSE_MODEL }, thinkingLevel: "high", modelTools: [codemodeTool] },
+      { model: { provider: main.provider, modelId: main.modelId }, thinkingLevel: main.thinkingLevel, modelTools: [codemodeTool] },
       CTX,
     );
     this.conversation = conversation;
     await this.watchConversation(conversation);
     harness.resume();
-    log.info("agent open", { model: config.MUSE_MODEL });
+    log.info("agent open", { model: `${main.provider}/${main.modelId}#${main.thinkingLevel}` });
+  }
+
+  /** The configured main model, or the subagent model when its provider has no stored login. */
+  private async resolveMainModel(credentials: FileCredentialStore): Promise<ModelSpec> {
+    const { MAIN_MODEL, SUBAGENT_MODEL } = this.deps.config;
+    if (MAIN_MODEL.provider === "meta") return MAIN_MODEL;
+    if ((await credentials.read(MAIN_MODEL.provider).catch(() => undefined)) !== undefined) return MAIN_MODEL;
+    this.deps.log.warn("main model has no login; falling back to the subagent model", {
+      main: `${MAIN_MODEL.provider}/${MAIN_MODEL.modelId}`,
+      fallback: `${SUBAGENT_MODEL.provider}/${SUBAGENT_MODEL.modelId}`,
+    });
+    return SUBAGENT_MODEL;
   }
 
   /** Seed the Meta credential when missing or when the Muse auth file is newer. */
@@ -291,7 +308,7 @@ export class TradingAgent implements AgentControl {
     else state = "idle";
     return {
       state,
-      model: this.deps.config.MUSE_MODEL,
+      model: (this.activeModel ?? this.deps.config.MAIN_MODEL).modelId,
       ...(this.lastCycleAt !== undefined ? { lastCycleAt: this.lastCycleAt } : {}),
       ...(this.lastCycleKind !== undefined ? { lastCycleKind: this.lastCycleKind } : {}),
       ...(this.nextCycleAt !== undefined ? { nextCycleAt: this.nextCycleAt } : {}),
