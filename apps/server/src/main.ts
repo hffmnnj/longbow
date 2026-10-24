@@ -1,0 +1,135 @@
+import { join } from "node:path";
+import { serve } from "@hono/node-server";
+import type { AccountSnapshot, StatusResponse } from "@rh/shared";
+import { loadConfig } from "./config.ts";
+import { createLogger } from "./log.ts";
+import { createEventBus } from "./events.ts";
+import { openStore } from "./db/store.ts";
+import { TradingAgent } from "./agent/runtime.ts";
+import { startScheduler } from "./scheduler/cycles.ts";
+import { buildStatus, createApp } from "./http/app.ts";
+import { createNyseCalendar } from "./risk/calendar.ts";
+import { createRobinhoodBroker } from "./robinhood/broker.ts";
+import { createOrderGate } from "./risk/gate.ts";
+import { createRiskExtension } from "./risk/tools.ts";
+import { createWebsearchExtension } from "./tools/websearch.ts";
+import { createJournalExtension } from "./tools/journal.ts";
+import { createTraderPromptExtension, cycleInput } from "./agent/prompt.ts";
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const log = createLogger("harness");
+  const clock = { now: () => Date.now() };
+  const bus = createEventBus();
+  const store = openStore(join(config.DATA_DIR, "app.sqlite"), clock);
+
+  const calendar = createNyseCalendar();
+  const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
+  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk") });
+
+  // Late-bound: extensions and the scheduler need the agent's id before it exists.
+  let agent: TradingAgent | undefined;
+  const currentCycleId = (): string | undefined => agent?.currentCycleId();
+
+  let cachedAccount: AccountSnapshot | null = null;
+  const refreshAccount = async (why: string): Promise<void> => {
+    if (broker.status().state !== "connected") return;
+    try {
+      cachedAccount = await broker.snapshot();
+      store.markEquity(cachedAccount.at, calendar.etDate(cachedAccount.at), cachedAccount.equity);
+    } catch (error) {
+      log.warn("account refresh failed", { why, error: error instanceof Error ? error.message : "unknown" });
+    }
+  };
+
+  const extensions = [
+    createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId }),
+    await createWebsearchExtension({ configFile: config.WEBSEARCH_CONFIG_FILE, log: log.child("websearch") }),
+    createJournalExtension({ store, bus, clock, currentCycleId }),
+    createTraderPromptExtension(),
+  ];
+
+  agent = await TradingAgent.open({
+    config,
+    log: log.child("agent"),
+    bus,
+    clock,
+    extensions,
+    onRegistry: (registry) => broker.attach(registry),
+    cycleInput: async (kind, cycleId) => {
+      await refreshAccount(`cycle-${cycleId}`);
+      return cycleInput({
+        kind,
+        cycleId,
+        market: calendar.clock(clock.now()),
+        settings: store.getSettings(),
+        halts: await gate.halts(),
+        account: cachedAccount,
+      });
+    },
+  });
+  const tradingAgent = agent;
+
+  const scheduler = startScheduler({
+    agent: tradingAgent,
+    calendar,
+    store,
+    bus,
+    clock,
+    log: log.child("scheduler"),
+    onNext: (next) => tradingAgent.setNextCycle(next),
+  });
+
+  const appDeps = {
+    config,
+    store,
+    bus,
+    agent: tradingAgent,
+    broker,
+    gate,
+    calendar,
+    clock,
+    scheduler,
+    getAccount: (): AccountSnapshot | null => cachedAccount,
+    log: log.child("http"),
+  };
+  // Agent status events carry the live snapshot minus the agent field itself.
+  tradingAgent.setStatusSnapshot(async (): Promise<Omit<StatusResponse, "agent">> => {
+    const { agent: _agent, ...rest } = await buildStatus(appDeps);
+    void _agent;
+    return rest;
+  });
+
+  const app = createApp(appDeps);
+
+  const refresher = setInterval(() => {
+    if (calendar.clock(clock.now()).session !== "regular") return;
+    void refreshAccount("interval");
+  }, 5 * 60_000);
+  refresher.unref();
+
+  const servers = config.HOSTS.map((hostname) =>
+    serve({ fetch: app.fetch, port: config.PORT, hostname }, (info) => {
+      log.info("listening", { host: info.address, port: info.port });
+    }),
+  );
+
+  let stopping = false;
+  const shutdown = (signal: string): void => {
+    if (stopping) return;
+    stopping = true;
+    log.info("shutting down", { signal });
+    clearInterval(refresher);
+    scheduler.stop();
+    for (const server of servers) server.close();
+    void tradingAgent.close().finally(() => process.exit(0));
+    setTimeout(() => process.exit(1), 15_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write(`fatal: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+});
