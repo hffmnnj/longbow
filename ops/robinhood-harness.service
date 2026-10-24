@@ -1,0 +1,15 @@
+[Unit]
+Description=Robinhood trading harness (Pi Durable agent + UI on :4520)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/robinhood-harness/apps/server
+Environment=HARNESS_TAILNET_HOST=100.101.102.103
+ExecStart=/usr/bin/env node src/main.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

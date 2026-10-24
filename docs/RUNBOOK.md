@@ -1,0 +1,31 @@
+# Runbook
+
+Runs on `laptop` as a systemd user service. State lives in `~/.local/share/robinhood-harness`
+(`durable.sqlite` for the agent, `app.sqlite` for settings, journal, and orders,
+`robinhood/oauth.json` for Robinhood tokens, mode 0600).
+
+## Install or update
+
+```sh
+cd ~/Documents/robinhood-harness
+git pull && bun install && bun run build:web
+install -Dm644 ops/robinhood-harness.service ~/.config/systemd/user/robinhood-harness.service
+systemctl --user daemon-reload
+systemctl --user enable --now robinhood-harness
+curl -fsS http://127.0.0.1:4520/api/status | head -c 300
+```
+
+Open http://127.0.0.1:4520 locally or http://100.101.102.103:4520 over the Tailnet.
+
+## First run
+
+1. Click **Connect Robinhood** and sign in. The agent trades only in the Robinhood MCP account.
+2. Leave the mode on **Approve** until you trust it. **Auto** places risk-approved orders without you.
+
+## Operate
+
+- Logs: `journalctl --user -u robinhood-harness -f`
+- Stop everything now: the kill switch in the UI, or `systemctl --user stop robinhood-harness`.
+- Roll back: `git checkout <previous commit> && bun install && bun run build:web && systemctl --user restart robinhood-harness`.
+- Muse sign-in expired (agent shows "needs login"): run `muse` to sign in again; the server re-seeds from
+  `~/.config/muse/auth.json` on the next start.
