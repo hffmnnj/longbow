@@ -20,6 +20,7 @@ import type {
   EventBus,
   Logger,
   MarketCalendar,
+  ModelSpec,
   MarketData,
   Notes,
   OrderGate,
@@ -53,6 +54,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function modelSpecText(spec: ModelSpec): string {
+  return `${spec.provider}/${spec.modelId}#${spec.thinkingLevel}`;
+}
+
 /** Build the full status snapshot every status endpoint and event carries. */
 export async function buildStatus(deps: AppDeps): Promise<StatusResponse> {
   const settings = deps.store.getSettings();
@@ -78,6 +83,8 @@ export async function buildStatus(deps: AppDeps): Promise<StatusResponse> {
     broker: deps.broker.status(),
     market,
     settings,
+    liveTrading: deps.config.LIVE_TRADING,
+    models: { main: modelSpecText(deps.config.MAIN_MODEL), subagents: modelSpecText(deps.config.SUBAGENT_MODEL) },
     account,
     halts,
     ...(dayPnl !== undefined ? { dayPnl } : {}),

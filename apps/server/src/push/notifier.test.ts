@@ -71,6 +71,8 @@ function statusResponse(
   brokerState: StatusResponse["broker"]["state"] = "connected",
 ): StatusResponse {
   return {
+    liveTrading: false,
+    models: { main: "openai-codex/gpt-6.1-sol#xhigh", subagents: "meta/muse-spark-1.3-contributor#xhigh" },
     agent: { state: agentState, model: "muse-spark" },
     broker: { state: brokerState, tools: [] },
     market: {
