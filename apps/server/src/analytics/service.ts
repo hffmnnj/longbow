@@ -168,7 +168,7 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     }
   }
 
-  async function historyCloses(symbols: readonly string[], range: "1y"): Promise<Map<string, Map<string, number>>> {
+  async function historyCloses(symbols: readonly string[], range: "1y" | "5y"): Promise<Map<string, Map<string, number>>> {
     const settled = await mapSettled(symbols, FETCH_POOL, (symbol) => deps.market.history(symbol, range));
     const out = new Map<string, Map<string, number>>();
     for (const { item, value } of settled) {
@@ -191,8 +191,11 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
       // The day's latest observed equity: a close while marks keep arriving through the session.
       equity: r.dayLast,
     }));
+    // Trading days in the range, from SPY's bars: the replay's x axis, independent of when marks began.
+    let tradingDays: string[] = [];
     try {
       const spy = await deps.market.history("SPY", range === "all" ? "5y" : "1y");
+      tradingDays = spy.bars.map((b) => b.date).filter((date) => date >= cutoff && date <= today);
       const byDate = new Map(spy.bars.map((b) => [b.date, b.close]));
       const first = points[0];
       const base = first === undefined ? undefined : closeOnOrBefore(byDate, first.date);
@@ -219,12 +222,12 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
       if (dd !== undefined) history.maxDrawdownPct = dd;
     }
     const account = deps.getAccount();
-    if (account !== null && points.length > 0) {
-      const closesBySymbol = await historyCloses(account.positions.map((p) => p.symbol), "1y");
+    if (account !== null && tradingDays.length > 0) {
+      const closesBySymbol = await historyCloses(account.positions.map((p) => p.symbol), range === "all" ? "5y" : "1y");
       const plain: Record<string, Record<string, number>> = {};
       for (const [symbol, byDate] of closesBySymbol) plain[symbol] = Object.fromEntries(byDate);
       history.holdingsReplay = holdingsReplayValues(
-        points.map((p) => p.date),
+        tradingDays,
         plain,
         account.positions.map((p) => ({ symbol: p.symbol, quantity: p.quantity })),
         account.cash,
@@ -459,8 +462,8 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
         ...(rsi(c, 14) === undefined ? {} : { rsi14: rsi(c, 14) as number }),
         ...(atr(history.bars, 14) === undefined ? {} : { atr14: atr(history.bars, 14) as number }),
         ...(avgDollarVolume(history.bars, 20) === undefined ? {} : { avgDollarVolume: avgDollarVolume(history.bars, 20) as number }),
-        ...(periodReturn(c, 21) === undefined ? {} : { return1m: periodReturn(c, 21) as number }),
-        ...(periodReturn(c, 63) === undefined ? {} : { return3m: periodReturn(c, 63) as number }),
+        ...(periodReturn(c, 21) === undefined ? {} : { return1m: (periodReturn(c, 21) as number) * 100 }),
+        ...(periodReturn(c, 63) === undefined ? {} : { return3m: (periodReturn(c, 63) as number) * 100 }),
         high52w: Math.max(...year.map((b) => b.high)),
         low52w: Math.min(...year.map((b) => b.low)),
       },
