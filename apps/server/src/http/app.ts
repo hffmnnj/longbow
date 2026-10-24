@@ -4,11 +4,13 @@ import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import {
   CSRF_HEADER,
+  HistoryRangeSchema,
   OrderDecisionSchema,
   SendMessageSchema,
   SettingsPatchSchema,
   type AccountSnapshot,
   type StatusResponse,
+  type SubagentRun,
 } from "@rh/shared";
 import type {
   AgentControl,
@@ -18,7 +20,10 @@ import type {
   EventBus,
   Logger,
   MarketCalendar,
+  MarketData,
+  Notes,
   OrderGate,
+  SkillLibrary,
   Store,
 } from "../ports.ts";
 import type { CyclePoint } from "../scheduler/cycles.ts";
@@ -35,7 +40,14 @@ export interface AppDeps {
   scheduler: { next(): CyclePoint };
   getAccount: () => AccountSnapshot | null;
   log: Logger;
+  skills?: SkillLibrary;
+  notes?: Notes;
+  market?: MarketData;
+  /** Newest first. */
+  subagents?: () => SubagentRun[];
 }
+
+const SYMBOL = /^[A-Z.]{1,10}$/;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -112,6 +124,49 @@ export function createApp(deps: AppDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "invalid body" }, 400);
     await deps.agent.sendMessage(parsed.data.text);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/conversations/:id/messages", async (c) => {
+    const limit = Math.min(500, Math.max(1, Number(c.req.query("limit") ?? "200") || 200));
+    try {
+      return c.json(await deps.agent.listMessages(limit, c.req.param("id")));
+    } catch {
+      return c.json({ error: "unknown conversation" }, 404);
+    }
+  });
+
+  app.get("/api/subagents", (c) => c.json(deps.subagents?.() ?? []));
+
+  app.get("/api/skills", (c) => c.json(deps.skills?.list() ?? []));
+
+  app.get("/api/skills/:name", (c) => {
+    const skill = deps.skills?.get(c.req.param("name"));
+    return skill === undefined ? c.json({ error: "unknown skill" }, 404) : c.json(skill);
+  });
+
+  app.get("/api/notes", async (c) => c.json((await deps.notes?.list()) ?? []));
+
+  app.get("/api/notes/*", async (c) => {
+    const path = decodeURIComponent(c.req.path.slice("/api/notes/".length));
+    try {
+      const note = await deps.notes?.read(path);
+      return note === undefined ? c.json({ error: "unknown note" }, 404) : c.json(note);
+    } catch {
+      return c.json({ error: "invalid path" }, 400);
+    }
+  });
+
+  app.get("/api/market/history", async (c) => {
+    const symbol = (c.req.query("symbol") ?? "").toUpperCase();
+    const range = HistoryRangeSchema.safeParse(c.req.query("range") ?? "6m");
+    if (!SYMBOL.test(symbol) || !range.success) return c.json({ error: "invalid symbol or range" }, 400);
+    if (deps.market === undefined) return c.json({ error: "market data unavailable" }, 503);
+    try {
+      return c.json(await deps.market.history(symbol, range.data));
+    } catch (error) {
+      deps.log.warn("history failed", { symbol, error: errorMessage(error) });
+      return c.json({ error: "history unavailable" }, 502);
+    }
   });
 
   app.post("/api/cycles", async (c) => {

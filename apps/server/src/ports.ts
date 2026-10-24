@@ -156,5 +156,6 @@ export interface AgentControl {
   sendMessage(text: string): Promise<void>;
   /** Starts a cycle now; idempotent per cycle id. */
   runCycle(kind: CycleKind): Promise<void>;
-  listMessages(limit: number): Promise<ChatMessage[]>;
+  /** The lead agent's transcript, or a subagent's when `conversationId` is given. */
+  listMessages(limit: number, conversationId?: string): Promise<ChatMessage[]>;
 }
