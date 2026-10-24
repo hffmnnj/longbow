@@ -213,6 +213,12 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = SettingsPatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "invalid body" }, 400);
     const settings = deps.store.patchSettings(parsed.data);
+    deps.log.info("settings changed", {
+      keys: Object.keys(parsed.data),
+      mode: settings.mode,
+      killSwitch: settings.killSwitch,
+      origin: c.req.header("origin") ?? "none",
+    });
     // The scheduler re-arms off status events, so publishing applies the cadence now.
     deps.bus.publish({ type: "status", status: await buildStatus(deps) });
     return c.json(settings);
