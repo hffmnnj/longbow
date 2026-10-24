@@ -31,6 +31,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     PUBLIC_URL: str(env, "PUBLIC_URL", `http://127.0.0.1:${port}`),
     ALLOWED_ORIGINS: (env["HARNESS_ORIGINS"] ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== ""),
     DATA_DIR: str(env, "DATA_DIR", join(home, ".local", "share", "robinhood-harness")),
+    LIVE_TRADING: env["HARNESS_LIVE_TRADING"] === "1",
     MAIN_MODEL: parseModelSpec(str(env, "MAIN_MODEL", "openai-codex/gpt-6.1-sol#xhigh")),
     SUBAGENT_MODEL: parseModelSpec(str(env, "SUBAGENT_MODEL", "meta/muse-spark-1.3-contributor#xhigh")),
     MUSE_AUTH_FILE: str(env, "MUSE_AUTH_FILE", join(home, ".config", "muse", "auth.json")),
