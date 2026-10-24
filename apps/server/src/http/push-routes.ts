@@ -47,7 +47,7 @@ export function mountPushRoutes(app: Hono, deps: PushRouteDeps): void {
 
   app.post("/api/push/test", async (c) => {
     try {
-      const result = await deps.push.send({ title: "Robinhood Harness", body: "Notifications are on." });
+      const result = await deps.push.send({ title: "Longbow", body: "Notifications are on." });
       return c.json(result);
     } catch (error) {
       deps.log.warn("push test failed", { error: errorMessage(error) });
