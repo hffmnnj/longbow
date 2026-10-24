@@ -29,7 +29,7 @@ const submitOrderSchema = Type.Object({
     description: "Buy to open a long, or sell shares you already hold. Shorting is never allowed.",
   }),
   quantity: Type.Number({
-    description: "Number of shares. Must fit the per-trade risk, position, and notional caps.",
+    description: "Number of shares, fractional to 4 decimal places (for example 3.7894). Must fit the per-trade risk, position, and notional caps.",
     exclusiveMinimum: 0,
   }),
   orderType: Type.Union([Type.Literal("limit"), Type.Literal("stop_limit")], {
@@ -109,11 +109,20 @@ function formatEt(instant: number): string {
 export function createRiskExtension(deps: RiskToolsDeps): Extension {
   const { gate, store, calendar, clock, broker, currentCycleId } = deps;
 
+  /** Current trading mode; undefined when the store cannot answer (tests). */
+  function readMode(): string | undefined {
+    try {
+      return store.getSettings().mode;
+    } catch {
+      return undefined;
+    }
+  }
+
   const submitOrder = defineTool({
     name: "submit_order",
     description:
       "Propose an order to the deterministic risk gate. It validates the intent, checks every risk rule, " +
-      "and either rejects it, queues it for human approval, or submits it to the broker. " +
+      "and either rejects it, holds it for approval in approve mode, or submits it to the broker in auto mode. " +
       "In approve mode a human must approve the pending order before anything is placed.",
     parameters: submitOrderSchema,
     async execute(args: SubmitOrderArgs) {
@@ -148,11 +157,20 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       if (order.verdict.maxQuantity !== undefined) {
         lines.push(`max quantity allowed by the sizing rules: ${order.verdict.maxQuantity}`);
       }
+      const autoMode = readMode() === "auto";
       if (order.status === "pending_approval") {
         lines.push("note: a human must approve this order before it can be placed.");
       }
-      if (order.status === "submitted") {
+      if (order.status === "submitted" && autoMode) {
+        lines.push(
+          `submitted to Robinhood (broker order id: ${order.brokerOrderId ?? "unknown"}); ` +
+            "confirm the fill with Robinhood's order tools.",
+        );
+      } else if (order.status === "submitted") {
         lines.push(`broker order id: ${order.brokerOrderId ?? "unknown"}`);
+      }
+      if (order.status === "failed" && autoMode) {
+        lines.push("the order failed to submit to Robinhood; nothing was placed.");
       }
       if (order.error !== undefined) {
         lines.push(`error: ${order.error}`);

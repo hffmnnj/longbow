@@ -48,7 +48,7 @@ function passingInput(): RiskInput {
     intent: {
       symbol: "AAPL",
       side: "buy",
-      quantity: 10,
+      quantity: 1,
       orderType: "limit",
       limitPrice: 150,
       timeInForce: "day",
@@ -64,17 +64,17 @@ function passingInput(): RiskInput {
     settings: structuredClone(DEFAULT_SETTINGS),
     account: {
       at: NOW,
-      equity: 100_000,
-      cash: 50_000,
-      buyingPower: 50_000,
-      settledCash: 50_000,
+      equity: 1200,
+      cash: 1200,
+      buyingPower: 1200,
+      settledCash: 1200,
       positions: [
         {
           symbol: "AAPL",
-          quantity: 20,
+          quantity: 1,
           averageCost: 145,
-          marketValue: 3000,
-          unrealizedPnl: 100,
+          marketValue: 150,
+          unrealizedPnl: 5,
           sector: "Technology",
         },
       ],
@@ -89,7 +89,7 @@ function passingInput(): RiskInput {
       nextClose: NOW + 5 * 3_600_000,
       earlyClose: false,
     },
-    equityMarks: { dayStart: 99_500, monthPeak: 101_000 },
+    equityMarks: { dayStart: 1190, monthPeak: 1250 },
     recentOrders: [],
     lotOpenedEtDate: undefined,
     nextEarningsDate: undefined,
@@ -110,9 +110,21 @@ describe("risk engine", () => {
     const verdict = evaluate(passingInput());
     assert.equal(verdict.approved, true);
     assert.equal(verdict.isExit, false);
-    assert.equal(verdict.checks.length, 22);
-    // Risk allows 100, notional 16, position (5000-3000)/150 = 13.
-    assert.equal(verdict.maxQuantity, 13);
+    assert.equal(verdict.checks.length, 23);
+    // Risk allows 1.8, notional 3.3333, position (360-150)/150 = 1.4.
+    assert.equal(verdict.maxQuantity, 1.4);
+  });
+
+  it("sizes fractional shares to 4 decimal places", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, quantity: 3.7894, limitPrice: 100, invalidationPrice: 98 };
+    input.quote = { ...input.quote, bid: 99.95, ask: 100.05, last: 100 };
+    input.settings.risk.maxPositionPct = 100;
+    input.settings.risk.maxOrderNotionalUsd = 378.945;
+    const verdict = evaluate(input);
+    assert.equal(verdict.approved, true);
+    // Notional cap binds: floor(378.945 / 100) to 4 decimals.
+    assert.equal(verdict.maxQuantity, 3.7894);
   });
 
   it("kill_switch blocks every order", () => {
@@ -166,7 +178,7 @@ describe("risk engine", () => {
 
   it("limit_vs_mid blocks a buy limit above the slippage ceiling", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, limitPrice: 160 };
+    input.intent = { ...input.intent, limitPrice: 160, invalidationPrice: 150 };
     assert.deepEqual(failedRules(input), ["limit_vs_mid"]);
   });
 
@@ -185,20 +197,20 @@ describe("risk engine", () => {
   it("no_short rejects a sell larger than the held long", () => {
     const input = passingInput();
     input.account = { ...input.account, positions: [] };
-    input.intent = { ...input.intent, side: "sell", quantity: 16, invalidationPrice: 160 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1, invalidationPrice: 160 };
     assert.deepEqual(failedRules(input), ["no_short"]);
   });
 
   it("daily_loss blocks entries below the day-start floor", () => {
     const input = passingInput();
-    input.account = { ...input.account, equity: 97_000 };
+    input.account = { ...input.account, equity: 1152 };
     assert.deepEqual(failedRules(input), ["daily_loss"]);
   });
 
   it("daily_loss still allows an exit", () => {
     const input = passingInput();
-    input.account = { ...input.account, equity: 97_000 };
-    input.intent = { ...input.intent, side: "sell", quantity: 5, timeStopDate: TODAY };
+    input.account = { ...input.account, equity: 1152 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1, timeStopDate: TODAY };
     const verdict = evaluate(input);
     assert.equal(verdict.approved, true);
     assert.equal(verdict.isExit, true);
@@ -206,8 +218,8 @@ describe("risk engine", () => {
 
   it("drawdown blocks entries below the month-peak floor", () => {
     const input = passingInput();
-    input.account = { ...input.account, equity: 94_000 };
-    input.equityMarks = { dayStart: 95_000, monthPeak: 101_000 };
+    input.account = { ...input.account, equity: 1145 };
+    input.equityMarks = { dayStart: 1150, monthPeak: 1250 };
     assert.deepEqual(failedRules(input), ["drawdown"]);
   });
 
@@ -219,13 +231,7 @@ describe("risk engine", () => {
 
   it("risk_per_trade blocks entries risking too much to invalidation", () => {
     const input = passingInput();
-    input.account = {
-      ...input.account,
-      positions: [
-        { symbol: "AAPL", quantity: 10, averageCost: 145, marketValue: 1500, unrealizedPnl: 50, sector: "Technology" },
-      ],
-    };
-    input.intent = { ...input.intent, quantity: 16, invalidationPrice: 80 };
+    input.intent = { ...input.intent, quantity: 1, invalidationPrice: 80 };
     assert.deepEqual(failedRules(input), ["risk_per_trade"]);
   });
 
@@ -237,7 +243,12 @@ describe("risk engine", () => {
 
   it("position_size blocks entries that would over-concentrate one symbol", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, quantity: 14 };
+    input.account = {
+      ...input.account,
+      positions: [
+        { symbol: "AAPL", quantity: 2, averageCost: 145, marketValue: 300, unrealizedPnl: 10, sector: "Technology" },
+      ],
+    };
     assert.deepEqual(failedRules(input), ["position_size"]);
   });
 
@@ -246,24 +257,62 @@ describe("risk engine", () => {
     input.account = {
       ...input.account,
       positions: [
-        { symbol: "AAPL", quantity: 20, averageCost: 145, marketValue: 3000, unrealizedPnl: 100, sector: "Technology" },
-        { symbol: "MSFT", quantity: 110, averageCost: 148, marketValue: 16_500, unrealizedPnl: 200, sector: "Technology" },
+        { symbol: "AAPL", quantity: 1, averageCost: 145, marketValue: 150, unrealizedPnl: 5, sector: "Technology" },
+        { symbol: "MSFT", quantity: 4, averageCost: 148, marketValue: 600, unrealizedPnl: 8, sector: "Technology" },
       ],
     };
     assert.deepEqual(failedRules(input), ["sector"]);
   });
 
-  it("notional_cap blocks orders above the fat-finger cap", () => {
+  it("notional_cap blocks a sell above the fat-finger cap", () => {
     const input = passingInput();
-    input.account = { ...input.account, positions: [] };
-    input.intent = { ...input.intent, quantity: 20 };
+    input.account = {
+      ...input.account,
+      positions: [
+        { symbol: "AAPL", quantity: 10, averageCost: 145, marketValue: 1500, unrealizedPnl: 50, sector: "Technology" },
+      ],
+    };
+    input.intent = { ...input.intent, side: "sell", quantity: 4, invalidationPrice: 160 };
     assert.deepEqual(failedRules(input), ["notional_cap"]);
   });
 
   it("notional_cap blocks buys above buying power", () => {
     const input = passingInput();
-    input.account = { ...input.account, positions: [], buyingPower: 1000 };
+    input.account = { ...input.account, buyingPower: 100 };
     assert.deepEqual(failedRules(input), ["notional_cap"]);
+  });
+
+  it("min_notional blocks an entry below the minimum notional", () => {
+    const input = passingInput();
+    input.intent = { ...input.intent, quantity: 0.03, limitPrice: 100, invalidationPrice: 98 };
+    input.quote = { ...input.quote, bid: 99.95, ask: 100.05, last: 100 };
+    assert.deepEqual(failedRules(input), ["min_notional"]);
+  });
+
+  it("min_notional allows a full exit below the minimum notional", () => {
+    const input = passingInput();
+    input.account = {
+      ...input.account,
+      positions: [
+        { symbol: "AAPL", quantity: 0.03, averageCost: 99, marketValue: 3, unrealizedPnl: 0, sector: "Technology" },
+      ],
+    };
+    input.intent = { ...input.intent, side: "sell", quantity: 0.03, limitPrice: 100, invalidationPrice: 102 };
+    input.quote = { ...input.quote, bid: 99.95, ask: 100.05, last: 100 };
+    assert.deepEqual(failedRules(input), []);
+  });
+
+  it("min_notional blocks a partial exit below the minimum notional", () => {
+    const input = passingInput();
+    input.account = {
+      ...input.account,
+      positions: [
+        { symbol: "AAPL", quantity: 10, averageCost: 99, marketValue: 1000, unrealizedPnl: 10, sector: "Technology" },
+      ],
+    };
+    input.intent = { ...input.intent, side: "sell", quantity: 0.03, limitPrice: 100, invalidationPrice: 102 };
+    input.quote = { ...input.quote, bid: 99.95, ask: 100.05, last: 100 };
+    assert.deepEqual(failedRules(input), ["min_notional"]);
   });
 
   it("max_positions blocks a new symbol when full", () => {
@@ -289,14 +338,14 @@ describe("risk engine", () => {
 
   it("min_hold blocks exits of lots opened today", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, side: "sell", quantity: 5 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1 };
     input.lotOpenedEtDate = TODAY;
     assert.deepEqual(failedRules(input), ["min_hold"]);
   });
 
   it("min_hold allows a stop exit at or below the entry invalidation", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, side: "sell", quantity: 5 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1 };
     input.lotOpenedEtDate = TODAY;
     input.recentOrders = [submittedBuy("AAPL", NOW - 3_600_000, 155)];
     input.quote = { ...input.quote, last: 150 };
@@ -305,7 +354,7 @@ describe("risk engine", () => {
 
   it("day_trades blocks a same-day round trip at the limit, even as a stop", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, side: "sell", quantity: 5 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1 };
     input.lotOpenedEtDate = TODAY;
     input.quote = { ...input.quote, last: 150 };
     const oct28 = Date.UTC(2026, 9, 28, 14, 0, 0);
@@ -367,10 +416,21 @@ describe("risk engine", () => {
 
   it("an exit passes during an earnings blackout", () => {
     const input = passingInput();
-    input.intent = { ...input.intent, side: "sell", quantity: 5 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1 };
     input.nextEarningsDate = "2026-11-05";
     input.avgDollarVolume20 = 1_000_000;
     assert.deepEqual(failedRules(input), []);
+  });
+
+  it("liquidity fails when the average volume cannot be computed", () => {
+    const input = passingInput();
+    input.avgDollarVolume20 = undefined;
+    const verdict = evaluate(input);
+    assert.deepEqual(failedRules(input), ["liquidity"]);
+    assert.match(
+      verdict.checks.find((c) => c.rule === "liquidity")?.detail ?? "",
+      /could not be computed/,
+    );
   });
 
   it("an entry fails both rules when market data is unavailable", () => {

@@ -137,17 +137,44 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
     return expired;
   }
 
-  function persistDrawdownTrip(settings: { drawdownHalted: boolean }, verdict: RiskVerdict): void {
+  function persistDrawdownTrip(
+    settings: { drawdownHalted: boolean },
+    verdict: RiskVerdict,
+    month: string,
+  ): void {
     const tripped = verdict.checks.some((c) => c.rule === "drawdown" && !c.ok);
     if (tripped && !settings.drawdownHalted) {
-      store.patchSettings({ drawdownHalted: true });
-      log.warn("drawdown breaker tripped", {});
+      store.patchSettings({ drawdownHalted: true, drawdownHaltedMonth: month });
+      log.warn("drawdown breaker tripped", { month });
+    }
+  }
+
+  /**
+   * Self-clearing drawdown halt: a halt from an earlier ET month lifts itself
+   * at the first gate entry of the new month. A legacy halt with no stamped
+   * month is stamped with the current month rather than cleared, so it still
+   * needs an explicit re-arm (or one more month rollover).
+   */
+  function refreshDrawdownHalt(now: number): void {
+    const settings = store.getSettings();
+    if (!settings.drawdownHalted) return;
+    const currentMonth = calendar.etDate(now).slice(0, 7);
+    if (settings.drawdownHaltedMonth === undefined) {
+      store.patchSettings({ drawdownHaltedMonth: currentMonth });
+      log.info("drawdown halt stamped with current month", { month: currentMonth });
+    } else if (settings.drawdownHaltedMonth !== currentMonth) {
+      store.patchSettings({ drawdownHalted: false });
+      log.info("drawdown halt cleared for new month", {
+        haltedMonth: settings.drawdownHaltedMonth,
+        currentMonth,
+      });
     }
   }
 
   async function submit(intent: OrderIntent, cycleId?: string): Promise<OrderRecord> {
     return enqueue(async () => {
       const now = clock.now();
+      refreshDrawdownHalt(now);
       const parsed = OrderIntentSchema.safeParse(intent);
       if (!parsed.success) {
         const order = store.addOrder({
@@ -241,7 +268,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now,
       });
-      persistDrawdownTrip(settings, verdict);
+      persistDrawdownTrip(settings, verdict, calendar.etDate(now).slice(0, 7));
 
       if (!verdict.approved) {
         const order = store.addOrder({
@@ -342,6 +369,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
   async function approve(id: string): Promise<OrderRecord> {
     return enqueue(async () => {
       const now = clock.now();
+      refreshDrawdownHalt(now);
       sweepExpired(now);
       const existing = store.getOrder(id);
       if (existing === undefined) throw new Error(`unknown order ${id}`);
@@ -424,7 +452,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now: checkAt,
       });
-      persistDrawdownTrip(settings, verdict);
+      persistDrawdownTrip(settings, verdict, calendar.etDate(checkAt).slice(0, 7));
 
       if (!verdict.approved) {
         const order = store.updateOrder(id, {
@@ -517,14 +545,16 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate {
 
   async function halts(): Promise<HaltReason[]> {
     return enqueue(async () => {
-      sweepExpired(clock.now());
+      const now = clock.now();
+      refreshDrawdownHalt(now);
+      sweepExpired(now);
       const settings = store.getSettings();
       const out: HaltReason[] = [];
       if (settings.killSwitch) out.push("kill_switch");
       if (settings.mode === "off") out.push("mode_off");
       if (broker.status().state !== "connected") out.push("broker_disconnected");
       if (latestSnapshot !== null) {
-        const marks = store.equityMarks(calendar.etDate(clock.now()));
+        const marks = store.equityMarks(calendar.etDate(now));
         if (
           marks.dayStart !== undefined &&
           latestSnapshot.equity <= marks.dayStart * (1 - settings.risk.dailyLossHaltPct / 100)
