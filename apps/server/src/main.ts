@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import type { AccountSnapshot, StatusResponse } from "@rh/shared";
+import type { AccountSnapshot, StatusResponse, SubagentRun } from "@rh/shared";
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./log.ts";
 import { createEventBus } from "./events.ts";
@@ -21,6 +21,9 @@ import { createNotes } from "./skills/notes.ts";
 import { createSkillsExtension } from "./skills/tools.ts";
 import { createMarketData } from "./market/market-data.ts";
 import { createMarketExtension } from "./market/tools.ts";
+import { createSubagentExtension } from "./agent/subagents.ts";
+
+const MAX_SUBAGENT_RUNS = 50;
 
 const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "skills");
 
@@ -33,8 +36,22 @@ async function main(): Promise<void> {
 
   const calendar = createNyseCalendar();
   const market = createMarketData({ dataDir: config.DATA_DIR, log: log.child("market"), clock });
+  // Newest first; presentation state for the agents lane, rebuilt from live runs after a restart.
+  const subagentRuns: SubagentRun[] = [];
+  const onSubagentRun = (run: SubagentRun): void => {
+    const index = subagentRuns.findIndex((existing) => existing.id === run.id);
+    if (index >= 0) subagentRuns.splice(index, 1);
+    subagentRuns.unshift(run);
+    subagentRuns.length = Math.min(subagentRuns.length, MAX_SUBAGENT_RUNS);
+    bus.publish({ type: "subagent", run });
+    if (run.status === "running") {
+      void agent?.watchChild(run.id).catch((error: unknown) => {
+        log.warn("subagent watch failed", { error: error instanceof Error ? error.message : "unknown" });
+      });
+    }
+  };
   const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
-  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk") });
+  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk"), market });
 
   // Late-bound: extensions and the scheduler need the agent's id before it exists.
   let agent: TradingAgent | undefined;
@@ -61,6 +78,12 @@ async function main(): Promise<void> {
     createTraderPromptExtension(),
     createSkillsExtension({ library: skills, notes }),
     createMarketExtension({ market, dataDir: config.DATA_DIR, log: log.child("market"), clock }),
+    createSubagentExtension({
+      log: log.child("subagents"),
+      maxConcurrent: 4,
+      excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate"],
+      onRun: onSubagentRun,
+    }),
   ];
 
   agent = await TradingAgent.open({
@@ -109,6 +132,7 @@ async function main(): Promise<void> {
     skills,
     notes,
     market,
+    subagents: (): SubagentRun[] => subagentRuns,
   };
   // Agent status events carry the live snapshot minus the agent field itself.
   tradingAgent.setStatusSnapshot(async (): Promise<Omit<StatusResponse, "agent">> => {
