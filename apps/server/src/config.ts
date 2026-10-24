@@ -28,6 +28,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     PORT: port,
     HOSTS: hosts,
     PUBLIC_URL: str(env, "PUBLIC_URL", `http://127.0.0.1:${port}`),
+    ALLOWED_ORIGINS: (env["HARNESS_ORIGINS"] ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== ""),
     DATA_DIR: str(env, "DATA_DIR", join(home, ".local", "share", "robinhood-harness")),
     MUSE_MODEL: str(env, "MUSE_MODEL", "muse-spark-1.3-contributor"),
     MUSE_AUTH_FILE: str(env, "MUSE_AUTH_FILE", join(home, ".config", "muse", "auth.json")),

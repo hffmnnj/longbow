@@ -224,6 +224,15 @@ describe("app CSRF and origin rules", () => {
     }
   });
 
+  it("accepts an origin listed in HARNESS_ORIGINS", async () => {
+    const config = loadConfig({ WEB_DIR: "/nonexistent-web-dir", HARNESS_ORIGINS: "https://laptop.example.ts.net:8443" });
+    const app = createApp({ ...d, config });
+    const allowed = await app.request("/api/cycles", { method: "POST", headers: { ...CSRF, Origin: "https://laptop.example.ts.net:8443" } });
+    assert.equal(allowed.status, 200);
+    const other = await app.request("/api/cycles", { method: "POST", headers: { ...CSRF, Origin: "https://evil.example.ts.net:8443" } });
+    assert.equal(other.status, 403);
+  });
+
   it("leaves GET routes open without the header", async () => {
     const app = createApp(d);
     assert.equal((await app.request("/api/status")).status, 200);
@@ -290,7 +299,7 @@ describe("app routes", () => {
     const body = (await res.json()) as { agent: { state: string }; halts: unknown[]; settings: { mode: string } };
     assert.equal(body.agent.state, "idle");
     assert.deepEqual(body.halts, []);
-    assert.equal(body.settings.mode, "approve");
+    assert.equal(body.settings.mode, DEFAULT_SETTINGS.mode);
   });
 
   it("approves and rejects orders through the gate", async () => {

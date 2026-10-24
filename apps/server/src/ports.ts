@@ -34,6 +34,8 @@ export interface Config {
   HOSTS: string[];
   /** Origin the browser uses, for the OAuth redirect URI and Origin checks, default http://127.0.0.1:4520. */
   PUBLIC_URL: string;
+  /** Extra browser origins allowed on mutating requests, such as the Tailscale HTTPS URL (HARNESS_ORIGINS, comma separated). */
+  ALLOWED_ORIGINS: string[];
   /** State directory (mode 0700), default ~/.local/share/robinhood-harness. */
   DATA_DIR: string;
   MUSE_MODEL: string;

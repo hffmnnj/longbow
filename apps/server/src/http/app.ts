@@ -98,6 +98,7 @@ function csrfMiddleware(deps: Pick<AppDeps, "config">) {
       if (origin !== undefined && origin !== "") {
         const allowed =
           origin === deps.config.PUBLIC_URL ||
+          deps.config.ALLOWED_ORIGINS.includes(origin) ||
           deps.config.HOSTS.some((host) => origin === `http://${host}:${deps.config.PORT}`);
         if (!allowed) return c.json({ error: "forbidden origin" }, 403);
       }

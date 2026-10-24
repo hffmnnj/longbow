@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%h/Documents/robinhood-harness/apps/server
 Environment=HARNESS_TAILNET_HOST=100.101.102.103
+Environment=HARNESS_ORIGINS=https://longbow.example.ts.net:8443
 ExecStart=/usr/bin/env node src/main.ts
 Restart=always
 RestartSec=10
