@@ -19,6 +19,8 @@ import { createTraderPromptExtension, cycleInput } from "./agent/prompt.ts";
 import { createSkillLibrary } from "./skills/library.ts";
 import { createNotes } from "./skills/notes.ts";
 import { createSkillsExtension } from "./skills/tools.ts";
+import { createMarketData } from "./market/market-data.ts";
+import { createMarketExtension } from "./market/tools.ts";
 
 const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "skills");
 
@@ -30,6 +32,7 @@ async function main(): Promise<void> {
   const store = openStore(join(config.DATA_DIR, "app.sqlite"), clock);
 
   const calendar = createNyseCalendar();
+  const market = createMarketData({ dataDir: config.DATA_DIR, log: log.child("market"), clock });
   const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
   const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk") });
 
@@ -57,6 +60,7 @@ async function main(): Promise<void> {
     createJournalExtension({ store, bus, clock, currentCycleId }),
     createTraderPromptExtension(),
     createSkillsExtension({ library: skills, notes }),
+    createMarketExtension({ market, dataDir: config.DATA_DIR, log: log.child("market"), clock }),
   ];
 
   agent = await TradingAgent.open({
@@ -104,6 +108,7 @@ async function main(): Promise<void> {
     log: log.child("http"),
     skills,
     notes,
+    market,
   };
   // Agent status events carry the live snapshot minus the agent field itself.
   tradingAgent.setStatusSnapshot(async (): Promise<Omit<StatusResponse, "agent">> => {
