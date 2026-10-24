@@ -245,6 +245,25 @@ describe("push notifier", () => {
     assert.equal(push.payloads.length, 2);
   });
 
+  it("sends one morning plan per day from the pre-open cycle", async () => {
+    const entry = {
+      id: "b1",
+      at: NOW,
+      cycleId: "pre_open_2026-10-26",
+      action: "watch" as const,
+      summary: "Sideways tape; exit CDNS before earnings, watch AAPL above 330.",
+      rationale: "Plan for the day.",
+      evidence: [],
+    };
+    bus.publish({ type: "journal", entry });
+    bus.publish({ type: "journal", entry: { ...entry, id: "b2" } });
+    await flush();
+    assert.equal(push.payloads.length, 1);
+    assert.equal(push.payloads[0]?.title, "Morning plan");
+    assert.equal(push.payloads[0]?.tag, "brief");
+    assert.equal(push.payloads[0]?.body, entry.summary);
+  });
+
   it("notifies when a simulation finishes or fails, once per run", async () => {
     bus.publish({ type: "sim", run: simRun("running") });
     await flush();
