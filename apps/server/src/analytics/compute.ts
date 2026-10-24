@@ -259,3 +259,36 @@ export function parseThesisStop(markdown: string): number | undefined {
   }
   return undefined;
 }
+
+const HIGH_IMPACT = /\b(CPI|PCE|Nonfarm Payrolls|Unemployment Rate|FOMC|Fed Interest Rate Decision|Interest Rate Decision|GDP|Retail Sales|ISM (Manufacturing|Services|Non-Manufacturing) PMI|Powell)\b/i;
+const MEDIUM_IMPACT = /\b(PPI|Initial Jobless Claims|JOLTS|ADP|Durable Goods|Consumer (Confidence|Sentiment)|Michigan|Core|Industrial Production|Housing Starts|New Home Sales|Existing Home Sales|Personal (Income|Spending)|Employment Cost|Beige Book|Trade Balance|Crude Oil Inventories)\b/i;
+
+/** "HH:MM" GMT on an ET date to "HH:MM" ET, or undefined when unparseable. */
+export function gmtToEt(date: string, gmt: string): string | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(gmt.trim());
+  if (!match) return undefined;
+  const instant = Date.parse(`${date}T${match[1]!.padStart(2, "0")}:${match[2]}:00Z`);
+  if (Number.isNaN(instant)) return undefined;
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+}
+
+/** US events worth a trader's attention: deduplicated by date and name, rated, low-impact noise dropped, sorted. */
+export function economicCalendar(
+  days: { date: string; events: { time: string; country: string; event: string }[] }[],
+): { date: string; time?: string; event: string; importance: "high" | "medium" }[] {
+  const seen = new Set<string>();
+  const out: { date: string; time?: string; event: string; importance: "high" | "medium" }[] = [];
+  for (const { date, events } of days) {
+    for (const e of events) {
+      if (e.country !== "United States") continue;
+      const importance = HIGH_IMPACT.test(e.event) ? "high" : MEDIUM_IMPACT.test(e.event) ? "medium" : undefined;
+      if (importance === undefined) continue;
+      const key = `${date}|${e.event.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const time = gmtToEt(date, e.time);
+      out.push({ date, ...(time === undefined ? {} : { time }), event: e.event, importance });
+    }
+  }
+  return out.sort((a, b) => (a.date + (a.time ?? "99")).localeCompare(b.date + (b.time ?? "99")));
+}

@@ -11,6 +11,8 @@ import {
   parseThesisStop,
   returnPct,
   summarizeTrades,
+  economicCalendar,
+  gmtToEt,
 } from "./compute.ts";
 
 function order(overrides: Partial<OrderRecord> & { intent: OrderRecord["intent"] }): OrderRecord {
@@ -173,5 +175,27 @@ describe("parseThesisStop", () => {
     assert.equal(parseThesisStop("Thesis holds while price stays up. Invalidation $142.50 if momentum fades."), 142.5);
     assert.equal(parseThesisStop("Stop at 95 on a daily close."), 95);
     assert.equal(parseThesisStop("no stops mentioned here"), undefined);
+  });
+});
+
+describe("economicCalendar", () => {
+  it("keeps rated US events once, in ET, and drops noise", () => {
+    const events = [
+      { time: "12:30", country: "United States", event: "Core PCE Price Index" },
+      { time: "12:30", country: "United States", event: "Core PCE Price Index" },
+      { time: "15:30", country: "United States", event: "4-Week Bill Auction" },
+      { time: "09:00", country: "Germany", event: "GDP" },
+      { time: "12:30", country: "United States", event: "Initial Jobless Claims" },
+    ];
+    assert.deepEqual(economicCalendar([{ date: "2026-10-30", events }]), [
+      { date: "2026-10-30", time: "08:30", event: "Core PCE Price Index", importance: "high" },
+      { date: "2026-10-30", time: "08:30", event: "Initial Jobless Claims", importance: "medium" },
+    ]);
+  });
+
+  it("converts GMT to ET across the daylight-saving change", () => {
+    assert.equal(gmtToEt("2026-10-30", "12:30"), "08:30");
+    assert.equal(gmtToEt("2026-11-06", "13:30"), "08:30");
+    assert.equal(gmtToEt("2026-11-06", "bad"), undefined);
   });
 });
