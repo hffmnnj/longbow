@@ -112,7 +112,7 @@ describe("push routes", () => {
     assert.equal(push.payloads.length, 1);
     const payload = push.payloads[0];
     assert.ok(payload);
-    assert.equal(payload.title, "Robinhood Harness");
+    assert.equal(payload.title, "Longbow");
     assert.equal(payload.body, "Notifications are on.");
   });
 });
