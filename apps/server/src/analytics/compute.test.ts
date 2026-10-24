@@ -12,7 +12,7 @@ import {
   returnPct,
   summarizeTrades,
   economicCalendar,
-  gmtToEt,
+  etTime,
 } from "./compute.ts";
 
 function order(overrides: Partial<OrderRecord> & { intent: OrderRecord["intent"] }): OrderRecord {
@@ -181,11 +181,11 @@ describe("parseThesisStop", () => {
 describe("economicCalendar", () => {
   it("keeps rated US events once, in ET, and drops noise", () => {
     const events = [
-      { time: "12:30", country: "United States", event: "Core PCE Price Index" },
-      { time: "12:30", country: "United States", event: "Core PCE Price Index" },
-      { time: "15:30", country: "United States", event: "4-Week Bill Auction" },
-      { time: "09:00", country: "Germany", event: "GDP" },
-      { time: "12:30", country: "United States", event: "Initial Jobless Claims" },
+      { time: "8:30", country: "United States", event: "Core PCE Price Index" },
+      { time: "8:30", country: "United States", event: "Core PCE Price Index" },
+      { time: "11:30", country: "United States", event: "4-Week Bill Auction" },
+      { time: "02:00", country: "Germany", event: "GDP" },
+      { time: "8:30", country: "United States", event: "Initial Jobless Claims" },
     ];
     assert.deepEqual(economicCalendar([{ date: "2026-10-30", events }]), [
       { date: "2026-10-30", time: "08:30", event: "Core PCE Price Index", importance: "high" },
@@ -193,9 +193,9 @@ describe("economicCalendar", () => {
     ]);
   });
 
-  it("converts GMT to ET across the daylight-saving change", () => {
-    assert.equal(gmtToEt("2026-10-30", "12:30"), "08:30");
-    assert.equal(gmtToEt("2026-11-06", "13:30"), "08:30");
-    assert.equal(gmtToEt("2026-11-06", "bad"), undefined);
+  it("treats Nasdaq's published times as Eastern and pads the hour", () => {
+    assert.equal(etTime("8:30"), "08:30");
+    assert.equal(etTime("14:00"), "14:00");
+    assert.equal(etTime("Tentative"), undefined);
   });
 });

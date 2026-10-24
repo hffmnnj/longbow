@@ -263,13 +263,10 @@ export function parseThesisStop(markdown: string): number | undefined {
 const HIGH_IMPACT = /\b(CPI|PCE|Nonfarm Payrolls|Unemployment Rate|FOMC|Fed Interest Rate Decision|Interest Rate Decision|GDP|Retail Sales|ISM (Manufacturing|Services|Non-Manufacturing) PMI|Powell)\b/i;
 const MEDIUM_IMPACT = /\b(PPI|Initial Jobless Claims|JOLTS|ADP|Durable Goods|Consumer (Confidence|Sentiment)|Michigan|Core|Industrial Production|Housing Starts|New Home Sales|Existing Home Sales|Personal (Income|Spending)|Employment Cost|Beige Book|Trade Balance|Crude Oil Inventories)\b/i;
 
-/** "HH:MM" GMT on an ET date to "HH:MM" ET, or undefined when unparseable. */
-export function gmtToEt(date: string, gmt: string): string | undefined {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(gmt.trim());
-  if (!match) return undefined;
-  const instant = Date.parse(`${date}T${match[1]!.padStart(2, "0")}:${match[2]}:00Z`);
-  if (Number.isNaN(instant)) return undefined;
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+/** Nasdaq's calendar field is named "gmt" but carries Eastern time; normalize "H:MM" to "HH:MM". */
+export function etTime(raw: string): string | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  return match ? `${match[1]!.padStart(2, "0")}:${match[2]}` : undefined;
 }
 
 /** US events worth a trader's attention: deduplicated by date and name, rated, low-impact noise dropped, sorted. */
@@ -286,7 +283,7 @@ export function economicCalendar(
       const key = `${date}|${e.event.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const time = gmtToEt(date, e.time);
+      const time = etTime(e.time);
       out.push({ date, ...(time === undefined ? {} : { time }), event: e.event, importance });
     }
   }
