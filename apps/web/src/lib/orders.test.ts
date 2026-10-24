@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
+import type { OrderStatus } from "@rh/shared";
 import { fixtureOrder } from "./mock/fixtures.ts";
-import { expectedValuePct, failedChecks, notional, ruleName } from "./orders.ts";
+import {
+  STATUS_LABEL,
+  expectedValuePct,
+  failedChecks,
+  isDoneOrderStatus,
+  isOpenOrderStatus,
+  notional,
+  ruleName,
+} from "./orders.ts";
 
 describe("order helpers", () => {
   const order = fixtureOrder("o", "pending_approval");
@@ -18,5 +27,37 @@ describe("order helpers", () => {
   });
   it("humanizes rule ids", () => {
     expect(ruleName("max_position")).toBe("Max position");
+  });
+});
+
+describe("order status labels", () => {
+  it("labels every status, including the harness-held and terminal ones", () => {
+    expect(STATUS_LABEL).toEqual({
+      pending_approval: "Awaiting approval",
+      rejected_risk: "Blocked by risk",
+      rejected_user: "Rejected",
+      expired: "Expired",
+      submitted: "Submitted",
+      held: "Stop held",
+      triggering: "Stop firing",
+      partially_filled: "Partly filled",
+      filled: "Filled",
+      cancelled: "Cancelled",
+      failed: "Failed",
+    });
+  });
+
+  it("treats working orders as open and terminal ones as done", () => {
+    const open: OrderStatus[] = ["pending_approval", "submitted", "held", "triggering", "partially_filled"];
+    const done: OrderStatus[] = ["rejected_risk", "rejected_user", "expired", "filled", "cancelled", "failed"];
+    expect([...open, ...done].sort()).toEqual(Object.keys(STATUS_LABEL).sort());
+    for (const s of open) {
+      expect(isOpenOrderStatus(s)).toBe(true);
+      expect(isDoneOrderStatus(s)).toBe(false);
+    }
+    for (const s of done) {
+      expect(isOpenOrderStatus(s)).toBe(false);
+      expect(isDoneOrderStatus(s)).toBe(true);
+    }
   });
 });
