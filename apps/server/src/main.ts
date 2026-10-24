@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import type { AccountSnapshot, StatusResponse } from "@rh/shared";
 import { loadConfig } from "./config.ts";
@@ -15,6 +16,11 @@ import { createRiskExtension } from "./risk/tools.ts";
 import { createWebsearchExtension } from "./tools/websearch.ts";
 import { createJournalExtension } from "./tools/journal.ts";
 import { createTraderPromptExtension, cycleInput } from "./agent/prompt.ts";
+import { createSkillLibrary } from "./skills/library.ts";
+import { createNotes } from "./skills/notes.ts";
+import { createSkillsExtension } from "./skills/tools.ts";
+
+const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "skills");
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -42,11 +48,15 @@ async function main(): Promise<void> {
     }
   };
 
+  const skills = createSkillLibrary(SKILLS_DIR);
+  const notes = createNotes({ dir: join(config.DATA_DIR, "workspace"), bus, clock });
+
   const extensions = [
     createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId }),
     await createWebsearchExtension({ configFile: config.WEBSEARCH_CONFIG_FILE, log: log.child("websearch") }),
     createJournalExtension({ store, bus, clock, currentCycleId }),
     createTraderPromptExtension(),
+    createSkillsExtension({ library: skills, notes }),
   ];
 
   agent = await TradingAgent.open({
@@ -92,6 +102,8 @@ async function main(): Promise<void> {
     scheduler,
     getAccount: (): AccountSnapshot | null => cachedAccount,
     log: log.child("http"),
+    skills,
+    notes,
   };
   // Agent status events carry the live snapshot minus the agent field itself.
   tradingAgent.setStatusSnapshot(async (): Promise<Omit<StatusResponse, "agent">> => {
