@@ -466,6 +466,7 @@ export interface PerformanceSummary {
   ordersByStatus: Partial<Record<OrderStatus, number>>;
 }
 
+/** Returns, changes and relative strength are percents (1.5 means 1.5%), like every *Pct field. */
 export interface TrendRow {
   symbol: string;
   name?: string;
@@ -520,6 +521,7 @@ export interface SymbolDetail {
     rsi14?: number;
     atr14?: number;
     avgDollarVolume?: number;
+    /** Percent, like TrendRow. */
     return1m?: number;
     return3m?: number;
     high52w?: number;
