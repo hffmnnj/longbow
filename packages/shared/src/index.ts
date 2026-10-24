@@ -23,6 +23,8 @@ export const RiskConfigSchema = z.object({
   maxPositions: z.number().int().positive().max(50),
   /** Absolute fat-finger cap on one order's notional. */
   maxOrderNotionalUsd: z.number().positive(),
+  /** Smallest order notional worth sending (fractional orders below this are noise). */
+  minOrderNotionalUsd: z.number().nonnegative(),
   /** Halt new entries when equity is this % below the ET day's starting equity. */
   dailyLossHaltPct: z.number().positive().max(50),
   /** Halt new entries when equity is this % below the month's peak equity. Needs a human re-arm. */
@@ -49,14 +51,16 @@ export const RiskConfigSchema = z.object({
 });
 export type RiskConfig = z.infer<typeof RiskConfigSchema>;
 
+/** Tuned for a small (about $1,200) cash account trading fractional shares of liquid ETFs and mega caps. */
 export const DEFAULT_RISK: RiskConfig = {
-  maxRiskPerTradePct: 1,
-  maxPositionPct: 5,
-  maxSectorPct: 20,
-  maxPositions: 5,
-  maxOrderNotionalUsd: 2500,
-  dailyLossHaltPct: 2,
-  monthlyDrawdownHaltPct: 6,
+  maxRiskPerTradePct: 1.5,
+  maxPositionPct: 30,
+  maxSectorPct: 60,
+  maxPositions: 4,
+  maxOrderNotionalUsd: 500,
+  minOrderNotionalUsd: 5,
+  dailyLossHaltPct: 3,
+  monthlyDrawdownHaltPct: 8,
   maxEntriesPerDay: 2,
   minHoldDays: 1,
   maxSpreadBps: 20,
@@ -66,15 +70,17 @@ export const DEFAULT_RISK: RiskConfig = {
   maxDayTrades5d: 3,
   minEvToCost: 2,
   earningsBlackoutDays: 5,
-  minAvgDollarVolumeUsd: 10_000_000,
+  minAvgDollarVolumeUsd: 20_000_000,
 };
 
 export const SettingsSchema = z.object({
   mode: TradingModeSchema,
   /** When true no order of any kind is submitted and scheduled cycles still run as research only. */
   killSwitch: z.boolean(),
-  /** Set when the monthly drawdown breaker trips; cleared only by a human (PATCH { drawdownHalted: false }). */
+  /** Set when the monthly drawdown breaker trips; clears itself in the next ET month, or by PATCH { drawdownHalted: false }. */
   drawdownHalted: z.boolean(),
+  /** ET month (YYYY-MM) the drawdown breaker tripped in. */
+  drawdownHaltedMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   cycleMinutesOpen: z.number().int().min(5).max(240),
   cycleMinutesClosed: z.number().int().min(30).max(1440),
   watchlist: z.array(z.string().regex(/^[A-Z.]{1,10}$/)).max(50),
@@ -83,12 +89,12 @@ export const SettingsSchema = z.object({
 export type Settings = z.infer<typeof SettingsSchema>;
 
 export const DEFAULT_SETTINGS: Settings = {
-  mode: "approve",
+  mode: "auto",
   killSwitch: false,
   drawdownHalted: false,
   cycleMinutesOpen: 30,
   cycleMinutesClosed: 240,
-  watchlist: ["SPY", "QQQ"],
+  watchlist: ["SPY", "QQQ", "IWM", "SMH", "XLK", "XLF", "XLE", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL"],
   risk: DEFAULT_RISK,
 };
 
