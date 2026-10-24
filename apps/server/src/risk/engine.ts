@@ -28,6 +28,15 @@ export interface RiskInput {
   recentOrders: OrderRecord[];
   /** ET date the current position in this symbol was first bought, if known. */
   lotOpenedEtDate?: string;
+  /** Next scheduled earnings date (ET YYYY-MM-DD) within 30 days, when known. */
+  nextEarningsDate?: string;
+  /** Average daily dollar volume over the last 20 sessions, when known. */
+  avgDollarVolume20?: number;
+  /**
+   * False when the market-data fetches failed or no provider is wired; the
+   * earnings and liquidity entry rules then fail closed instead of passing.
+   */
+  marketDataAvailable: boolean;
   sectorOf: (symbol: string) => string | undefined;
   tradingDaysBetween: (a: string, b: string) => number;
   now: number;
@@ -90,6 +99,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
     equityMarks,
     recentOrders,
     lotOpenedEtDate,
+    nextEarningsDate,
+    avgDollarVolume20,
+    marketDataAvailable,
     sectorOf,
     tradingDaysBetween,
     now,
@@ -476,6 +488,70 @@ export function evaluate(input: RiskInput): RiskVerdict {
       ok,
       `time stop ${intent.timeStopDate} is ${diffDays}d after today ${todayEt} ` +
         `(must be after today and within 60 calendar days)`,
+    );
+  }
+
+  // 20. earnings_blackout: no entries shortly before a scheduled report. Exits allowed.
+  if (!isEntry) {
+    push("earnings_blackout", true, "exit; the earnings blackout does not apply");
+  } else if (risk.earningsBlackoutDays <= 0) {
+    push("earnings_blackout", true, "earnings blackout is disabled (0d)");
+  } else if (!marketDataAvailable) {
+    push(
+      "earnings_blackout",
+      false,
+      `market data was unavailable; cannot check the earnings blackout for ${intent.symbol}`,
+    );
+  } else if (nextEarningsDate === undefined) {
+    push(
+      "earnings_blackout",
+      true,
+      `no earnings scheduled for ${intent.symbol} in the next 30 days ` +
+        `(blackout ${risk.earningsBlackoutDays}d)`,
+    );
+  } else if (nextEarningsDate < todayEt) {
+    push(
+      "earnings_blackout",
+      true,
+      `${intent.symbol} earnings on ${nextEarningsDate} already passed (today ${todayEt})`,
+    );
+  } else {
+    const daysToEarnings =
+      nextEarningsDate === todayEt ? 0 : tradingDaysBetween(todayEt, nextEarningsDate) + 1;
+    push(
+      "earnings_blackout",
+      daysToEarnings > risk.earningsBlackoutDays,
+      daysToEarnings <= risk.earningsBlackoutDays
+        ? `entry blocked: ${intent.symbol} reports earnings on ${nextEarningsDate} ` +
+            `(${daysToEarnings} trading days away; blackout ${risk.earningsBlackoutDays}d)`
+        : `${intent.symbol} earnings on ${nextEarningsDate} ` +
+            `(${daysToEarnings} trading days away; blackout ${risk.earningsBlackoutDays}d)`,
+    );
+  }
+
+  // 21. liquidity: entries need enough average dollar volume. Exits allowed.
+  if (!isEntry) {
+    push("liquidity", true, "exit; the liquidity floor does not apply");
+  } else if (risk.minAvgDollarVolumeUsd <= 0) {
+    push("liquidity", true, "liquidity floor is disabled ($0)");
+  } else if (!marketDataAvailable) {
+    push(
+      "liquidity",
+      false,
+      `market data was unavailable; cannot check the liquidity floor for ${intent.symbol}`,
+    );
+  } else if (avgDollarVolume20 === undefined) {
+    push(
+      "liquidity",
+      true,
+      `no average dollar volume known for ${intent.symbol}; ` +
+        `skipping the $${risk.minAvgDollarVolumeUsd} floor`,
+    );
+  } else {
+    push(
+      "liquidity",
+      avgDollarVolume20 >= risk.minAvgDollarVolumeUsd,
+      `20-session average dollar volume $${avgDollarVolume20} vs floor $${risk.minAvgDollarVolumeUsd}`,
     );
   }
 

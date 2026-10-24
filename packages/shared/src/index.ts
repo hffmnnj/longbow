@@ -42,6 +42,10 @@ export const RiskConfigSchema = z.object({
   maxDayTrades5d: z.number().int().nonnegative().max(10),
   /** Entries need expected value after costs above this multiple of estimated round-trip costs. */
   minEvToCost: z.number().nonnegative().max(20),
+  /** Block entries this many trading days before a scheduled earnings report. 0 disables. */
+  earningsBlackoutDays: z.number().int().nonnegative().max(20),
+  /** Block entries when the 20-session average daily dollar volume is below this USD floor. 0 disables. */
+  minAvgDollarVolumeUsd: z.number().nonnegative(),
 });
 export type RiskConfig = z.infer<typeof RiskConfigSchema>;
 
@@ -61,6 +65,8 @@ export const DEFAULT_RISK: RiskConfig = {
   noTradeCloseMinutes: 15,
   maxDayTrades5d: 3,
   minEvToCost: 2,
+  earningsBlackoutDays: 5,
+  minAvgDollarVolumeUsd: 10_000_000,
 };
 
 export const SettingsSchema = z.object({

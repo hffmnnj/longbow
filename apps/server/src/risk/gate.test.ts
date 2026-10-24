@@ -4,9 +4,11 @@ import {
   DEFAULT_SETTINGS,
   type AccountSnapshot,
   type BrokerStatus,
+  type HistoryRange,
   type JournalEntry,
   type OrderIntent,
   type OrderRecord,
+  type PriceHistory,
   type Quote,
   type ServerEvent,
   type Settings,
@@ -14,7 +16,7 @@ import {
 } from "@rh/shared";
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
-import type { Broker, Clock, EventBus, Logger, Store } from "../ports.ts";
+import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 
 const NOW = Date.UTC(2026, 10, 2, 15, 5, 0);
 
@@ -162,10 +164,30 @@ class FakeBroker implements Broker {
   }
 }
 
-function setup(options?: { mode?: Settings["mode"] }) {
+class FakeMarketData implements MarketData {
+  earningsValue: string | undefined = undefined;
+  earningsError?: string;
+  volumeValue: number | undefined = 50_000_000;
+  volumeError?: string;
+
+  async history(symbol: string, _range: HistoryRange): Promise<PriceHistory> {
+    return { symbol, bars: [], source: "fake", asOf: NOW };
+  }
+  async nextEarnings(_symbol: string): Promise<string | undefined> {
+    if (this.earningsError !== undefined) throw new Error(this.earningsError);
+    return this.earningsValue;
+  }
+  async avgDollarVolume(_symbol: string, _days: number): Promise<number | undefined> {
+    if (this.volumeError !== undefined) throw new Error(this.volumeError);
+    return this.volumeValue;
+  }
+}
+
+function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null }) {
   const store = new FakeStore();
   if (options?.mode !== undefined) store.settings = { ...store.settings, mode: options.mode };
   const broker = new FakeBroker();
+  const market = options?.market === undefined ? new FakeMarketData() : options.market;
   let now = NOW;
   const clock: Clock = { now: () => now };
   const events: ServerEvent[] = [];
@@ -181,8 +203,16 @@ function setup(options?: { mode?: Settings["mode"] }) {
     error: () => {},
     child: () => log,
   };
-  const gate = createOrderGate({ store, broker, calendar: createNyseCalendar(), clock, bus, log });
-  return { store, broker, gate, events, setNow: (t: number) => (now = t) };
+  const gate = createOrderGate({
+    store,
+    broker,
+    calendar: createNyseCalendar(),
+    clock,
+    bus,
+    log,
+    ...(market === null ? {} : { market }),
+  });
+  return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
 }
 
 describe("order gate", () => {
@@ -285,6 +315,16 @@ describe("order gate", () => {
     const order = await gate.reject(pending.id, "thesis changed");
     assert.equal(order.status, "rejected_user");
     assert.equal(order.error, "thesis changed");
+  });
+
+  it("stores a rejected_risk order when market data throws", async () => {
+    const failing = new FakeMarketData();
+    failing.earningsError = "earnings feed down";
+    const { gate, broker } = setup({ mode: "auto", market: failing });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "rejected_risk");
+    assert.ok(order.verdict.checks.some((c) => c.rule === "earnings_blackout" && !c.ok));
+    assert.equal(broker.placeCalls, 0);
   });
 
   it("halts on the kill switch without calling the broker", async () => {
