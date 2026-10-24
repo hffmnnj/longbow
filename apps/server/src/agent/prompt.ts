@@ -65,6 +65,7 @@ const EXITS = [
   "Review open positions against their time stops at least once a day; a thesis that has not worked by its date is closed even if price has not hit invalidation.",
   "A minimum hold applies except for stop-driven exits; the risk engine enforces the live value.",
   "Exits reduce risk; propose them through submit_order like any order.",
+  "Protective stops: you only look at the market a few times a day, so a gap or a fast drop can blow through a mental stop. As soon as an entry fills, place a resting sell stop for the full position with submit_order (orderType stop_limit, timeInForce gtc, stopPrice at the invalidation, limitPrice a little below the stop, for example 0.5% lower). The engine allows it on the entry day and does not count it as a day trade. Cancel that stop before any other exit of the same shares, and replace it when you trail the stop upward. Never move it down.",
 ].join("\n");
 
 const JOURNAL = [

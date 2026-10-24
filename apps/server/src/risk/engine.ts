@@ -76,13 +76,24 @@ export function countDayTrades(
       .map((o) => `${o.intent.symbol}@${etDateOf(o.createdAt)}`),
   );
   let count = 0;
-  for (const sell of submitted.filter((o) => o.intent.side === "sell")) {
+  // Resting stop orders are protection placed at entry, not same-day round trips.
+  for (const sell of submitted.filter((o) => o.intent.side === "sell" && o.intent.orderType !== "stop_limit")) {
     const day = etDateOf(sell.createdAt);
     if (buyDays.has(`${sell.intent.symbol}@${day}`) && tradingDaysBetween(day, todayEt) <= 3) {
       count++;
     }
   }
   return count;
+}
+
+/** A resting sell stop at or below the entry's invalidation: it can only fire as a stop exit. */
+function isProtectiveStop(intent: OrderIntent, invalidationPrice: number): boolean {
+  return (
+    intent.side === "sell" &&
+    intent.orderType === "stop_limit" &&
+    intent.stopPrice !== undefined &&
+    intent.stopPrice <= invalidationPrice
+  );
 }
 
 function money(n: number): string {
@@ -194,12 +205,14 @@ export function evaluate(input: RiskInput): RiskVerdict {
     push("limit_vs_mid", false, `mid ${mid} is not positive; cannot check the limit`);
   } else if (intent.orderType === "stop_limit") {
     const stop = intent.stopPrice ?? Number.NaN;
-    const ok = intent.side === "buy" ? stop >= mid : stop <= mid;
+    const triggerOk = intent.side === "buy" ? stop >= mid : stop <= mid;
+    const limitOk = intent.side === "buy" ? intent.limitPrice >= stop : intent.limitPrice <= stop;
     push(
       "limit_vs_mid",
-      ok,
-      `${intent.side} stop ${stop} vs current ${mid} ` +
-        `(must trigger at or ${intent.side === "buy" ? "above" : "below"} the current price)`,
+      triggerOk && limitOk,
+      `${intent.side} stop ${stop} limit ${intent.limitPrice} vs current ${mid} ` +
+        `(must trigger at or ${intent.side === "buy" ? "above" : "below"} the current price, ` +
+        `with the limit at or ${intent.side === "buy" ? "above" : "below"} the stop)`,
     );
   } else if (intent.side === "buy") {
     const ceiling = mid * (1 + risk.maxSlippageBps / 10_000);
@@ -440,10 +453,15 @@ export function evaluate(input: RiskInput): RiskVerdict {
         .sort((a, b) => a.createdAt - b.createdAt)[0];
       const stopExit =
         original !== undefined && quote.last > 0 && quote.last <= original.intent.invalidationPrice;
+      const protectiveStop =
+        original !== undefined && isProtectiveStop(intent, original.intent.invalidationPrice);
       push(
         "min_hold",
-        stopExit,
-        stopExit
+        stopExit || protectiveStop,
+        protectiveStop
+          ? `protective stop at ${intent.stopPrice} is at/below entry invalidation ${original?.intent.invalidationPrice}; ` +
+              `it only fires on a stop exit`
+          : stopExit
           ? `lot opened ${lotOpenedEtDate} (${heldDays}d < ${risk.minHoldDays}d) but last ${quote.last} ` +
               `is at/below entry invalidation ${original?.intent.invalidationPrice}: stop exit`
           : original === undefined
@@ -464,6 +482,8 @@ export function evaluate(input: RiskInput): RiskVerdict {
   );
   if (intent.side !== "sell" || !boughtToday) {
     push("day_trades", true, "not a same-day round trip; the day-trade count does not apply");
+  } else if (intent.orderType === "stop_limit") {
+    push("day_trades", true, "resting protective stop; it is not a same-day round trip when placed");
   } else {
     const count = countDayTrades(submitted, todayEt, tradingDaysBetween);
     push(

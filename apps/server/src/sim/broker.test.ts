@@ -74,3 +74,21 @@ test("pre-open quotes expose only the previous close", async () => {
   at("2026-07-01", 9);
   assert.equal((await broker.quote("SPY")).last, 110);
 });
+test("a resting protective stop sells when the path falls through it", async () => {
+  const { broker, at } = fixture();
+  await broker.placeOrder(intent);
+  await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
+  at("2026-07-01", 15, 30);
+  await broker.advance();
+  const sells = broker.fills().filter((f) => f.side === "sell");
+  assert.equal(sells.length, 1);
+  assert.equal(sells[0]!.price, 94.5);
+  assert.equal((await broker.snapshot()).positions.length, 0);
+});
+test("a sell is refused while a resting stop holds the shares", async () => {
+  const { broker } = fixture();
+  await broker.placeOrder(intent);
+  await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
+  await assert.rejects(broker.placeOrder({ ...intent, side: "sell", limitPrice: 99 }), /Insufficient shares/);
+  assert.deepEqual(broker.fills().map((f) => f.side), ["buy"]);
+});
