@@ -3,17 +3,19 @@ import { McpOAuthProvider, authorizeMcp, type McpOAuthStateStore, type OAuthFlow
 import type { Clock } from "../ports.ts";
 
 export const MCP_URL = "https://agent.robinhood.com/mcp/trading";
+// Mirrors https://agent.robinhood.com/.well-known/oauth-authorization-server; the callback's `iss` must equal `issuer`.
+export const ISSUER = "https://agent.robinhood.com/mcp/trading";
 export const DISCOVERY = {
-  authorizationServerUrl: "https://robinhood.com",
+  authorizationServerUrl: ISSUER,
   authorizationServerMetadata: {
-    issuer: "https://robinhood.com", authorization_endpoint: "https://robinhood.com/oauth",
+    issuer: ISSUER, authorization_endpoint: "https://robinhood.com/oauth", authorization_response_iss_parameter_supported: true,
     token_endpoint: "https://api.robinhood.com/oauth2/token/",
     registration_endpoint: "https://agent.robinhood.com/oauth/trading/register",
     response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["none"], code_challenge_methods_supported: ["S256"],
     scopes_supported: ["internal"],
   },
-  resourceMetadata: { resource: MCP_URL, authorization_servers: ["https://robinhood.com"], scopes_supported: ["internal"] },
+  resourceMetadata: { resource: MCP_URL, authorization_servers: [ISSUER], scopes_supported: ["internal"] },
 };
 
 class EphemeralProvider extends McpOAuthProvider {
@@ -86,13 +88,13 @@ export class RobinhoodOAuth {
       if (state) this.pending.delete(state); // Consume before any await, including unsuccessful exchanges.
       if (!pending || pending.expires <= this.clock.now()) throw new Error("Invalid or expired Robinhood OAuth state");
       if (params.get("error") || !params.get("code") || params.getAll("code").length !== 1 || params.getAll("state").length !== 1) {
-        throw new Error("Robinhood authorization was not completed");
+        throw new Error(`Robinhood authorization was not completed${params.get("error") ? ` (${params.get("error")})` : ""}`);
       }
       try {
         await this.provider.saveCodeVerifier(pending.verifier);
         const result = await this.run({ authorizationCode: params.get("code")!, iss: params.get("iss") ?? undefined });
         if (result !== "AUTHORIZED") throw new Error("Authorization incomplete");
-      } catch { throw new Error("Unable to complete Robinhood sign-in"); }
+      } catch (cause) { throw new Error("Unable to complete Robinhood sign-in", { cause }); }
       finally { this.provider.clearVerifier(); }
     });
   }

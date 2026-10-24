@@ -237,8 +237,13 @@ export function createApp(deps: AppDeps): Hono {
     try {
       await deps.broker.completeConnect(new URLSearchParams(new URL(c.req.url).search));
       return c.redirect("/?robinhood=connected");
-    } catch {
-      deps.log.warn("robinhood connect failed");
+    } catch (error) {
+      // Messages carry OAuth error codes and issuer URLs, never codes, verifiers, or tokens.
+      const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+      deps.log.warn("robinhood connect failed", {
+        error: errorMessage(error),
+        ...(cause ? { cause: `${cause.name}: ${cause.message}`.slice(0, 300) } : {}),
+      });
       return c.redirect("/?robinhood=error");
     }
   });
