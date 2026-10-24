@@ -70,6 +70,8 @@ export interface TradingAgentDeps {
   bus: EventBus;
   clock: Clock;
   extensions: Extension[];
+  /** Reuse the live credential store without seeding a second refresh token. */
+  credentialFile?: string;
   onRegistry?: (registry: Registry) => void;
   cycleInput: (kind: CycleKind, cycleId: string) => Promise<string>;
 }
@@ -188,9 +190,9 @@ export class TradingAgent implements AgentControl {
   private async openInner(): Promise<void> {
     const { config, log } = this.deps;
     await mkdir(config.DATA_DIR, { recursive: true, mode: 0o700 });
-    await this.ensureCredential();
+    if (this.deps.credentialFile === undefined) await this.ensureCredential();
     const storage = await openNodeSqliteStorage(join(config.DATA_DIR, "durable.sqlite"));
-    const credentials = new FileCredentialStore(credentialFilePath(config.DATA_DIR));
+    const credentials = new FileCredentialStore(this.deps.credentialFile ?? credentialFilePath(config.DATA_DIR));
     const models = createModels({ credentials });
     models.setProvider(metaProvider());
     const registry = createRegistry();
@@ -396,6 +398,40 @@ export class TradingAgent implements AgentControl {
       }
       this.maybePublishStatus();
       throw error;
+    }
+  }
+
+  /** Accelerated replay must settle (including child work) before advancing its clock. */
+  async abortCycle(): Promise<void> {
+    await this.requireConversation().abort(CTX, { background: true });
+  }
+
+  /** Accelerated replay must settle (including child work) before advancing its clock. */
+  async runCycleAndWait(kind: CycleKind, timeoutMs: number): Promise<"done" | "unanswered" | "timeout"> {
+    if (this.activeCycleId !== undefined) throw new Error("A cycle is already in progress");
+    const cycleId = `${kind}-${etMinute(this.clock.now())}`;
+    const conversation = this.requireConversation();
+    const content = await this.deps.cycleInput(kind, cycleId);
+    this.activeCycleId = cycleId;
+    this.runningCount += 1;
+    this.lastCycleAt = this.clock.now();
+    this.lastCycleKind = kind;
+    this.maybePublishStatus();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const submission = await conversation.submit({ type: "input", content, requestId: cycleId,
+        entry: { kind: CYCLE_ENTRY_KIND, data: { cycleId } } }, CTX);
+      const outcome = await Promise.race([
+        submission.wait(CTX).then((record) => record.status),
+        new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), timeoutMs); }),
+      ]);
+      if (outcome === "timeout") await conversation.abort(CTX, { background: true });
+      return outcome;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      this.activeCycleId = undefined;
+      this.runningCount = Math.max(0, this.runningCount - 1);
+      this.maybePublishStatus();
     }
   }
 
