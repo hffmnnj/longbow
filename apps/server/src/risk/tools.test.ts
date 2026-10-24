@@ -53,6 +53,18 @@ function cannedOrder(status: OrderRecord["status"]): OrderRecord {
 }
 
 describe("risk extension", () => {
+  it("cancel_order routes the harness id through the gate and reports the resulting state", async () => {
+    let seen: string | undefined;
+    const ext = createRiskExtension({
+      gate: {} as OrderGate, store: {} as Store, calendar: createNyseCalendar(), clock: { now: () => NOW }, broker: {} as Broker, currentCycleId: () => undefined,
+      cancelOrder: async (id) => { seen = id; return { ...cannedOrder("submitted"), id, status: "cancelled" }; },
+    });
+    const tool = ext.tools?.find((t) => t.name === "cancel_order");
+    assert.ok(tool);
+    const result = await tool.execute({ orderId: "our-held-stop" }, {} as never, {} as never);
+    assert.equal(seen, "our-held-stop");
+    assert.deepEqual(result.output, [{ type: "text", text: "order our-held-stop: cancelled" }]);
+  });
   it("exposes submit_order (unsafe) and get_risk_state (safe)", () => {
     const gate = {
       submit: async () => cannedOrder("pending_approval"),
@@ -71,10 +83,11 @@ describe("risk extension", () => {
     assert.equal(ext.name, "risk");
     assert.deepEqual(
       ext.tools?.map((t) => t.name).sort(),
-      ["get_risk_state", "submit_order"],
+      ["cancel_order", "get_risk_state", "submit_order"],
     );
     assert.equal(ext.tools?.find((t) => t.name === "submit_order")?.replay, undefined);
     assert.equal(ext.tools?.find((t) => t.name === "get_risk_state")?.replay, "safe");
+    assert.equal(ext.tools?.find((t) => t.name === "cancel_order")?.replay, "unsafe");
   });
 
   it("submit_order reports the id, status, failed checks, and max quantity", async () => {

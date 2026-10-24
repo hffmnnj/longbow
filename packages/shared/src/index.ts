@@ -133,6 +133,7 @@ export interface BrokerStatus {
 export interface Position {
   symbol: string;
   quantity: number;
+  sharesAvailableForSells?: number;
   averageCost: number;
   marketValue: number;
   unrealizedPnl: number;
@@ -208,6 +209,11 @@ export type OrderStatus =
   | "rejected_user"
   | "expired"
   | "submitted"
+  | "held"
+  | "triggering"
+  | "partially_filled"
+  | "filled"
+  | "cancelled"
   | "failed";
 
 export interface OrderRecord {
@@ -221,6 +227,8 @@ export interface OrderRecord {
   /** Text of Robinhood's review (pre-trade warnings), when run. */
   review?: string;
   brokerOrderId?: string;
+  filledQuantity?: number;
+  averageFillPrice?: number;
   error?: string;
 }
 

@@ -17,6 +17,8 @@ Use when: computing size for any `submit_order` intent, or reviewing how and whe
 
 ## Tool workflow
 
+Whole-share limits and GTC stop-limit exits rest at Robinhood. Fractional limit intents execute as market orders only during regular hours when the fresh quote is inside the limit (ask <= limit for buys, bid >= limit for sells); otherwise they fail rather than rest. Fractional protective sell stops are held by the harness, checked every minute during regular NYSE hours, and sold at market on the trigger. The limit is not a guaranteed fill price; harness downtime, overnight gaps and slippage remain risks. Use `cancel_order` with our order id to cancel protection before another exit or to replace a trailing stop. Loss halts allow protective exits; kill switch and mode off block them.
+
 ```js
 const risk = await tools.get_risk_state(); // equity, per-trade risk pct, caps, halts
 const ind = await tools.market_indicators({ symbol: SYM });

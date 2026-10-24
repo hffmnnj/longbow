@@ -1,6 +1,6 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import { countDayTrades, countSubmittedBuysToday, sevenDaysAgo } from "./engine.ts";
+import { countDayTrades, countSubmittedBuysToday, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import type { Broker, Clock, MarketCalendar, OrderGate, Store } from "../ports.ts";
 
 /**
@@ -11,6 +11,7 @@ import type { Broker, Clock, MarketCalendar, OrderGate, Store } from "../ports.t
 
 export interface RiskToolsDeps {
   gate: OrderGate;
+  cancelOrder?: (id: string) => Promise<import("@rh/shared").OrderRecord>;
   store: Store;
   calendar: MarketCalendar;
   clock: Clock;
@@ -33,7 +34,7 @@ const submitOrderSchema = Type.Object({
     exclusiveMinimum: 0,
   }),
   orderType: Type.Union([Type.Literal("limit"), Type.Literal("stop_limit")], {
-    description: "Limit orders rest at limitPrice. Stop-limit orders also need stopPrice.",
+    description: "Whole-share limits rest at limitPrice. Fractional limits execute as market orders only inside the limit during regular hours. Fractional sell stops are held and watched every minute by the harness.",
   }),
   limitPrice: Type.Number({
     description: "Limit price in USD. Must sit within maxSlippageBps of the mid price.",
@@ -170,7 +171,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
         lines.push(`broker order id: ${order.brokerOrderId ?? "unknown"}`);
       }
       if (order.status === "failed" && autoMode) {
-        lines.push("the order failed to submit to Robinhood; nothing was placed.");
+        lines.push("order submission failed; reconcile Robinhood orders before retrying an uncertain response.");
       }
       if (order.error !== undefined) {
         lines.push(`error: ${order.error}`);
@@ -195,7 +196,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       const market = calendar.clock(now);
       const haltList = await gate.halts();
       const todayEt = calendar.etDate(now);
-      const recent = store.ordersSince(sevenDaysAgo(now)).filter((o) => o.status === "submitted");
+      const recent = store.ordersSince(sevenDaysAgo(now)).filter(countsAsSubmitted);
       const entriesUsed = countSubmittedBuysToday(recent, todayEt);
       const dayTradesUsed = countDayTrades(recent, todayEt, (a, b) =>
         calendar.tradingDaysBetween(a, b),
@@ -229,5 +230,12 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
     },
   });
 
-  return defineExtension({ name: "risk", tools: [submitOrder, getRiskState] });
+  const cancel = defineTool({ name: "cancel_order", description: "Cancel a harness-held stop locally or request cancellation of a submitted Robinhood order by our order id. Check the returned status; a broker cancellation may race a fill.", parameters: Type.Object({ orderId: Type.String({ minLength: 1 }) }), replay: "unsafe",
+    async execute(args) {
+      if (!deps.cancelOrder) throw new Error("Cancellation is unavailable for this broker");
+      const order = await deps.cancelOrder(args.orderId);
+      return { output: [{ type: "text", text: `order ${order.id}: ${order.status}` }] };
+    },
+  });
+  return defineExtension({ name: "risk", tools: [submitOrder, getRiskState, cancel] });
 }

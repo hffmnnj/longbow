@@ -1,6 +1,6 @@
 ---
 name: small-account
-description: Sizes positions and plans the day for a small account with fractional shares, swing holds, and settled-cash discipline; load before sizing any trade or planning the day.
+description: Sizes positions and plans the day for a small limited-margin account with fractional shares, swing holds, and buying-power discipline; load before sizing any trade or planning the day.
 ---
 
 Use when: sizing any order on an account near $1,000 to $2,000, or planning the day's entries and watchlist.
@@ -11,7 +11,7 @@ This account compounds through low drawdowns, not lottery tickets. A 20% drawdow
 
 ## Universe
 
-Default to liquid ETFs (SPY, QQQ, DIA, IWM) and mega-cap leaders with average daily dollar volume well above the live floor in `get_risk_state`. These names have penny-wide spreads, instant fills, and no gap-through-stop surprises. Single small caps are off the menu: their spreads alone can exceed the whole per-trade risk budget, which fails the expected-value gate before the thesis is even read.
+Default to liquid ETFs (SPY, QQQ, DIA, IWM) and mega-cap leaders with average daily dollar volume well above the live floor in `get_risk_state`. Check actual spreads and fills; even liquid names can gap through stops. Single small caps are off the menu: their spreads alone can exceed the whole per-trade risk budget, which fails the expected-value gate before the thesis is even read.
 
 ## Position count and sizing
 
@@ -21,7 +21,9 @@ Worked example at $1,000 with a one-and-a-half percent per-trade risk ($15) and 
 
 ## Cash settlement and buying power
 
-This is a cash account: stock sales settle the next business day (T+1), and only settled cash may fund a new purchase. Spending unsettled proceeds triggers a good-faith violation; three violations in 12 months typically brings a 90-day restriction (unverified against a primary source; confirm with the broker before relying on it). Practical rules: check settled cash in the account snapshot before sizing, never deploy sale proceeds the same day, and keep one slot's worth of powder settled so a genuine setup is never missed for want of clear funds.
+The connected agentic account is limited margin. Use the broker's live buying power, not an invented settled-cash figure; the snapshot intentionally omits settledCash. Keep cash available and never assume that limited margin removes day-trade restrictions.
+
+Robinhood fills fractional shares only as market orders in regular hours. A fractional limit intent sent through `submit_order` converts to market only if the fresh ask is at or below the buy limit, or the bid at or above the sell limit; otherwise it fails rather than resting. Market fills can slip. Fractional protective sell stops are held by the harness and checked every minute in regular NYSE hours, then sold at market on the trigger. They need the harness running and cannot protect overnight. Whole-share limits and GTC stops rest at Robinhood. Use `cancel_order` with the harness order id to cancel or replace protection.
 
 ## Day-trade limits
 
@@ -33,7 +35,7 @@ There are no commissions, so spread plus slippage is the entire cost line. Re-ch
 
 ## When buying power is too small
 
-Pass. If the computed size cannot clear the $5 minimum order notional, if the name cap leaves too few fractional shares to be worth the spread, or if settled cash cannot cover the notional, the setup is untradable today. Log it as a hold with the reason ("passed: name cap allowed only $40 notional, spread would eat the edge"). Scarcity of capital is information, not an obstacle to route around by widening stops or combining slots.
+Pass. If the computed size cannot clear the $5 minimum order notional, if the name cap leaves too few fractional shares to be worth the spread, or if live buying power cannot cover the notional, the setup is untradable today. Log it as a hold with the reason ("passed: name cap allowed only $40 notional, spread would eat the edge"). Scarcity of capital is information, not an obstacle to route around by widening stops or combining slots.
 
 ## Weekly review habit
 
