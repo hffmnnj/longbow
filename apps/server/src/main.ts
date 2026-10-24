@@ -22,6 +22,9 @@ import { createSkillsExtension } from "./skills/tools.ts";
 import { createMarketData } from "./market/market-data.ts";
 import { createMarketExtension } from "./market/tools.ts";
 import { createSubagentExtension } from "./agent/subagents.ts";
+import { createPushService } from "./push/service.ts";
+import { startNotifier } from "./push/notifier.ts";
+import { mountPushRoutes } from "./http/push-routes.ts";
 
 const MAX_SUBAGENT_RUNS = 50;
 
@@ -142,6 +145,13 @@ async function main(): Promise<void> {
   });
 
   const app = createApp(appDeps);
+  const push = createPushService({
+    dataDir: config.DATA_DIR,
+    log: log.child("push"),
+    subject: "mailto:hffmnnj@users.noreply.github.com",
+  });
+  mountPushRoutes(app, { push, log: log.child("push") });
+  const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
 
   const refresher = setInterval(() => {
     if (calendar.clock(clock.now()).session !== "regular") return;
@@ -161,6 +171,7 @@ async function main(): Promise<void> {
     stopping = true;
     log.info("shutting down", { signal });
     clearInterval(refresher);
+    stopNotifier();
     scheduler.stop();
     for (const server of servers) server.close();
     void tradingAgent.close().finally(() => process.exit(0));
