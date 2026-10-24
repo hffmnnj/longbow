@@ -8,7 +8,6 @@
   import Icon from "./Icon.svelte";
   import NumberField from "./NumberField.svelte";
   import { Cancel01Icon, Loading03Icon } from "$lib/icons";
-  import { ApiError } from "$lib/api";
   import { harness } from "$lib/store.svelte";
   import {
     RISK_GROUPS,
@@ -24,7 +23,6 @@
 
   const saved = $derived(harness.status?.settings);
   let form = $state<SettingsForm | null>(null);
-  let serverErrors = $state<Record<string, string>>({});
   let formError = $state<string | null>(null);
   let saving = $state(false);
   let tickerInput = $state("");
@@ -36,7 +34,6 @@
     if (open && saved && !form) form = toForm(saved);
     if (!open) {
       form = null;
-      serverErrors = {};
       formError = null;
       tickerInput = "";
       tickerError = null;
@@ -44,7 +41,7 @@
   });
 
   const clientErrors = $derived(form ? validate(form) : {});
-  const errors = $derived({ ...serverErrors, ...clientErrors });
+  const errors = $derived(clientErrors);
   const patch = $derived(saved && form ? buildPatch(saved, form) : {});
   const dirty = $derived(!isEmptyPatch(patch));
   const changeCount = $derived(
@@ -63,19 +60,13 @@
   async function save() {
     if (!form || !canSave) return;
     saving = true;
-    serverErrors = {};
     formError = null;
     try {
       await harness.patchSettings(patch);
       toast.success("Settings saved");
       if (saved) form = toForm(saved);
     } catch (e) {
-      if (e instanceof ApiError && e.issues.length) {
-        serverErrors = Object.fromEntries(e.issues.map((i) => [i.path, i.message]));
-        formError = "The server rejected some values.";
-      } else {
-        formError = e instanceof Error ? e.message : "Could not save settings";
-      }
+      formError = e instanceof Error ? e.message : "Could not save settings";
     } finally {
       saving = false;
     }

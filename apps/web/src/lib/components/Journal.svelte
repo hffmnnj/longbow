@@ -2,6 +2,7 @@
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import ActionBadge from "./ActionBadge.svelte";
   import Empty from "./Empty.svelte";
+  import Ticker from "./Ticker.svelte";
   import { etStamp } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { harness } from "$lib/store.svelte";
@@ -22,7 +23,7 @@
             <ActionBadge action={e.action} />
             <span class="min-w-0 flex-1">
               <span class="flex items-baseline gap-2">
-                {#if e.symbol}<span class="num font-semibold">{e.symbol}</span>{/if}
+                {#if e.symbol}<Ticker symbol={e.symbol} />{/if}
                 <span class="text-[13px] leading-snug group-data-[state=closed]:line-clamp-2">{e.summary}</span>
               </span>
               <span class="text-muted-foreground num mt-0.5 flex gap-2 text-[11.5px]">

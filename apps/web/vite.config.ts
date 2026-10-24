@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   server: {
     host: "127.0.0.1",
-    port: 5210,
+    port: 5241,
     strictPort: true,
     proxy: {
       // SSE needs no buffering; plain proxying keeps it streaming.

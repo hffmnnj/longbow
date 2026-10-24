@@ -9,7 +9,7 @@
   let el = $state<HTMLTextAreaElement | null>(null);
   let composing = false;
 
-  const canSend = $derived(text.trim().length > 0 && !harness.busy.send);
+  const canSend = $derived(text.trim().length > 0);
 
   function grow() {
     if (!el) return;
@@ -19,11 +19,10 @@
 
   async function submit() {
     const value = text.trim();
-    if (!value || harness.busy.send) return;
-    if (await harness.send(value)) {
-      text = "";
-      queueMicrotask(grow);
-    }
+    if (!value) return;
+    text = "";
+    queueMicrotask(grow);
+    await harness.send(value);
   }
 
   function onkeydown(e: KeyboardEvent) {

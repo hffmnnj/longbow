@@ -4,14 +4,13 @@
   import Icon from "./Icon.svelte";
   import { ArrowRight01Icon } from "$lib/icons";
   import { etTime } from "$lib/format";
+  import { cycleLabel } from "$lib/steps";
   import { cn } from "$lib/utils.js";
 
   let { message }: { message: ChatMessage } = $props();
   let open = $state(false);
 
-  const title = $derived(
-    (message.text.split("\n", 1)[0] ?? "").replace(/^#+\s*/, "").trim().slice(0, 80) || "Cycle",
-  );
+  const title = $derived(cycleLabel(message.text));
   const hasBody = $derived(message.text.trim().includes("\n"));
 </script>
 

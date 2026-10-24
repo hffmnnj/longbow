@@ -4,6 +4,7 @@
   import Empty from "./Empty.svelte";
   import RiskChecks from "./RiskChecks.svelte";
   import SideBadge from "./SideBadge.svelte";
+  import Ticker from "./Ticker.svelte";
   import { etStamp, qty, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { STATUS_LABEL } from "$lib/orders";
@@ -34,7 +35,7 @@
             <SideBadge side={o.intent.side} />
             <span class="min-w-0 flex-1">
               <span class="num flex flex-wrap items-baseline gap-x-2">
-                <span class="font-semibold">{o.intent.symbol}</span>
+                <Ticker symbol={o.intent.symbol} />
                 <span class="text-muted-foreground text-[12.5px]">{qty(o.intent.quantity)} @ {usd(o.intent.limitPrice)}</span>
               </span>
               <span class="num text-muted-foreground text-[11.5px]">{etStamp(o.createdAt, clock.now)}</span>

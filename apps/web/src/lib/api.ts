@@ -2,7 +2,14 @@ import {
   CSRF_HEADER,
   type ChatMessage,
   type ConnectResponse,
+  type HistoryRange,
   type JournalEntry,
+  type NoteContent,
+  type NoteFile,
+  type PriceHistory,
+  type Skill,
+  type SkillSummary,
+  type SubagentRun,
   type OrderRecord,
   type ServerEvent,
   type Settings,
@@ -10,19 +17,12 @@ import {
   type StatusResponse,
 } from "@rh/shared";
 
-export interface FieldIssue {
-  path: string;
-  message: string;
-}
-
 export class ApiError extends Error {
   readonly status: number;
-  readonly issues: FieldIssue[];
-  constructor(status: number, message: string, issues: FieldIssue[] = []) {
+  constructor(status: number, message: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
-    this.issues = issues;
   }
 }
 
@@ -46,6 +46,13 @@ export interface Api {
   patchSettings(patch: SettingsPatch): Promise<Settings | void>;
   connectUrl(): Promise<ConnectResponse>;
   disconnect(): Promise<void>;
+  subagents(): Promise<SubagentRun[]>;
+  conversationMessages(id: string, limit?: number): Promise<ChatMessage[]>;
+  skills(): Promise<SkillSummary[]>;
+  skill(name: string): Promise<Skill>;
+  notes(): Promise<NoteFile[]>;
+  note(path: string): Promise<NoteContent>;
+  history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
   subscribe(handlers: EventHandlers): () => void;
 }
 
@@ -76,21 +83,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 function toError(status: number, data: unknown, text: string): ApiError {
   const obj = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-  const raw = obj.issues ?? obj.errors;
-  const issues: FieldIssue[] = Array.isArray(raw)
-    ? raw
-        .filter((i): i is { path?: unknown; message?: unknown } => !!i && typeof i === "object")
-        .map((i) => ({
-          path: Array.isArray(i.path) ? i.path.join(".") : String(i.path ?? ""),
-          message: String(i.message ?? "Invalid value"),
-        }))
-    : [];
   const message =
     (typeof obj.error === "string" && obj.error) ||
     (typeof obj.message === "string" && obj.message) ||
     text.slice(0, 200) ||
     `Request failed (${status})`;
-  return new ApiError(status, message, issues);
+  return new ApiError(status, message);
 }
 
 function subscribeEvents(h: EventHandlers): () => void {
@@ -144,6 +142,15 @@ export const realApi: Api = {
   patchSettings: (patch) => request("PATCH", "/api/settings", patch),
   connectUrl: () => request("GET", "/api/robinhood/connect"),
   disconnect: () => request("POST", "/api/robinhood/disconnect", {}),
+  subagents: () => request("GET", "/api/subagents"),
+  conversationMessages: (id, limit = 200) =>
+    request("GET", `/api/conversations/${encodeURIComponent(id)}/messages?limit=${limit}`),
+  skills: () => request("GET", "/api/skills"),
+  skill: (name) => request("GET", `/api/skills/${encodeURIComponent(name)}`),
+  notes: () => request("GET", "/api/notes"),
+  note: (path) => request("GET", `/api/notes/${path.split("/").map(encodeURIComponent).join("/")}`),
+  history: (symbol, range) =>
+    request("GET", `/api/market/history?symbol=${encodeURIComponent(symbol)}&range=${range}`),
   subscribe: subscribeEvents,
 };
 

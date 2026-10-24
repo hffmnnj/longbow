@@ -14,7 +14,7 @@ describe("settings form", () => {
     f.watchlist.push("NVDA");
     expect(buildPatch(DEFAULT_SETTINGS, f)).toEqual({
       cycleMinutesOpen: 15,
-      watchlist: ["SPY", "QQQ", "NVDA"],
+      watchlist: [...DEFAULT_SETTINGS.watchlist, "NVDA"],
       risk: { maxPositions: 8 },
     });
   });
