@@ -1,5 +1,8 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 import type { Config } from "./ports.ts";
 
 function str(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -34,6 +37,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       join(home, ".config", "opencode-v2", "opencode.json"),
     ),
     ROBINHOOD_MCP_URL: str(env, "ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading"),
-    WEB_DIR: str(env, "WEB_DIR", resolve("apps/web/build")),
+    WEB_DIR: str(env, "WEB_DIR", join(REPO_ROOT, "apps", "web", "build")),
   };
 }
