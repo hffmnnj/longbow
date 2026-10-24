@@ -65,6 +65,8 @@ export function startNotifier(deps: NotifierDeps): () => void {
   let lastBrokerState: string | undefined;
   /** ISO day of the last post-close summary, so there is at most one a day. */
   let lastReviewDay: string | undefined;
+  /** ISO day of the last pre-open plan, so the morning brief is sent at most once a day. */
+  let lastBriefDay: string | undefined;
 
   function deliver(payload: PushPayload): void {
     try {
@@ -147,8 +149,14 @@ export function startNotifier(deps: NotifierDeps): () => void {
   }
 
   function onJournal(entry: JournalEntry): void {
-    if (entry.cycleId === undefined || !entry.cycleId.startsWith("post_close")) return;
     const day = new Date(entry.at).toISOString().slice(0, 10);
+    if (entry.cycleId?.startsWith("pre_open")) {
+      if (lastBriefDay === day) return;
+      lastBriefDay = day;
+      deliver({ title: "Morning plan", body: entry.summary, tag: "brief" });
+      return;
+    }
+    if (entry.cycleId === undefined || !entry.cycleId.startsWith("post_close")) return;
     if (lastReviewDay === day) return;
     lastReviewDay = day;
     deliver({ title: "Day review", body: entry.summary, tag: "review" });

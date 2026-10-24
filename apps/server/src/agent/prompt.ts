@@ -210,11 +210,11 @@ const OVERNIGHT_JOB =
 function jobFor(kind: CycleKind, isOpen: boolean): string {
   switch (kind) {
     case "pre_open":
-      return "Job: load market-regime and classify the regime from market_volatility, market_yields, and index and sector trends. Review overnight news, today's market_economic_calendar, and market_earnings for held symbols and the watchlist. Write plan.md with at most two candidate entries, their trigger levels, invalidations, and time stops, and journal the plan.";
+      return "Job: read lessons.md first and apply what it says today. Load market-regime and classify the regime from market_volatility, market_yields, and index and sector trends. Review overnight news, today's market_economic_calendar, and market_earnings for held symbols and the watchlist. Write plan.md with at most two candidate entries, their trigger levels, invalidations, and time stops, and journal the plan.";
     case "intraday":
       return INTRADAY_JOB;
     case "post_close":
-      return "Job: load trade-review-and-calibration, review the day's decisions and fills against their theses, update theses/<SYMBOL>.md, append any durable lesson to lessons.md, and journal a short review of what worked and what did not.";
+      return "Job: load trade-review-and-calibration, review the day's decisions and fills against their theses. For every trade closed today, judge decision quality apart from the outcome: was the plan followed (entry, size, stop, time stop), and would you take the same trade again with what you knew then. A loss on a good plan is not a lesson; a win on a broken rule is. Update theses/<SYMBOL>.md, append any durable lesson to lessons.md, and journal a short review of what worked and what did not.";
     case "overnight":
       return OVERNIGHT_JOB;
     case "manual":
