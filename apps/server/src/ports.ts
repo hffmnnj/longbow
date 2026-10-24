@@ -21,6 +21,7 @@ import type {
   Settings,
   SettingsPatch,
 } from "@rh/shared";
+import type { OpenStopOrder, PnlTrade } from "./robinhood/mapping.ts";
 
 /**
  * Server-internal contract. Each slice implements one port and consumes the
@@ -107,6 +108,9 @@ export interface Store {
   markEquity(at: number, etDate: string, equity: number): void;
   /** Starting equity of an ET day and peak equity of its month (YYYY-MM), when observed. */
   equityMarks(etDate: string): { dayStart?: number; monthPeak?: number };
+  /** Every recorded ET day oldest first: the day's starting and peak observed equity. */
+  /** One row per ET day; dayLast is the latest observed equity, the closest thing to a close. */
+  equitySeries(): { etDate: string; dayStart: number; dayHigh: number; dayLast: number }[];
 }
 
 /**
@@ -128,6 +132,10 @@ export interface Broker {
   reviewOrder(intent: OrderIntent): Promise<string>;
   /** Places the order and returns the broker order id. */
   placeOrder(intent: OrderIntent): Promise<{ brokerOrderId: string; raw: string }>;
+  /** Closed trades from the broker's trade history, oldest first. Absent when the broker cannot serve them. */
+  tradeHistory?(): Promise<PnlTrade[]>;
+  /** Open sell stop orders resting at the broker. Absent when the broker cannot serve them. */
+  openStopOrders?(): Promise<OpenStopOrder[]>;
   /** Called whenever status or the tool list changes. */
   onChange(listener: () => void): () => void;
 }

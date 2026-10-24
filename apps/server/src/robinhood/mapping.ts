@@ -145,3 +145,54 @@ export async function fetchSnapshot(call: ReadCall, account: string, at: number)
   } while (cursor);
   return parseSnapshot(portfolio, at, positions, await fetchQuotes(call, positions.map((p) => string(p, "symbol")), at));
 }
+
+/** One closed/realizing trade from Robinhood's PnL hub (equities, options, crypto). */
+export interface PnlTrade {
+  symbol: string;
+  closedAt: number;
+  quantity: number;
+  exitPrice: number;
+  pnl: number;
+}
+
+/**
+ * Parse one page of `get_pnl_trade_history`. Each entry is a closed trade
+ * with the execution (close) price and the realized gain/loss on it; there
+ * is no entry price, so callers must not invent pnlPct or holding periods.
+ */
+export function parsePnlTrades(response: Record<string, unknown>): PnlTrade[] {
+  if (!Array.isArray(response.trades)) throw new BrokerMappingError("Robinhood response missing pnl trades");
+  const out: PnlTrade[] = [];
+  for (const entry of response.trades.map(record)) {
+    const closedAt = Date.parse(typeof entry.timestamp === "string" ? entry.timestamp : "");
+    if (!Number.isFinite(closedAt)) continue;
+    const quantity = Number(entry.quantity);
+    const exitPrice = Number(entry.price);
+    const pnl = Number(entry.realized_gain);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(exitPrice) || !Number.isFinite(pnl)) continue;
+    out.push({ symbol: String(entry.symbol ?? "").toUpperCase(), closedAt, quantity, exitPrice, pnl });
+  }
+  return out.filter((t) => t.symbol !== "");
+}
+
+/** An open stop order resting at Robinhood: the backup stop for a held long. */
+export interface OpenStopOrder {
+  symbol: string;
+  stopPrice: number;
+}
+
+const OPEN_ORDER_STATES = new Set(["new", "queued", "confirmed", "unconfirmed", "partially_filled"]);
+
+/** Open sell stop orders from one page of `get_equity_orders`. */
+export function parseOpenStopOrders(response: Record<string, unknown>): OpenStopOrder[] {
+  if (!Array.isArray(response.orders)) throw new BrokerMappingError("Robinhood response missing orders");
+  const out: OpenStopOrder[] = [];
+  for (const entry of response.orders.map(record)) {
+    if (entry.side !== "sell" || !OPEN_ORDER_STATES.has(String(entry.state ?? ""))) continue;
+    if (typeof entry.symbol !== "string" || !/^[A-Z.]{1,10}$/.test(entry.symbol)) continue;
+    const stopPrice = Number(entry.stop_price);
+    if (!Number.isFinite(stopPrice) || stopPrice <= 0) continue;
+    out.push({ symbol: entry.symbol, stopPrice });
+  }
+  return out;
+}

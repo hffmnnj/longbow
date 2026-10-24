@@ -63,6 +63,7 @@ function fakeStore(): Store & { settings: ReturnType<Store["getSettings"]> } {
     ordersSince: (since) => state.orders.filter((o) => o.createdAt >= since),
     markEquity: () => {},
     equityMarks: () => ({}),
+    equitySeries: () => [],
   };
 }
 

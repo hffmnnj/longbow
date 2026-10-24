@@ -121,6 +121,11 @@ class FakeStore implements Store {
       ...(peak === undefined ? {} : { monthPeak: peak }),
     };
   }
+  equitySeries(): { etDate: string; dayStart: number; dayHigh: number; dayLast: number }[] {
+    return [...this.marks]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([etDate, equities]) => ({ etDate, dayStart: equities[0] ?? 0, dayHigh: Math.max(...equities), dayLast: equities.at(-1) ?? 0 }));
+  }
 }
 
 class FakeBroker implements Broker {

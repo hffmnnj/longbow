@@ -29,6 +29,8 @@ import { mountPushRoutes } from "./http/push-routes.ts";
 import { createSimService } from "./sim/runner.ts";
 import { createSimToolsExtension } from "./sim/tools.ts";
 import { mountSimRoutes } from "./http/sim-routes.ts";
+import { createAnalyticsService } from "./analytics/service.ts";
+import { mountAnalyticsRoutes } from "./http/analytics-routes.ts";
 import { credentialFilePath } from "./agent/credential-store.ts";
 
 const MAX_SUBAGENT_RUNS = 50;
@@ -97,6 +99,17 @@ async function main(): Promise<void> {
     credentialFile: credentialFilePath(config.DATA_DIR),
   });
   const notes = createNotes({ dir: join(config.DATA_DIR, "workspace"), bus, clock });
+  const analytics = createAnalyticsService({
+    store,
+    market,
+    broker,
+    getAccount: () => cachedAccount,
+    notes,
+    calendar,
+    clock,
+    log: log.child("analytics"),
+    dataDir: config.DATA_DIR,
+  });
 
   const extensions = [
     createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, cancelOrder: (id) => gate.cancel(id) }),
@@ -188,6 +201,7 @@ async function main(): Promise<void> {
   });
   mountPushRoutes(app, { push, log: log.child("push") });
   mountSimRoutes(app, { sim, log: log.child("sim") });
+  mountAnalyticsRoutes(app, { analytics, log: log.child("analytics") });
   const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
 
   const refresher = setInterval(() => {
