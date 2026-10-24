@@ -260,6 +260,8 @@ export function mockMarket(): MarketOverview {
       { date: isoPlus(1), time: "08:30", event: "Core PCE price index", importance: "high" },
       { date: isoPlus(2), time: "10:00", event: "ISM manufacturing PMI", importance: "medium" },
       { date: isoPlus(3), time: "14:00", event: "FOMC minutes", importance: "high" },
+      // Repeated on purpose: feeds sometimes emit an event twice, and the list keys must stay unique.
+      { date: isoPlus(3), time: "14:00", event: "FOMC minutes", importance: "high" },
       { date: isoPlus(4), time: "08:30", event: "Initial jobless claims", importance: "low" },
       { date: isoPlus(5), time: "08:30", event: "Nonfarm payrolls", importance: "high" },
       { date: isoPlus(5), time: "10:00", event: "Consumer sentiment", importance: "low" },

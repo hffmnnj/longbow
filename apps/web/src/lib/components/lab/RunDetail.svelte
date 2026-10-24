@@ -20,6 +20,7 @@
   import RunStatus from "./RunStatus.svelte";
   import { ArrowLeft01Icon, StopIcon } from "$lib/icons";
   import { isoShort, qty, usd } from "$lib/format";
+  import { simFillKey } from "$lib/analytics";
   import { provideScope } from "$lib/scope";
   import { sim } from "$lib/sim.svelte";
   import { estimateMinutes, formatEstimate, isActive, progressFraction, runTitle } from "$lib/sim";
@@ -146,7 +147,7 @@
             </Table.Row>
           </Table.Header>
           <Table.Body>
-            {#each run.fills.toReversed() as f (f.orderId + f.at)}
+            {#each run.fills.toReversed() as f, i (simFillKey(f, i))}
               <Table.Row>
                 <Table.Cell class="num text-muted-foreground px-3.5 py-2">{isoShort(f.date)}</Table.Cell>
                 <Table.Cell class="py-2"><SideBadge side={f.side} /></Table.Cell>

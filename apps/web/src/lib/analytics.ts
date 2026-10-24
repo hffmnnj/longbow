@@ -148,6 +148,37 @@ export function pnlBars(trades: readonly ClosedTrade[], max = 40): PnlBar[] {
   }));
 }
 
+/**
+ * List keys for server rows whose natural key can repeat in real data (a feed
+ * that emits an event twice, two fills in the same millisecond). The index is
+ * the tiebreaker, so the key is unique by construction.
+ */
+export const calendarKey = (c: { date: string; event: string }, i: number): string => `${c.date} ${c.event} ${i}`;
+
+export const earningsKey = (e: { symbol: string; date: string }, i: number): string => `${e.symbol} ${e.date} ${i}`;
+
+export const closedTradeKey = (t: { symbol: string; closedAt: number }, i: number): string => `${t.symbol} ${t.closedAt} ${i}`;
+
+export const simFillKey = (f: { orderId: string; at: number }, i: number): string => `${f.orderId} ${f.at} ${i}`;
+
+export const riskCheckKey = (c: { rule: string }, i: number): string => `${c.rule} ${i}`;
+
+export interface CalendarDay<T> {
+  date: string;
+  items: T[];
+}
+
+/** Economic calendar grouped by date, keeping the server's first-seen order. */
+export function groupCalendarDays<T extends { date: string }>(calendar: readonly T[]): CalendarDay<T>[] {
+  const groups = new Map<string, T[]>();
+  for (const c of calendar) {
+    const list = groups.get(c.date);
+    if (list) list.push(c);
+    else groups.set(c.date, [c]);
+  }
+  return [...groups.entries()].map(([date, items]) => ({ date, items }));
+}
+
 export function pnlReading(trades: readonly ClosedTrade[]): string | undefined {
   if (trades.length === 0) return undefined;
   const wins = trades.filter((t) => t.pnl > 0).length;

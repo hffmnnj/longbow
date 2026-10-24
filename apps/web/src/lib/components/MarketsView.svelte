@@ -7,7 +7,8 @@
   import TrendTable from "./viz/TrendTable.svelte";
   import Empty from "./Empty.svelte";
   import Ticker from "./Ticker.svelte";
-  import { breadthPct, vixReading, yieldReading } from "$lib/analytics";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { breadthPct, calendarKey, earningsKey, groupCalendarDays, vixReading, yieldReading } from "$lib/analytics";
   import { clock } from "$lib/clock.svelte";
   import { ago, isoDay, isoShort, pct, yieldPct } from "$lib/format";
   import { harness } from "$lib/store.svelte";
@@ -25,6 +26,7 @@
   <DataState loadable={harness.market} onretry={() => harness.loadMarket(true)} skeleton="h-[28rem]">
     {#snippet children(m)}
       {@const breadth = breadthPct(m.breadth)}
+      <svelte:boundary>
       <Panel title="Regime" reading={m.regime}>
         <dl class="grid grid-cols-2 gap-x-4 gap-y-3 px-3.5 pb-3.5 sm:grid-cols-4">
           <Stat label="VIX" value={m.volatility.vix.toFixed(1)} sub={m.volatility.percentile !== undefined ? `${Math.round(m.volatility.percentile)}th percentile, 1Y` : undefined} />
@@ -116,19 +118,28 @@
           {#if m.calendar.length === 0}
             <Empty text="No scheduled releases in the next 7 days." />
           {:else}
-            <ul class="divide-border divide-y">
-              {#each m.calendar as c (c.date + c.event)}
-                <li class="flex items-center gap-3 px-3.5 py-2 text-[13px]">
-                  <span class="num text-muted-foreground w-24 shrink-0 text-[12px]">{isoDay(c.date)}</span>
-                  <span class="num text-muted-foreground w-11 shrink-0 text-[12px]">{c.time ?? ""}</span>
-                  <span class="min-w-0 flex-1 truncate">{c.event}</span>
-                  <span class="flex shrink-0 items-center gap-1.5 text-[11px]">
-                    <i class={cn("size-2 rounded-full", importance[c.importance ?? "low"])}></i>
-                    <span class="text-muted-foreground w-11">{c.importance ?? "low"}</span>
-                  </span>
-                </li>
+            {@const days = groupCalendarDays(m.calendar)}
+            <div class="pb-1.5">
+              {#each days as d (d.date)}
+                <h3 class="label-caps px-3.5 pt-2 pb-0.5">{isoDay(d.date)}</h3>
+                <ul class="divide-border divide-y">
+                  {#each d.items as c, i (calendarKey(c, i))}
+                    <li class="flex items-center gap-3 px-3.5 py-2 text-[13px]">
+                      <span class="num text-muted-foreground w-11 shrink-0 text-[12px]">{c.time ?? ""}</span>
+                      <span class="min-w-0 flex-1 truncate">{c.event}</span>
+                      <span class="flex shrink-0 items-center gap-1.5">
+                        <i class={cn("size-2 rounded-full", importance[c.importance ?? "low"])} aria-hidden="true"></i>
+                        {#if c.importance === "high"}
+                          <span class="bg-loss/10 text-loss rounded px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase">High impact</span>
+                        {:else}
+                          <span class="sr-only">{c.importance ?? "low"} impact</span>
+                        {/if}
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
               {/each}
-            </ul>
+            </div>
           {/if}
         </Panel>
         <Panel title="Earnings" reading={m.earnings.some((e) => e.held) ? `${m.earnings.filter((e) => e.held).length} held names report in the next 30 days` : "No held names report in the next 30 days"}>
@@ -136,7 +147,7 @@
             <Empty text="No earnings in the next 30 days for held or watched names." />
           {:else}
             <ul class="divide-border divide-y">
-              {#each m.earnings.toSorted((a, b) => a.date.localeCompare(b.date)) as e (e.symbol + e.date)}
+              {#each m.earnings.toSorted((a, b) => a.date.localeCompare(b.date)) as e, i (earningsKey(e, i))}
                 <li class={cn("flex items-center gap-3 px-3.5 py-2 text-[13px]", (e.held || held.has(e.symbol)) && "bg-primary/5")}>
                   <span class="num text-muted-foreground w-24 shrink-0 text-[12px]">{isoDay(e.date)}</span>
                   <span class="w-16 shrink-0"><Ticker symbol={e.symbol} /></span>
@@ -148,6 +159,13 @@
           {/if}
         </Panel>
       </div>
+      {#snippet failed(error, reset)}
+        <div role="alert" class="border-border bg-card flex flex-col items-start justify-center gap-2 rounded-lg border p-3.5 text-[13px]">
+          <span class="text-muted-foreground">Markets failed to render{error instanceof Error && error.message ? `: ${error.message}` : "."}</span>
+          <Button size="sm" variant="outline" onclick={() => { reset(); void harness.loadMarket(true); }}>Retry</Button>
+        </div>
+      {/snippet}
+      </svelte:boundary>
     {/snippet}
   </DataState>
 </div>

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { CalibrationBucket, ClosedTrade, EquityHistory, Position } from "@rh/shared";
 import {
+  calendarKey,
   calibrationReading,
   calibrationRows,
+  closedTradeKey,
   distanceToStopPct,
   ditherRampSvg,
+  earningsKey,
   equityReading,
   equityRows,
+  groupCalendarDays,
   heatCapPct,
   indexToStart,
   orderOutcomes,
@@ -15,6 +19,7 @@ import {
   rebase,
   replayReading,
   REPLAY_LABEL,
+  simFillKey,
   thinSeries,
   vixReading,
   yieldReading,
@@ -246,5 +251,41 @@ describe("market readings", () => {
   it("computes breadth as the share above the 50 day, and zero for an empty universe", () => {
     expect(breadthPct({ aboveSma50: 250, total: 500 })).toBe(50);
     expect(breadthPct({ aboveSma50: 0, total: 0 })).toBe(0);
+  });
+});
+
+describe("list keys", () => {
+  it("stays unique when two calendar rows share a date and name", () => {
+    const a = { date: "2026-10-26", event: "FOMC minutes" };
+    const keys = [calendarKey(a, 0), calendarKey({ ...a }, 1)];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("stays unique when two earnings rows share a symbol and date", () => {
+    const e = { symbol: "NVDA", date: "2026-10-26" };
+    const keys = [earningsKey(e, 0), earningsKey({ ...e }, 1)];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("stays unique when two closed trades share a symbol and close time", () => {
+    const t = { symbol: "MSFT", closedAt: 5 };
+    const keys = [closedTradeKey(t, 0), closedTradeKey({ ...t }, 1)];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("stays unique when two fills share an order and timestamp", () => {
+    const f = { orderId: "o1", at: 7 };
+    const keys = [simFillKey(f, 0), simFillKey({ ...f }, 1)];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("groups the calendar by date in first-seen order", () => {
+    const days = groupCalendarDays([
+      { date: "2026-10-27", event: "B" },
+      { date: "2026-10-26", event: "A" },
+      { date: "2026-10-26", event: "A again" },
+    ]);
+    expect(days.map((d) => d.date)).toEqual(["2026-10-27", "2026-10-26"]);
+    expect(days[1]!.items.map((i) => i.event)).toEqual(["A", "A again"]);
   });
 });

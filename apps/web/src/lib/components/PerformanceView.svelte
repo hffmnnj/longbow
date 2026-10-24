@@ -8,7 +8,7 @@
   import Empty from "./Empty.svelte";
   import Pnl from "./Pnl.svelte";
   import Ticker from "./Ticker.svelte";
-  import { calibrationReading, calibrationRows, orderOutcomes, pnlBars, pnlReading, SOURCE_LABEL } from "$lib/analytics";
+  import { calibrationReading, calibrationRows, closedTradeKey, orderOutcomes, pnlBars, pnlReading, SOURCE_LABEL } from "$lib/analytics";
   import { isoShort, pct, tone, usd, usdSigned } from "$lib/format";
   import { harness } from "$lib/store.svelte";
   import { cn } from "$lib/utils.js";
@@ -39,7 +39,7 @@
           <Stat label="Realized P&L" value={usdSigned(p.realizedPnl)} tone={tone(p.realizedPnl)} sub={`${p.trades.length} closed trades`} />
           <Stat label="Win rate" value={p.winRatePct !== undefined ? pct(p.winRatePct) : undefined} />
           <Stat label="Average R" value={p.avgR !== undefined ? `${p.avgR >= 0 ? "+" : "\u2212"}${Math.abs(p.avgR).toFixed(2)}R` : undefined} sub="harness trades with a plan" />
-          <Stat label="Expectancy" value={p.expectancy !== undefined ? usdSigned(p.expectancy) : undefined} sub="per harness trade" tone={p.expectancy !== undefined ? tone(p.expectancy) : "flat"} />
+          <Stat label="Expectancy" value={p.expectancy !== undefined ? usdSigned(p.expectancy) : undefined} sub="per closed trade" tone={p.expectancy !== undefined ? tone(p.expectancy) : "flat"} />
           <Stat label="Profit factor" value={num(p.profitFactor)} sub="gross wins / gross losses" />
           <Stat label="Avg holding" value={p.avgHoldingDays !== undefined ? `${p.avgHoldingDays.toFixed(1)} days` : undefined} />
         </dl>
@@ -49,6 +49,7 @@
             <div class="px-3.5 pb-3.5">
               <DitherColumns
                 labels={bars.map((b) => b.label)}
+                stackType="stacked"
                 series={[
                   { key: "gain", label: "Win", tone: "gain", values: bars.map((b) => b.gain) },
                   { key: "loss", label: "Loss, shown as size", tone: "loss", values: bars.map((b) => b.loss) },
@@ -129,12 +130,12 @@
                     <Table.Head class="{head} hidden text-right sm:table-cell">Held</Table.Head>
                     <Table.Head class="{head} text-right">P&amp;L</Table.Head>
                     <Table.Head class="{head} text-right">R</Table.Head>
-                    <Table.Head class="{head} hidden text-right sm:table-cell">Said</Table.Head>
+                    <Table.Head class="{head} hidden text-right sm:table-cell">Odds</Table.Head>
                     <Table.Head class="{head} pr-3.5">Source</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {#each p.trades.toSorted((a, b) => b.closedAt - a.closedAt) as t (t.symbol + t.closedAt)}
+                  {#each p.trades.toSorted((a, b) => b.closedAt - a.closedAt) as t, i (closedTradeKey(t, i))}
                     <Table.Row>
                       <Table.Cell class="px-3.5 py-1.5"><Ticker symbol={t.symbol} /></Table.Cell>
                       <Table.Cell class="num py-1.5">{day.format(t.closedAt)}</Table.Cell>
