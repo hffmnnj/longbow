@@ -1,0 +1,19 @@
+{
+  "name": "robinhood-harness",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "typecheck": "bun run --filter '@rh/shared' typecheck && bun run --filter '@rh/server' typecheck && bun run --filter '@rh/web' typecheck",
+    "test": "bun run --filter '@rh/shared' test && bun run --filter '@rh/server' test",
+    "dev:server": "bun run --filter '@rh/server' dev",
+    "dev:web": "bun run --filter '@rh/web' dev",
+    "build:web": "bun run --filter '@rh/web' build",
+    "start": "bun run build:web && bun run --filter '@rh/server' start"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "5.8.3"
+  }
+}

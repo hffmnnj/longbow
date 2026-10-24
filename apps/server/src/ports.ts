@@ -1,0 +1,130 @@
+import type {
+  AccountSnapshot,
+  AgentStatus,
+  BrokerStatus,
+  ChatMessage,
+  CycleKind,
+  HaltReason,
+  JournalEntry,
+  MarketClock,
+  OrderIntent,
+  OrderRecord,
+  Quote,
+  ServerEvent,
+  Settings,
+  SettingsPatch,
+} from "@rh/shared";
+
+/**
+ * Server-internal contract. Each slice implements one port and consumes the
+ * others only through these interfaces, so slices never import each other's
+ * internals. Composition happens in `main.ts`.
+ */
+
+export interface Config {
+  /** HTTP port, default 4520. */
+  PORT: number;
+  /** Listen addresses, default ["127.0.0.1"] plus the Tailnet address when HARNESS_TAILNET_HOST is set. */
+  HOSTS: string[];
+  /** Origin the browser uses, for the OAuth redirect URI and Origin checks, default http://127.0.0.1:4520. */
+  PUBLIC_URL: string;
+  /** State directory (mode 0700), default ~/.local/share/robinhood-harness. */
+  DATA_DIR: string;
+  MUSE_MODEL: string;
+  /** Muse CLI auth file to seed the Meta credential from, default ~/.config/muse/auth.json. */
+  MUSE_AUTH_FILE: string;
+  /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */
+  WEBSEARCH_CONFIG_FILE: string;
+  ROBINHOOD_MCP_URL: string;
+  /** Built SvelteKit app to serve, default apps/web/build. */
+  WEB_DIR: string;
+}
+
+export interface Logger {
+  info(msg: string, fields?: Record<string, unknown>): void;
+  warn(msg: string, fields?: Record<string, unknown>): void;
+  error(msg: string, fields?: Record<string, unknown>): void;
+  child(scope: string): Logger;
+}
+
+export interface Clock {
+  now(): number;
+}
+
+export interface EventBus {
+  publish(event: ServerEvent): void;
+  subscribe(listener: (event: ServerEvent) => void): () => void;
+}
+
+/** NYSE calendar (2026-2027 holidays and early closes) in America/New_York. */
+export interface MarketCalendar {
+  clock(now: number): MarketClock;
+  /** ET date YYYY-MM-DD of an instant. */
+  etDate(now: number): string;
+  /** Number of NYSE trading days strictly between two ET dates. */
+  tradingDaysBetween(fromEtDate: string, toEtDate: string): number;
+}
+
+/** App state in one SQLite file (`${DATA_DIR}/app.sqlite`), synchronous like node:sqlite. */
+export interface Store {
+  getSettings(): Settings;
+  /** Applies a validated patch (risk merges per field) and returns the result. */
+  patchSettings(patch: SettingsPatch): Settings;
+
+  addJournal(entry: Omit<JournalEntry, "id">): JournalEntry;
+  listJournal(limit: number): JournalEntry[];
+
+  addOrder(order: Omit<OrderRecord, "id">): OrderRecord;
+  updateOrder(id: string, patch: Partial<Omit<OrderRecord, "id" | "createdAt">>): OrderRecord;
+  getOrder(id: string): OrderRecord | undefined;
+  /** Newest first. */
+  listOrders(limit: number): OrderRecord[];
+  /** Oldest first, createdAt >= since. */
+  ordersSince(since: number): OrderRecord[];
+
+  /** Records an equity observation; the first of each ET day and the max of each ET month are kept. */
+  markEquity(at: number, etDate: string, equity: number): void;
+  /** Starting equity of an ET day and peak equity of its month (YYYY-MM), when observed. */
+  equityMarks(etDate: string): { dayStart?: number; monthPeak?: number };
+}
+
+/**
+ * The Robinhood Trading MCP connection. Read tools are exposed to the model as
+ * a pi-durable extension; order placement is only reachable through
+ * `reviewOrder`/`placeOrder`, which the order gate calls after the risk engine.
+ */
+export interface Broker {
+  status(): BrokerStatus;
+  /** Starts OAuth (dynamic client registration + PKCE) and returns the sign-in URL. */
+  beginConnect(): Promise<string>;
+  /** Completes OAuth from the callback query string, then connects. */
+  completeConnect(params: URLSearchParams): Promise<void>;
+  disconnect(): Promise<void>;
+  /** Fresh account view of the MCP trading account. Throws when disconnected. */
+  snapshot(): Promise<AccountSnapshot>;
+  quote(symbol: string): Promise<Quote>;
+  /** Robinhood's pre-trade review; returns its text including any warnings. */
+  reviewOrder(intent: OrderIntent): Promise<string>;
+  /** Places the order and returns the broker order id. */
+  placeOrder(intent: OrderIntent): Promise<{ brokerOrderId: string; raw: string }>;
+  /** Called whenever status or the tool list changes. */
+  onChange(listener: () => void): () => void;
+}
+
+export interface OrderGate {
+  /** Runs the risk engine; stores and returns the order (rejected, pending approval, submitted, or failed). */
+  submit(intent: OrderIntent, cycleId?: string): Promise<OrderRecord>;
+  approve(id: string): Promise<OrderRecord>;
+  reject(id: string, reason?: string): Promise<OrderRecord>;
+  /** Current halts for new entries. */
+  halts(): Promise<HaltReason[]>;
+}
+
+export interface AgentControl {
+  status(): AgentStatus;
+  /** User chat message into the trading agent's conversation. */
+  sendMessage(text: string): Promise<void>;
+  /** Starts a cycle now; idempotent per cycle id. */
+  runCycle(kind: CycleKind): Promise<void>;
+  listMessages(limit: number): Promise<ChatMessage[]>;
+}

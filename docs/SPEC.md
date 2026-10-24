@@ -1,0 +1,48 @@
+# Robinhood Harness: spec
+
+## Goal
+
+A 24/7 agentic trading harness for the user's Robinhood MCP trading account. A durable Pi agent
+running `muse-spark-1.3-contributor` researches with the Robinhood Trading MCP and the OpenCode
+`openai_websearch` tools, journals every decision, and proposes orders. A deterministic risk engine
+outside the model decides whether an order may go out. A Svelte + shadcn UI shows the account,
+the agent's live work, the journal, pending approvals, settings, and a kill switch.
+
+## Architecture
+
+- `apps/server`: Node 26, Hono, `@earendil-works/pi-durable` 1.3.0 with SQLite storage, pi-ai's Meta
+  provider (credential seeded from `~/.config/muse/auth.json`), `@earendil-works/pi-mcp` for the
+  Robinhood MCP (OAuth with dynamic client registration and PKCE) and the websearch MCP.
+- `apps/web`: SvelteKit static SPA, shadcn-svelte, bits-ui, Tailwind 4, HugeIcons. Served by the server.
+- `packages/shared`: wire types and zod schemas (`packages/shared/src/index.ts`).
+- Server ports: `apps/server/src/ports.ts`.
+- One agent conversation. Scheduled cycles (pre-open, intraday every 30 min, post-close, overnight
+  every 4 h) and the user's chat messages are inputs to it. Cycle request ids make them idempotent.
+- The model never sees order-placing Robinhood tools. It calls `submit_order` with a structured intent
+  (thesis, invalidation, time stop, EV inputs, evidence). The gate runs the risk engine, then
+  Robinhood's review, then places the order (mode `auto`) or queues it for approval (mode `approve`).
+- Port 4520 on 127.0.0.1 and the Tailnet address. Mutating requests need the `x-harness` header.
+
+## Not doing (v1)
+
+- No multi-agent debate or subagents; one agent with a structured decision protocol.
+- No backtester, paper-trading simulator, or strategy optimizer.
+- No options, crypto, shorting, margin use, or multi-leg orders.
+- No app login; the Tailnet plus the CSRF header is the boundary.
+- No extra market-data feeds (FRED, CBOE) or indicator libraries; Robinhood's tools provide data.
+- No server-side earnings or liquidity feeds; those rules are in the prompt and the intent.
+- No hosted deploy; it runs on this laptop as a user service.
+
+## Acceptance checks
+
+1. `bun run typecheck` and `bun run test` pass.
+2. The server starts, `GET /api/status` returns the agent, market clock, settings, and broker state.
+3. A manual cycle runs end to end on Muse: the agent uses web search, writes a journal entry, and the
+   transcript streams into the UI.
+4. Robinhood connect: the UI's Connect button returns a working sign-in URL; after sign-in the broker
+   is `connected` and the agent can read the account and portfolio.
+5. The risk engine rejects an oversized or out-of-hours entry with named checks (unit tests), and the
+   model cannot call any Robinhood place tool directly.
+6. In `approve` mode an approved-by-risk order appears in the UI and can be approved or rejected;
+   the kill switch blocks every order.
+7. The UI works at desktop and phone widths.

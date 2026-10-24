@@ -1,0 +1,8 @@
+node_modules/
+spike/
+data/
+.svelte-kit/
+apps/web/build/
+*.sqlite
+*.sqlite-*
+.env
