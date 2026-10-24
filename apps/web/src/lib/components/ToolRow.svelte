@@ -3,6 +3,7 @@
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import Icon from "./Icon.svelte";
   import { AlertCircleIcon, ArrowRight01Icon, Wrench01Icon } from "$lib/icons";
+  import { openAgent } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
   let { message }: { message: ChatMessage } = $props();
@@ -33,6 +34,11 @@
     {/if}
   </Collapsible.Trigger>
   <Collapsible.Content>
+    {#if message.childConversationId}
+      <button class="text-primary mx-2 mt-1 min-h-7 text-[12px] hover:underline" onclick={() => openAgent(message.childConversationId ?? "")}>
+        Open {message.agentRole ?? "agent"} transcript
+      </button>
+    {/if}
     <pre
       class="num text-muted-foreground bg-muted/50 mx-2 mt-1 mb-1.5 max-h-72 overflow-auto rounded-md p-2.5 text-[12px] leading-relaxed break-words whitespace-pre-wrap">{message.text}</pre>
   </Collapsible.Content>

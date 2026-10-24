@@ -8,6 +8,7 @@ import {
   type RiskCheck,
   type StatusResponse,
 } from "@rh/shared";
+import { mockRun } from "./data.ts";
 
 /** Dev-only fixtures (VITE_MOCK_API=1). Never imported by production code paths. */
 
@@ -242,7 +243,7 @@ export const fixtureJournal = (): JournalEntry[] => {
 export const fixtureMessages = (): ChatMessage[] => {
   const t = Date.now();
   return [
-    { id: "m-1", at: t - 55 * MIN, role: "cycle", text: "Intraday cycle\nTrading day 2026-10-23, regular session, 2h 20m to the open of the entry window.\nAccount: equity $25,431.77, 3 positions.\nWatchlist: SPY, QQQ, NVDA, XLE, JPM, MSFT." },
+    { id: "m-1", at: t - 55 * MIN, role: "cycle", text: "Cycle intraday-2026-10-23T10:00 (intraday).\nTrading day 2026-10-23, regular session, 2h 20m to the open of the entry window.\nAccount: equity $25,431.77, 3 positions.\nWatchlist: SPY, QQQ, NVDA, XLE, JPM, MSFT." },
     { id: "m-2", at: t - 54 * MIN, role: "tool", toolName: "get_portfolio", text: "3 positions, equity 25431.77, cash 19200.30, buying power 19200.30" },
     { id: "m-3", at: t - 54 * MIN + 2000, role: "tool", toolName: "get_quote", text: "XLE bid 91.60 ask 91.64 last 91.62 (-0.9%)" },
     { id: "m-4", at: t - 54 * MIN + 4000, role: "tool", toolName: "web_search", text: "crude oil curve WTI backwardation narrows; energy sector lagging" },
@@ -250,13 +251,52 @@ export const fixtureMessages = (): ChatMessage[] => {
     { id: "m-6", at: t - 53 * MIN + 3000, role: "assistant", text: "**Read of the tape**\n\nEnergy is the weak spot. `XLE` lost its 50 day on rising volume and the lot is two days from its time stop.\n\n- Breadth is positive: 62% of the S&P above the 20 day\n- Vol is falling, VIX 14.8\n- Nothing on the calendar until CPI Thursday\n\nI am proposing an exit of the whole XLE position and will keep looking at tech for a re-entry." },
     { id: "m-7", at: t - 40 * MIN, role: "user", text: "Why exit XLE rather than trim half? It is barely down." },
     { id: "m-8", at: t - 39 * MIN, role: "assistant", text: "Fair question. Two reasons:\n\n1. The thesis was a crude rebound, and the curve says the opposite now.\n2. A trim leaves a position I would still want to defend with a stop, and the invalidation (94.00) is already above the quote.\n\nIf you prefer a half exit I can resubmit it as 12 shares." },
-    { id: "m-9", at: t - 24 * MIN, role: "cycle", text: "Intraday cycle\nTrading day 2026-10-23, regular session." },
-    { id: "m-10", at: t - 23 * MIN, role: "tool", toolName: "get_quote", text: "MSFT bid 413.15 ask 413.25" },
-    { id: "m-11", at: t - 23 * MIN + 1000, role: "tool", toolName: "web_search", text: "MSFT earnings guidance Azure growth 34%" },
+    { id: "m-9", at: t - 24 * MIN, role: "cycle", text: "Cycle intraday-2026-10-23T10:30 (intraday).\nTrading day 2026-10-23, regular session." },
+    { id: "m-10", at: t - 23 * MIN, role: "tool", toolName: "codemode", text: "", code: COMMITTED_CODE },
+    {
+      id: "m-11",
+      at: t - 23 * MIN + 9000,
+      role: "tool",
+      toolName: "codemode",
+      text: '{ "symbol": "MSFT", "rsi14": 61.2, "aboveSma20": true, "verdicts": 3 }',
+      calls: [
+        { name: "market_indicators", summary: '{"symbol":"MSFT"}', durationMs: 412 },
+        { name: "market_indicators", summary: '{"symbol":"QQQ"}', durationMs: 388 },
+        { name: "web_search", summary: '{"query":"MSFT earnings guidance Azure"}', durationMs: 1840 },
+        { name: "web_search", summary: '{"query":"MSFT options implied move"}', durationMs: 1210, isError: true },
+        { name: "delegate", summary: '{"role":"bull","symbol":"MSFT"}', durationMs: 6200 },
+        { name: "delegate", summary: '{"role":"bear","symbol":"MSFT"}', durationMs: 7100 },
+        { name: "delegate", summary: '{"role":"risk_reviewer","symbol":"MSFT"}', durationMs: 5400 },
+      ],
+    },
     { id: "m-12", at: t - 22 * MIN, role: "tool", toolName: "submit_order", text: "Queued for approval: BUY 3 MSFT limit 413.20 (risk checks passed)" },
     { id: "m-13", at: t - 22 * MIN + 2000, role: "assistant", text: "Proposed **3 MSFT at 413.20**. All risk checks pass; waiting for your approval." },
   ];
 };
 
+const COMMITTED_CODE = `const [msft, qqq] = await Promise.all([
+  tools.market_indicators({ symbol: "MSFT" }),
+  tools.market_indicators({ symbol: "QQQ" }),
+]);
+
+const news = await Promise.all([
+  tools.web_search({ query: "MSFT earnings guidance Azure" }),
+  tools.web_search({ query: "MSFT options implied move" }),
+]);
+
+// Three read-only opinions in parallel before sizing.
+const [bull, bear, risk] = await Promise.all(
+  ["bull", "bear", "risk_reviewer"].map((role) =>
+    tools.delegate({ role, symbol: "MSFT", task: "Review the MSFT setup." }),
+  ),
+);
+
+return { symbol: "MSFT", rsi14: msft.rsi14, aboveSma20: msft.close > msft.sma20, verdicts: 3 };`;
+
 export const STREAM_REPLY =
   "Checking the open orders and the afternoon calendar. **MSFT** is holding 413 on light volume, and the entry stays valid until the 14:00 ET volatility window. I will re-quote at the next cycle and cancel the proposal if the spread widens beyond 20 bps.";
+
+export const fixtureSubagents = (now = Date.now()) =>
+  (["bull", "bear", "risk_reviewer"] as const).map((role, i) =>
+    mockRun(`sub-old-${role}`, role, now - 23 * MIN + 2500 + i * 150, true),
+  ).reverse();

@@ -10,13 +10,15 @@
   import Pnl from "./Pnl.svelte";
   import SessionChip from "./SessionChip.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
-  import { Menu01Icon, Settings02Icon, Pulse01Icon } from "$lib/icons";
+  import { Menu01Icon, Settings02Icon, Pulse01Icon, Search01Icon } from "$lib/icons";
+  import { ui } from "$lib/ui.svelte";
   import { usd } from "$lib/format";
   import { harness } from "$lib/store.svelte";
   import { cn } from "$lib/utils.js";
 
   let { onsettings }: { onsettings: () => void } = $props();
 
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const status = $derived(harness.status);
   const killed = $derived(status?.settings.killSwitch ?? false);
   const account = $derived(status?.account);
@@ -72,6 +74,16 @@
     <div class="ml-auto flex items-center gap-3">
       <ModeControl />
       <KillSwitch />
+      <button
+        type="button"
+        onclick={() => (ui.palette = true)}
+        aria-label="Open command palette"
+        aria-keyshortcuts="Control+K Meta+K"
+        class="border-border text-muted-foreground hover:text-foreground hover:bg-muted/60 flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors"
+      >
+        <Icon icon={Search01Icon} class="size-3.5" />
+        <kbd class="num text-[11px]">{isMac ? "⌘" : "Ctrl"} K</kbd>
+      </button>
       <div class="flex items-center">
         <Button variant="ghost" size="icon" onclick={onsettings} aria-label="Open settings">
           <Icon icon={Settings02Icon} />
@@ -85,6 +97,9 @@
   <div class="flex items-center gap-3 px-3 py-2 md:hidden">
     {@render mark()}
     <div class="min-w-0 flex-1">{@render equity()}</div>
+    <Button variant="outline" size="icon" class="size-10" onclick={() => (ui.palette = true)} aria-label="Open command palette">
+      <Icon icon={Search01Icon} />
+    </Button>
     <KillSwitch compact class="h-10 px-3.5" />
     <Button variant="outline" size="icon" class="size-10" onclick={() => (menuOpen = true)} aria-label="Open menu">
       <Icon icon={Menu01Icon} />

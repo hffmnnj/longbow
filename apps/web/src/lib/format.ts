@@ -108,3 +108,12 @@ export function ago(ms: number, now = Date.now()): string {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${md.format(ms)}`;
 }
+
+/** 412ms, 1.8s, 12s, 1m 05s. */
+export function durationShort(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1)}s`;
+  if (s < 60) return `${Math.round(s)}s`;
+  return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s`;
+}

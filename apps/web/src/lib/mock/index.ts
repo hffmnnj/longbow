@@ -1,4 +1,4 @@
-import type { ChatMessage, HaltReason, ServerEvent, Settings, SettingsPatch, StatusResponse } from "@rh/shared";
+import type { ChatMessage, HaltReason, ServerEvent, Settings, SettingsPatch, StatusResponse, SubagentRun } from "@rh/shared";
 import type { Api, EventHandlers } from "../api.ts";
 import {
   STREAM_REPLY,
@@ -6,8 +6,11 @@ import {
   fixtureMessages,
   fixtureOrders,
   fixtureStatus,
+  fixtureSubagents,
   type Scenario,
 } from "./fixtures.ts";
+import { mockHistory, mockNote, mockNotes, mockSkill, mockSkills } from "./data.ts";
+import { runWork } from "./work.ts";
 
 function scenarioFromUrl(): Scenario {
   const s = new URLSearchParams(location.search).get("scenario");
@@ -21,6 +24,10 @@ export function createMockApi(): Api {
   let messages = scenario === "empty" ? [] : fixtureMessages();
   const journal = scenario === "empty" ? [] : fixtureJournal();
   let orders = scenario === "empty" ? [] : fixtureOrders();
+  const runs = new Map<string, SubagentRun>(
+    (scenario === "default" || scenario === "running" ? fixtureSubagents() : []).map((r) => [r.id, r]),
+  );
+  const transcripts = new Map<string, ChatMessage[]>();
   const listeners = new Set<EventHandlers>();
   let seq = 100;
 
@@ -34,7 +41,12 @@ export function createMockApi(): Api {
     const message: ChatMessage = { id: `m-${seq++}`, at: Date.now(), ...m };
     messages = [...messages, message];
     emit({ type: "message", message });
+    return message;
   };
+  const setRunning = (running: boolean) =>
+    setStatus({ ...status, agent: { ...status.agent, state: running ? "running" : "idle" } });
+  const work = (opts?: { pace?: number; hold?: boolean }) =>
+    runWork({ emit, addMessage, setRunning, reply: () => streamReply(), runs, transcripts }, opts);
 
   function streamReply(prefix?: string) {
     setStatus({ ...status, agent: { ...status.agent, state: "running" } });
@@ -65,8 +77,7 @@ export function createMockApi(): Api {
       setTimeout(() => streamReply(), 400);
     },
     runCycle: async () => {
-      addMessage({ role: "cycle", text: "Manual cycle\nRequested from the UI." });
-      setTimeout(() => streamReply(), 400);
+      setTimeout(() => void work(), 200);
     },
     approve: async (id) => {
       const o = orders.find((x) => x.id === id);
@@ -87,9 +98,7 @@ export function createMockApi(): Api {
     patchSettings: async (patch: SettingsPatch) => {
       if (patch.risk?.maxPositionPct !== undefined && patch.risk.maxPositionPct > 50) {
         const { ApiError } = await import("../api.ts");
-        throw new ApiError(400, "Invalid settings", [
-          { path: "risk.maxPositionPct", message: "Mock server: keep this at 50 or lower" },
-        ]);
+        throw new ApiError(400, "maxPositionPct must be 50 or lower on the mock server");
       }
       const settings: Settings = { ...status.settings, ...patch, risk: { ...status.settings.risk, ...patch.risk } };
       const halts: HaltReason[] = status.halts.filter((h) => h !== "kill_switch" && h !== "drawdown" && h !== "mode_off");
@@ -108,15 +117,36 @@ export function createMockApi(): Api {
         halts: [...status.halts.filter((h) => h !== "broker_disconnected"), "broker_disconnected"],
       });
     },
+    subagents: () => delay([...runs.values()].sort((a, b) => b.startedAt - a.startedAt)),
+    conversationMessages: (id) =>
+      delay(
+        transcripts.get(id) ??
+          (runs.has(id)
+            ? [
+                { id: `${id}-t`, at: Date.now() - 9000, role: "tool" as const, toolName: "market_indicators", text: "MSFT rsi14 61.2, close above sma20 and sma50" },
+                { id: `${id}-a`, at: Date.now() - 1000, role: "assistant" as const, text: runs.get(id)?.answer ?? "" },
+              ]
+            : []),
+      ),
+    skills: () => delay(mockSkills()),
+    skill: async (name) => {
+      const s = mockSkill(name);
+      if (!s) throw new (await import("../api.ts")).ApiError(404, "skill not found");
+      return delay(s);
+    },
+    notes: () => delay(scenario === "empty" ? [] : mockNotes()),
+    note: async (path) => {
+      const n = mockNote(path);
+      if (!n) throw new (await import("../api.ts")).ApiError(404, "note not found");
+      return delay(n, 200);
+    },
+    history: (symbol, range) =>
+      delay({ symbol, bars: mockHistory(symbol, range), source: "mock", asOf: Date.now() }, 250),
     subscribe(h) {
       listeners.add(h);
       queueMicrotask(h.onOpen);
-      if (scenario === "running") {
-        setTimeout(() => emit({ type: "delta", text: STREAM_REPLY.slice(0, 150) }), 100);
-      }
-      if (scenario === "default") {
-        setTimeout(() => streamReply("Re-checking MSFT liquidity before the next window."), 2500);
-      }
+      if (scenario === "running") setTimeout(() => void work({ pace: 0.25, hold: true }), 300);
+      if (scenario === "default") setTimeout(() => void work(), 2500);
       return () => listeners.delete(h);
     },
   };

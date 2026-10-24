@@ -8,15 +8,19 @@
   import HistoryTabs from "$lib/components/HistoryTabs.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import Positions from "$lib/components/Positions.svelte";
+  import AgentSheet from "$lib/components/AgentSheet.svelte";
+  import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import DocSheet from "$lib/components/DocSheet.svelte";
   import SettingsSheet from "$lib/components/SettingsSheet.svelte";
+  import SymbolSheet from "$lib/components/SymbolSheet.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import { Message01Icon, Briefcase01Icon, FlashIcon, Notebook01Icon } from "$lib/icons";
   import { startClock } from "$lib/clock.svelte";
   import { viewport, watchViewport } from "$lib/media.svelte";
   import { harness } from "$lib/store.svelte";
+  import { ui } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
-  let settingsOpen = $state(false);
   let tab = $state("feed");
 
   onMount(() => {
@@ -50,8 +54,17 @@
 
 <svelte:head><title>{harness.pending.length ? `(${harness.pending.length}) ` : ""}Harness</title></svelte:head>
 
+<svelte:window
+  onkeydown={(e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      ui.palette = !ui.palette;
+    }
+  }}
+/>
+
 <div class="flex h-dvh flex-col overflow-hidden">
-  <StatusBar onsettings={() => (settingsOpen = true)} />
+  <StatusBar onsettings={() => (ui.settings = true)} />
   <HaltBanner />
 
   {#if harness.connection === "offline"}
@@ -61,7 +74,7 @@
   {/if}
 
   {#if viewport.desktop}
-    <main class="grid min-h-0 flex-1 grid-cols-[3fr_2fr]">
+    <main class="grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div class="border-border min-h-0 border-r"><Feed /></div>
       <div class="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
         <Approvals />
@@ -102,4 +115,8 @@
   {/if}
 </div>
 
-<SettingsSheet bind:open={settingsOpen} />
+<SettingsSheet bind:open={ui.settings} />
+<SymbolSheet />
+<AgentSheet />
+<DocSheet />
+<CommandPalette />

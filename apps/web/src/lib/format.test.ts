@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, countdown, etClock, etTime, pct, pctSigned, tone, usd, usdSigned } from "./format.ts";
+import { ago, countdown, durationShort, etClock, etTime, pct, pctSigned, tone, usd, usdSigned } from "./format.ts";
 
 describe("currency", () => {
   it("formats two decimals with thousands separators", () => {
@@ -58,5 +58,11 @@ describe("countdown and ago", () => {
     expect(ago(now - 10_000, now)).toBe("just now");
     expect(ago(now - 5 * 60_000, now)).toBe("5m ago");
     expect(ago(now - 3 * 3_600_000, now)).toBe("3h ago");
+  });
+});
+
+describe("durationShort", () => {
+  it("scales units", () => {
+    expect([412, 1840, 12_400, 65_000].map(durationShort)).toEqual(["412ms", "1.8s", "12s", "1m 05s"]);
   });
 });

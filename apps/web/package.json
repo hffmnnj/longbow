@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 5210 --host 127.0.0.1",
-    "dev:mock": "VITE_MOCK_API=1 vite dev --port 5210 --host 127.0.0.1",
+    "dev": "vite dev --port 5241 --host 127.0.0.1",
+    "dev:mock": "VITE_MOCK_API=1 vite dev --port 5241 --host 127.0.0.1",
     "build": "vite build",
-    "preview": "vite preview --port 5210 --host 127.0.0.1",
+    "preview": "vite preview --port 5241 --host 127.0.0.1",
     "prepare": "svelte-kit sync || echo ''",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run"
@@ -21,6 +21,8 @@
     "bits-ui": "^2.20.0",
     "clsx": "2.1.1",
     "dompurify": "3.4.17",
+    "highlight.js": "11.12.0",
+    "lightweight-charts": "5.2.1",
     "marked": "18.1.1",
     "svelte-sonner": "^1.2.0",
     "tailwind-merge": "3.6.0",

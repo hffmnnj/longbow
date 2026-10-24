@@ -3,7 +3,9 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import RiskChecks from "./RiskChecks.svelte";
+  import MiniChart from "./MiniChart.svelte";
   import SideBadge from "./SideBadge.svelte";
+  import Ticker from "./Ticker.svelte";
   import { ago, pctSigned, qty, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { expectedValuePct, notional } from "$lib/orders";
@@ -21,7 +23,7 @@
 <article class="border-border bg-card flex flex-col gap-2.5 rounded-lg border p-3" aria-label={`${i.side} ${i.symbol}`}>
   <header class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
     <SideBadge side={i.side} />
-    <span class="num text-[15px] font-semibold">{i.symbol}</span>
+    <Ticker symbol={i.symbol} class="text-[15px]" />
     <span class="num text-muted-foreground">{qty(i.quantity)} @ {usd(i.limitPrice)}</span>
     {#if i.orderType === "stop_limit" && i.stopPrice}
       <span class="num text-muted-foreground text-[12px]">stop {usd(i.stopPrice)}</span>
@@ -37,6 +39,8 @@
       </button>
     {/if}
   </div>
+
+  <MiniChart symbol={i.symbol} limit={i.limitPrice} invalidation={i.invalidationPrice} />
 
   <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-[12.5px]">
     <div>
