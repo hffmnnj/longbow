@@ -127,6 +127,49 @@ describe("risk extension", () => {
     assert.match(text, /a human must approve/);
   });
 
+  it("submit_order in auto mode says plainly the order reached Robinhood", async () => {
+    const gate = {
+      submit: async () => cannedOrder("submitted"),
+      approve: async () => cannedOrder("submitted"),
+      reject: async () => cannedOrder("rejected_user"),
+      halts: async () => [] as HaltReason[],
+    } as unknown as OrderGate;
+    const ext = createRiskExtension({
+      gate,
+      store: { getSettings: () => structuredClone(DEFAULT_SETTINGS) } as unknown as Store,
+      calendar: createNyseCalendar(),
+      clock: { now: () => NOW } satisfies Clock,
+      broker: {} as Broker,
+      currentCycleId: () => undefined,
+    });
+    const tool = ext.tools?.find((t) => t.name === "submit_order");
+    assert.ok(tool);
+    const result = await tool.execute(
+      {
+        symbol: "AAPL",
+        side: "buy",
+        quantity: 1,
+        orderType: "limit",
+        limitPrice: 150,
+        timeInForce: "day",
+        invalidationPrice: 140,
+        timeStopDate: "2026-12-02",
+        thesis: "breakout above resistance on strong volume",
+        probabilityWin: 0.6,
+        expectedGainPct: 10,
+        expectedLossPct: 5,
+        estimatedCostPct: 0.5,
+        evidence: ["robinhood quote showed tight spread this morning"],
+      },
+      undefined as unknown as ToolExecutionApi,
+      undefined as unknown as Context,
+    );
+    const text = outputText(result);
+    assert.match(text, /submitted to Robinhood/);
+    assert.match(text, /confirm the fill/);
+    assert.doesNotMatch(text, /a human must approve/);
+  });
+
   it("get_risk_state summarizes mode, halts, budgets, and pending orders", async () => {
     const pending = cannedOrder("pending_approval");
     const store = {
@@ -159,7 +202,7 @@ describe("risk extension", () => {
       undefined as unknown as Context,
     );
     const text = outputText(result);
-    assert.match(text, /mode: approve/);
+    assert.match(text, /mode: auto/);
     assert.match(text, /daily_loss/);
     assert.match(text, /entries today: 1\/2/);
     assert.match(text, /day trades \(5d\): 0\/3/);

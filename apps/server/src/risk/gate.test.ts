@@ -24,7 +24,7 @@ function baseIntent(): OrderIntent {
   return {
     symbol: "AAPL",
     side: "buy",
-    quantity: 10,
+    quantity: 3,
     orderType: "limit",
     limitPrice: 150,
     timeInForce: "day",
@@ -306,7 +306,37 @@ describe("order gate", () => {
     assert.equal(order.status, "rejected_risk");
     assert.ok(order.verdict.checks.some((c) => c.rule === "drawdown" && !c.ok));
     assert.equal(store.settings.drawdownHalted, true);
+    assert.equal(store.settings.drawdownHaltedMonth, "2026-11");
     assert.ok(store.patchCalls >= 1);
+  });
+
+  it("clears the drawdown halt itself when the ET month changes", async () => {
+    const { gate, store, broker, setNow } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, drawdownHalted: true, drawdownHaltedMonth: "2026-11" };
+    // Monday 2026-12-01 10:05 ET, in the regular session of the next month.
+    const dec1 = Date.UTC(2026, 11, 1, 15, 5, 0);
+    setNow(dec1);
+    broker.quoteValue = { ...broker.quoteValue, at: dec1 };
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "submitted");
+    assert.equal(store.settings.drawdownHalted, false);
+    assert.equal(store.settings.drawdownHaltedMonth, "2026-11");
+
+    // The halts() path clears a stale halt the same way.
+    store.settings = { ...store.settings, drawdownHalted: true, drawdownHaltedMonth: "2026-11" };
+    const halts = await gate.halts();
+    assert.ok(!halts.includes("drawdown"));
+    assert.equal(store.settings.drawdownHalted, false);
+  });
+
+  it("stamps a legacy halt without a month instead of clearing it", async () => {
+    const { gate, store } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, drawdownHalted: true, drawdownHaltedMonth: undefined };
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "rejected_risk");
+    assert.ok(order.verdict.checks.some((c) => c.rule === "drawdown" && !c.ok));
+    assert.equal(store.settings.drawdownHalted, true);
+    assert.equal(store.settings.drawdownHaltedMonth, "2026-11");
   });
 
   it("records a user rejection with its reason", async () => {

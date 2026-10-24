@@ -89,6 +89,11 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** Fractional shares to 4 decimal places (floor): the smallest unit the gate sizes. */
+function floorShares(qty: number): number {
+  return Math.floor(qty * 10_000) / 10_000;
+}
+
 export function evaluate(input: RiskInput): RiskVerdict {
   const {
     intent,
@@ -242,7 +247,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
   if (!isEntry) {
     push("drawdown", true, "exit; the drawdown breaker does not apply");
   } else if (settings.drawdownHalted) {
-    push("drawdown", false, "monthly drawdown breaker already tripped; needs a human re-arm");
+    push("drawdown", false, "monthly drawdown breaker already tripped; entries halted until the next ET month");
   } else if (equityMarks.monthPeak === undefined) {
     push("drawdown", true, `no month-peak equity mark yet; equity is ${money(equity)}`);
   } else {
@@ -267,7 +272,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     const riskPerShare = Math.abs(intent.limitPrice - intent.invalidationPrice);
     const allowance = equity * (risk.maxRiskPerTradePct / 100);
     if (riskPerShare > 0 && Number.isFinite(riskPerShare)) {
-      riskQty = Math.floor(allowance / riskPerShare);
+      riskQty = floorShares(allowance / riskPerShare);
     }
     const sideOk =
       intent.side === "buy"
@@ -293,7 +298,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     const existing = position?.marketValue ?? 0;
     const allowance = equity * (risk.maxPositionPct / 100);
     if (intent.limitPrice > 0) {
-      positionQty = Math.floor((allowance - existing) / intent.limitPrice);
+      positionQty = floorShares((allowance - existing) / intent.limitPrice);
     }
     push(
       "position_size",
@@ -327,11 +332,11 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 13. notional_cap: fat-finger cap, plus buying power / settled cash for buys.
   let capQty: number | undefined;
   if (intent.limitPrice > 0 && Number.isFinite(intent.limitPrice)) {
-    capQty = Math.floor(risk.maxOrderNotionalUsd / intent.limitPrice);
+    capQty = floorShares(risk.maxOrderNotionalUsd / intent.limitPrice);
     if (intent.side === "buy") {
-      capQty = Math.min(capQty, Math.floor(account.buyingPower / intent.limitPrice));
+      capQty = Math.min(capQty, floorShares(account.buyingPower / intent.limitPrice));
       if (account.settledCash !== undefined) {
-        capQty = Math.min(capQty, Math.floor(account.settledCash / intent.limitPrice));
+        capQty = Math.min(capQty, floorShares(account.settledCash / intent.limitPrice));
       }
     }
   }
@@ -357,7 +362,32 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 14. max_positions: no new symbol once maxPositions distinct symbols are held.
+  // 14. min_notional: orders below the minimum notional are noise, except a
+  // full exit, which is always allowed so a tiny leftover can be closed.
+  if (risk.minOrderNotionalUsd <= 0) {
+    push("min_notional", true, "minimum order notional is disabled ($0)");
+  } else if (notional >= risk.minOrderNotionalUsd) {
+    push(
+      "min_notional",
+      true,
+      `order notional ${money(notional)} meets the ${money(risk.minOrderNotionalUsd)} minimum`,
+    );
+  } else if (!isEntry && intent.quantity >= heldQty) {
+    push(
+      "min_notional",
+      true,
+      `exit sells the entire held ${heldQty}; the ${money(risk.minOrderNotionalUsd)} ` +
+        `minimum notional is waived so the leftover can be closed`,
+    );
+  } else {
+    push(
+      "min_notional",
+      false,
+      `order notional ${money(notional)} is below the ${money(risk.minOrderNotionalUsd)} minimum`,
+    );
+  }
+
+  // 15. max_positions: no new symbol once maxPositions distinct symbols are held.
   if (!isEntry) {
     push("max_positions", true, "exit; the position count does not apply");
   } else {
@@ -374,7 +404,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 15. entries_per_day: submitted buys today in ET below the daily max.
+  // 16. entries_per_day: submitted buys today in ET below the daily max.
   if (intent.side !== "buy") {
     push("entries_per_day", true, "not a buy; the daily entry count does not apply");
   } else {
@@ -386,7 +416,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 16. min_hold: exits of young lots are blocked unless the quote is at/below
+  // 17. min_hold: exits of young lots are blocked unless the quote is at/below
   // the original entry's invalidation price (a stop exit).
   if (isEntry) {
     push("min_hold", true, "entry; the minimum hold does not apply");
@@ -425,7 +455,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     }
   }
 
-  // 17. day_trades: same-day round trips count against the 5-day max. Stop exits are not exempt.
+  // 18. day_trades: same-day round trips count against the 5-day max. Stop exits are not exempt.
   const boughtToday = submitted.some(
     (o) =>
       o.intent.side === "buy" &&
@@ -444,7 +474,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 18. ev_after_costs: expected value after costs must clear a multiple of costs.
+  // 19. ev_after_costs: expected value after costs must clear a multiple of costs.
   if (!isEntry) {
     push("ev_after_costs", true, "exit; expected value does not apply");
   } else if (mid <= 0) {
@@ -467,7 +497,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 19. time_stop: after today in ET and within 60 calendar days.
+  // 20. time_stop: after today in ET and within 60 calendar days.
   if (!isEntry) {
     push("time_stop", true, "exit; the time stop does not apply");
   } else {
@@ -491,7 +521,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 20. earnings_blackout: no entries shortly before a scheduled report. Exits allowed.
+  // 21. earnings_blackout: no entries shortly before a scheduled report. Exits allowed.
   if (!isEntry) {
     push("earnings_blackout", true, "exit; the earnings blackout does not apply");
   } else if (risk.earningsBlackoutDays <= 0) {
@@ -529,7 +559,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
-  // 21. liquidity: entries need enough average dollar volume. Exits allowed.
+  // 22. liquidity: entries need enough average dollar volume. Exits allowed.
   if (!isEntry) {
     push("liquidity", true, "exit; the liquidity floor does not apply");
   } else if (risk.minAvgDollarVolumeUsd <= 0) {
@@ -543,9 +573,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
   } else if (avgDollarVolume20 === undefined) {
     push(
       "liquidity",
-      true,
-      `no average dollar volume known for ${intent.symbol}; ` +
-        `skipping the $${risk.minAvgDollarVolumeUsd} floor`,
+      false,
+      `average dollar volume for ${intent.symbol} could not be computed; ` +
+        `cannot check the $${risk.minAvgDollarVolumeUsd} floor`,
     );
   } else {
     push(
@@ -561,7 +591,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
       (q): q is number => q !== undefined && Number.isFinite(q),
     );
     if (candidates.length > 0) {
-      maxQuantity = Math.max(0, Math.floor(Math.min(...candidates)));
+      maxQuantity = Math.max(0, floorShares(Math.min(...candidates)));
     }
   }
 
