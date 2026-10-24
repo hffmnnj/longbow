@@ -5,16 +5,17 @@
   import Ticker from "./Ticker.svelte";
   import { etStamp } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
-  import { harness } from "$lib/store.svelte";
+  import { useScope } from "$lib/scope";
+  const scope = useScope();
 </script>
 
-{#if !harness.loaded}
+{#if !scope.loaded}
   <div class="bg-muted/60 m-3 h-12 animate-pulse rounded"></div>
-{:else if harness.journal.length === 0}
+{:else if scope.feed.journal.length === 0}
   <Empty text="No decisions yet" />
 {:else}
   <ul class="divide-border divide-y">
-    {#each harness.journal as e (e.id)}
+    {#each scope.feed.journal as e (e.id)}
       <li>
         <Collapsible.Root>
           <Collapsible.Trigger

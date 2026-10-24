@@ -9,32 +9,42 @@
   import { clock } from "$lib/clock.svelte";
   import { ROLE_META } from "$lib/roles";
   import { emptyTranscript } from "$lib/reducer";
+  import type { FeedScope } from "$lib/scope";
+  import { sim } from "$lib/sim.svelte";
   import { harness } from "$lib/store.svelte";
   import { openAgent, ui } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
   let last = $state("");
+  let lastSim = $state<string | null>(null);
   $effect(() => {
-    if (ui.agent) last = ui.agent;
+    if (ui.agent) {
+      last = ui.agent;
+      lastSim = ui.agentSim;
+    }
   });
+  const scope: FeedScope = $derived((ui.agent ? ui.agentSim : lastSim) ? sim.scope((ui.agent ? ui.agentSim : lastSim)!) : harness);
   const id = $derived(ui.agent ?? last);
-  const run = $derived(harness.subagents.find((r) => r.id === id));
+  const run = $derived(scope.feed.subagents.find((r) => r.id === id));
   const meta = $derived(run ? ROLE_META[run.role] : undefined);
-  const transcript = $derived(harness.feed.transcripts[id] ?? emptyTranscript());
+  const transcript = $derived(scope.feed.transcripts[id] ?? emptyTranscript());
   const messages = $derived(run?.answer ? transcript.messages.filter((m) => !(m.role === "assistant" && m.text === run.answer)) : transcript.messages);
-  const recent = $derived(harness.subagents.slice(0, 8));
+  const recent = $derived(scope.feed.subagents.slice(0, 8));
   const running = $derived(run?.status === "running");
   const elapsed = $derived(run ? (run.endedAt ?? clock.now) - run.startedAt : 0);
 
   $effect(() => {
-    if (ui.agent) void harness.loadTranscript(ui.agent);
+    if (ui.agent) void scope.loadTranscript(ui.agent);
   });
 </script>
 
 <Sheet.Root
   open={ui.agent !== null}
   onOpenChange={(o) => {
-    if (!o) ui.agent = null;
+    if (!o) {
+      ui.agent = null;
+      ui.agentSim = null;
+    }
   }}
 >
   <Sheet.Content
@@ -68,7 +78,7 @@
               <button
                 type="button"
                 aria-current={r.id === id}
-                onclick={() => openAgent(r.id)}
+                onclick={() => openAgent(r.id, scope.simRunId)}
                 class={cn(
                   "border-border text-muted-foreground hover:text-foreground flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11.5px] whitespace-nowrap",
                   r.id === id && "border-primary/60 text-foreground bg-primary/10",

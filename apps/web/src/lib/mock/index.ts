@@ -9,8 +9,9 @@ import {
   fixtureSubagents,
   type Scenario,
 } from "./fixtures.ts";
-import { mockHistory, mockNote, mockNotes, mockSkill, mockSkills } from "./data.ts";
+import { ROLE_TEXT, mockHistory, mockNote, mockNotes, mockSkill, mockSkills } from "./data.ts";
 import { runWork } from "./work.ts";
+import { createMockSim } from "./sim.ts";
 
 function scenarioFromUrl(): Scenario {
   const s = new URLSearchParams(location.search).get("scenario");
@@ -30,6 +31,7 @@ export function createMockApi(): Api {
   const transcripts = new Map<string, ChatMessage[]>();
   const listeners = new Set<EventHandlers>();
   let seq = 100;
+  const mockSim = createMockSim({ emit: (e) => listeners.forEach((l) => l.onEvent(e)) });
 
   const emit = (event: ServerEvent) => listeners.forEach((l) => l.onEvent(event));
   const delay = <T>(v: T, ms = 120) => new Promise<T>((r) => setTimeout(() => r(v), ms));
@@ -142,12 +144,41 @@ export function createMockApi(): Api {
     },
     history: (symbol, range) =>
       delay({ symbol, bars: mockHistory(symbol, range), source: "mock", asOf: Date.now() }, 250),
+    simRuns: () => delay(mockSim.list()),
+    simRun: async (id) => delay(mockSim.get(id)),
+    simStart: async (config) => delay(mockSim.start(config), 250),
+    simStop: async (id) => mockSim.stop(id),
+    simMessages: async (id, _limit, conversationId) => {
+      if (conversationId) {
+        return delay([
+          { id: `${conversationId}-t`, at: Date.now() - 9000, role: "tool" as const, toolName: "market_indicators", text: "NVDA rsi14 38.4, gap down 2.6% on no news" },
+          { id: `${conversationId}-a`, at: Date.now() - 1000, role: "assistant" as const, text: ROLE_TEXT.bear ?? "" },
+        ]);
+      }
+      return delay(mockSim.messages(id));
+    },
+    simJournal: async (id) => delay(mockSim.journal(id)),
+    simOrders: async (id) => delay(mockSim.orders(id)),
+    pushKey: async () => delay({ publicKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U" }),
+    pushSubscribe: async () => {},
+    pushUnsubscribe: async () => {},
+    pushTest: async () => delay({ sent: 1, removed: 0 }, 400),
     subscribe(h) {
       listeners.add(h);
       queueMicrotask(h.onOpen);
+      let ignited = false;
+      const ignite = () => {
+        if (ignited) return;
+        ignited = true;
+        mockSim.ignite();
+      };
+      setTimeout(ignite, 1200);
       if (scenario === "running") setTimeout(() => void work({ pace: 0.25, hold: true }), 300);
       if (scenario === "default") setTimeout(() => void work(), 2500);
-      return () => listeners.delete(h);
+      return () => {
+        listeners.delete(h);
+        mockSim.dispose();
+      };
     },
   };
 }

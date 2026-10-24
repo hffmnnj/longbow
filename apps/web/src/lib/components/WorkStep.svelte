@@ -7,7 +7,7 @@
   import { clock } from "$lib/clock.svelte";
   import { durationShort } from "$lib/format";
   import { groupCalls, isRunning, matchRuns, type CallChip } from "$lib/steps";
-  import { harness } from "$lib/store.svelte";
+  import { useScope } from "$lib/scope";
   import { openAgent } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
@@ -20,14 +20,15 @@
     calls?: ToolCallSummary[];
   } = $props();
 
+  const scope = useScope();
   let open = $state(false);
   const chipClass = "num border-border bg-background/60 inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11.5px]";
 
-  const calls = $derived(result?.calls ?? (live ? (liveCalls ?? harness.calls) : []));
+  const calls = $derived(result?.calls ?? (live ? (liveCalls ?? scope.feed.calls) : []));
   const chips = $derived(groupCalls(calls));
   const failed = $derived(calls.filter((c) => c.isError).length);
   const running = $derived(calls.filter(isRunning).length);
-  const runs = $derived(matchRuns(calls, harness.subagents, code.at, (result?.at ?? clock.now) + 1000));
+  const runs = $derived(matchRuns(calls, scope.feed.subagents, code.at, (result?.at ?? clock.now) + 1000));
   const elapsed = $derived.by(() => {
     if (result) {
       const wall = result.at - code.at;
@@ -37,8 +38,8 @@
   });
 
   function openDelegate(name: string) {
-    const hit = runs.find((r, i) => r && calls[i]?.name === name) ?? harness.subagents[0];
-    if (hit) openAgent(hit.id);
+    const hit = runs.find((r, i) => r && calls[i]?.name === name) ?? scope.feed.subagents[0];
+    if (hit) openAgent(hit.id, scope.simRunId);
   }
 </script>
 

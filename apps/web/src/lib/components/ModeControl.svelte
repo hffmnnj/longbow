@@ -34,7 +34,7 @@
     <ToggleGroup.Item
       value={m.value}
       class={cn(
-        "text-muted-foreground h-8 min-w-12 flex-1 rounded-[5px] px-2.5 text-[12.5px] font-medium transition-colors md:h-7",
+        "text-muted-foreground h-11 min-w-12 flex-1 rounded-[5px] px-2.5 text-[12.5px] font-medium transition-colors md:h-7",
         "hover:text-foreground data-[state=on]:shadow-sm",
         m.value === "off" && "data-[state=on]:bg-secondary data-[state=on]:text-foreground",
         m.value === "approve" && "data-[state=on]:bg-primary data-[state=on]:text-primary-foreground",

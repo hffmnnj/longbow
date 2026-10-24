@@ -3,6 +3,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
   import { PowerIcon } from "$lib/icons";
+  import { haptic } from "$lib/pwa.svelte";
   import { harness } from "$lib/store.svelte";
   import { cn } from "$lib/utils.js";
 
@@ -13,7 +14,7 @@
 
   function press() {
     if (engaged) confirmRelease = true;
-    else void harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged");
+    else void harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged").then((ok) => ok && haptic());
   }
 </script>
 

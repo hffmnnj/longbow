@@ -7,6 +7,9 @@ import {
   type NoteContent,
   type NoteFile,
   type PriceHistory,
+  type PushSubscriptionInput,
+  type SimRun,
+  type SimRunConfig,
   type Skill,
   type SkillSummary,
   type SubagentRun,
@@ -53,8 +56,22 @@ export interface Api {
   notes(): Promise<NoteFile[]>;
   note(path: string): Promise<NoteContent>;
   history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
+  simRuns(): Promise<SimRun[]>;
+  simRun(id: string): Promise<SimRun>;
+  simStart(config: SimRunConfig): Promise<SimRun>;
+  simStop(id: string): Promise<SimRun | void>;
+  simMessages(id: string, limit?: number, conversationId?: string): Promise<ChatMessage[]>;
+  simJournal(id: string): Promise<JournalEntry[]>;
+  simOrders(id: string): Promise<OrderRecord[]>;
+  pushKey(): Promise<{ publicKey: string }>;
+  pushSubscribe(sub: PushSubscriptionInput): Promise<void>;
+  pushUnsubscribe(endpoint: string): Promise<void>;
+  pushTest(): Promise<{ sent: number; removed: number }>;
   subscribe(handlers: EventHandlers): () => void;
 }
+
+/** Set by the service worker on a /api/status response it served from cache while offline. */
+export const apiMeta = { statusCachedAt: null as number | null };
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: "application/json" };
@@ -69,6 +86,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     });
   } catch {
     throw new ApiError(0, "Cannot reach the harness server");
+  }
+  if (path === "/api/status") {
+    const at = Number(res.headers.get("x-harness-cached-at"));
+    apiMeta.statusCachedAt = at > 0 ? at : null;
   }
   const text = await res.text();
   let data: unknown;
@@ -151,6 +172,21 @@ export const realApi: Api = {
   note: (path) => request("GET", `/api/notes/${path.split("/").map(encodeURIComponent).join("/")}`),
   history: (symbol, range) =>
     request("GET", `/api/market/history?symbol=${encodeURIComponent(symbol)}&range=${range}`),
+  simRuns: () => request("GET", "/api/sim/runs"),
+  simRun: (id) => request("GET", `/api/sim/runs/${encodeURIComponent(id)}`),
+  simStart: (config) => request("POST", "/api/sim/runs", config),
+  simStop: (id) => request("POST", `/api/sim/runs/${encodeURIComponent(id)}/stop`, {}),
+  simMessages: (id, limit = 200, conversationId) =>
+    request(
+      "GET",
+      `/api/sim/runs/${encodeURIComponent(id)}/messages?limit=${limit}${conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : ""}`,
+    ),
+  simJournal: (id) => request("GET", `/api/sim/runs/${encodeURIComponent(id)}/journal`),
+  simOrders: (id) => request("GET", `/api/sim/runs/${encodeURIComponent(id)}/orders`),
+  pushKey: () => request("GET", "/api/push/key"),
+  pushSubscribe: (sub) => request("POST", "/api/push/subscribe", sub),
+  pushUnsubscribe: (endpoint) => request("POST", "/api/push/unsubscribe", { endpoint }),
+  pushTest: () => request("POST", "/api/push/test", {}),
   subscribe: subscribeEvents,
 };
 

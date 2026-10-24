@@ -125,6 +125,8 @@ function applyScoped(state: FeedState, id: string, event: ServerEvent): FeedStat
 
 /** Pure reducer for one SSE event. */
 export function applyEvent(state: FeedState, event: ServerEvent): FeedState {
+  // Simulation events belong to the lab store; the live feed must never see them.
+  if (event.type === "sim" || ("simRunId" in event && event.simRunId)) return state;
   if ((event.type === "message" || event.type === "delta" || event.type === "calls") && event.conversationId) {
     return applyScoped(state, event.conversationId, event);
   }

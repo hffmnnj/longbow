@@ -48,7 +48,7 @@
         {#each sections as s (s.value)}
           <ToggleGroup.Item
             value={s.value}
-            class="text-muted-foreground hover:text-foreground data-[state=on]:bg-secondary data-[state=on]:text-foreground h-9 flex-1 rounded-[5px] px-2 text-[13px] font-medium data-[state=on]:shadow-sm"
+            class="text-muted-foreground hover:text-foreground data-[state=on]:bg-secondary data-[state=on]:text-foreground h-11 flex-1 rounded-[5px] px-2 text-[13px] font-medium data-[state=on]:shadow-sm"
           >
             {s.label}
           </ToggleGroup.Item>

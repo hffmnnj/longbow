@@ -2,13 +2,14 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
 
-  let { id, label, unit, step, value = $bindable(), error }: {
+  let { id, label, unit, step, value = $bindable(), error, placeholder }: {
     id: string;
     label: string;
     unit: string;
     step: string;
     value: string;
     error?: string;
+    placeholder?: string;
   } = $props();
 </script>
 
@@ -20,6 +21,7 @@
       type="number"
       inputmode="decimal"
       {step}
+      {placeholder}
       bind:value
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? `${id}-err` : undefined}

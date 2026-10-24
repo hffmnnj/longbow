@@ -34,7 +34,7 @@
 </script>
 
 <form
-  class="border-border bg-bar flex shrink-0 items-end gap-2 border-t p-3"
+  class="border-border bg-bar flex shrink-0 items-end gap-2 border-t p-3 pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] md:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
   onsubmit={(e) => {
     e.preventDefault();
     void submit();
@@ -51,10 +51,10 @@
     oncompositionend={() => (composing = false)}
     rows={1}
     placeholder={harness.running ? "Agent is working. Messages queue." : "Message the agent"}
-    class="max-h-40 min-h-10 resize-none py-2.5"
+    class="max-h-40 min-h-11 resize-none py-3 md:min-h-10 md:py-2.5"
     maxlength={8000}
   />
-  <Button type="submit" size="icon" class="size-10 shrink-0" disabled={!canSend} aria-label="Send message">
+  <Button type="submit" size="icon" class="size-11 shrink-0 md:size-10" disabled={!canSend} aria-label="Send message">
     <Icon icon={ArrowUp02Icon} strokeWidth={2.2} />
   </Button>
 </form>

@@ -6,7 +6,9 @@ import type {
   SkillSummary,
 } from "@rh/shared";
 import { toast } from "svelte-sonner";
-import { ApiError, loadApi, type Api } from "./api.ts";
+import { ApiError, apiMeta, loadApi, type Api } from "./api.ts";
+import { etDayKey } from "./format.ts";
+import { sim } from "./sim.svelte.ts";
 import {
   addOutbox,
   applyEvent,
@@ -36,6 +38,8 @@ class Harness {
   loaded = $state(false);
   loadError = $state<string | null>(null);
   busy = $state<Record<string, boolean>>({});
+  /** Set when /api/status came from the service worker cache: the time that snapshot was saved. */
+  cachedAt = $state<number | null>(null);
 
   skills = $state<SkillSummary[]>([]);
   history = $state<Record<string, Loadable<PriceHistory>>>({});
@@ -51,6 +55,11 @@ class Harness {
   journal = $derived(this.feed.journal);
   orders = $derived(this.feed.orders);
   draft = $derived(this.feed.draft);
+  /** Halts plus orders that failed today (ET): the number on the Home Screen badge. */
+  alerts = $derived(
+    (this.feed.status?.halts.length ?? 0) +
+      this.feed.orders.filter((o) => o.status === "failed" && etDayKey(o.createdAt) === etDayKey(Date.now())).length,
+  );
   pending = $derived(this.feed.orders.filter((o) => o.status === "pending_approval"));
   positions = $derived(this.feed.status?.account?.positions ?? []);
   running = $derived(this.feed.status?.agent.state === "running");
@@ -65,13 +74,23 @@ class Harness {
   );
 
   #api: Api | null = null;
+
+  requireApi(): Api {
+    if (!this.#api) throw new Error("Not connected");
+    return this.#api;
+  }
   #unsubscribe: (() => void) | null = null;
 
   async start(): Promise<void> {
     if (this.#api) return;
     this.#api = await loadApi();
+    sim.attach(this.#api);
     this.#unsubscribe = this.#api.subscribe({
       onEvent: (e) => {
+        if (e.type === "sim" || ("simRunId" in e && e.simRunId)) {
+          sim.apply(e);
+          return;
+        }
         this.feed = applyEvent(this.feed, e);
         if (e.type === "note") this.#noteChanged(e.note);
       },
@@ -91,26 +110,31 @@ class Harness {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#api = null;
+    sim.attach(null);
   }
 
   async refresh(): Promise<void> {
     const api = this.#api;
     if (!api) return;
-    try {
-      const [status, messages, journal, orders] = await Promise.all([
-        api.status(),
-        api.messages(200),
-        api.journal(100),
-        api.orders(100),
-      ]);
-      this.feed = { ...this.feed, status, messages, journal, orders };
-      this.loadError = null;
-      this.loaded = true;
-      void this.#refreshExtras(api);
-    } catch (e) {
-      this.loadError = message(e);
-      this.loaded = true;
-    }
+    // Status first and on its own: an offline launch still shows the last known equity.
+    const [status, messages, journal, orders] = await Promise.allSettled([
+      api.status(),
+      api.messages(200),
+      api.journal(100),
+      api.orders(100),
+    ]);
+    this.cachedAt = status.status === "fulfilled" ? apiMeta.statusCachedAt : this.cachedAt;
+    const next = { ...this.feed };
+    if (status.status === "fulfilled") next.status = status.value;
+    if (messages.status === "fulfilled") next.messages = messages.value;
+    if (journal.status === "fulfilled") next.journal = journal.value;
+    if (orders.status === "fulfilled") next.orders = orders.value;
+    this.feed = next;
+    const failed = [status, messages, journal, orders].find((r) => r.status === "rejected");
+    this.loadError = failed && failed.status === "rejected" ? message(failed.reason) : null;
+    this.loaded = true;
+    if (!failed) void this.#refreshExtras(api);
+    void sim.loadRuns();
   }
 
   /** Subagents, notes and skills fail soft: the feed works without them. */
