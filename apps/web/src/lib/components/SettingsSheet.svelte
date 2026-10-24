@@ -3,11 +3,14 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
+  import { Switch } from "$lib/components/ui/switch/index.js";
   import { toast } from "svelte-sonner";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
   import NumberField from "./NumberField.svelte";
-  import { Cancel01Icon, Loading03Icon } from "$lib/icons";
+  import { Cancel01Icon, Loading03Icon, Share01Icon } from "$lib/icons";
+  import { PUSH_LABEL } from "$lib/push";
+  import { push } from "$lib/pwa.svelte";
   import { harness } from "$lib/store.svelte";
   import {
     RISK_GROUPS,
@@ -32,6 +35,7 @@
   // Fresh copy of the saved settings each time the sheet opens.
   $effect(() => {
     if (open && saved && !form) form = toForm(saved);
+    if (open) void push.refresh();
     if (!open) {
       form = null;
       formError = null;
@@ -156,6 +160,30 @@
             </div>
           </section>
         {/each}
+
+        <section class="flex flex-col gap-3" aria-labelledby="s-notif">
+          <h3 id="s-notif" class="label-caps">Notifications</h3>
+          <div class="flex min-h-11 items-center gap-3">
+            <Label for="push-switch" class="flex min-h-11 flex-1 items-center text-[13px] font-medium">Push on this device</Label>
+            <span class="text-muted-foreground text-[12.5px]" aria-live="polite">{push.ready ? PUSH_LABEL[push.state] : "\u2026"}</span>
+            <Switch
+              id="push-switch"
+              checked={push.state === "on"}
+              disabled={!push.ready || push.busy || push.state === "unsupported" || push.state === "blocked"}
+              onCheckedChange={(v) => void (v ? push.enable() : push.disable())}
+            />
+          </div>
+          {#if push.homeScreen}
+            <p class="text-muted-foreground flex items-center gap-1.5 text-[12.5px] leading-snug">
+              Notifications need the app on the Home Screen. Tap
+              <Icon icon={Share01Icon} class="text-foreground size-4 shrink-0" />
+              then Add to Home Screen.
+            </p>
+          {/if}
+          {#if push.state === "on"}
+            <Button type="button" variant="outline" class="h-10 self-start md:h-9" disabled={push.busy} onclick={() => push.test()}>Send test</Button>
+          {/if}
+        </section>
 
         {#if harness.status?.broker.state === "connected"}
           <section class="border-border flex items-center justify-between gap-3 border-t pt-4">

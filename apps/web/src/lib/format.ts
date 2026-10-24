@@ -117,3 +117,13 @@ export function durationShort(ms: number): string {
   if (s < 60) return `${Math.round(s)}s`;
   return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s`;
 }
+
+/** ET calendar day as YYYY-MM-DD, for "today" comparisons. */
+export const etDayKey = (ms: number): string => dayKey.format(ms);
+
+const isoShortFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+/** "2026-10-05" -> "Oct 5". Falls back to the input when it is not a date. */
+export function isoShort(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? iso : isoShortFmt.format(d);
+}

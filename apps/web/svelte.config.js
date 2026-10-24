@@ -19,6 +19,8 @@ const config = {
       strict: true,
     }),
     alias: { $lib: "src/lib" },
+    // Registered by hand in lib/pwa.svelte.ts so the update toast can watch the waiting worker.
+    serviceWorker: { register: false },
   },
   compilerOptions: {
     // Force runes for project files; node_modules libraries keep their own setting.

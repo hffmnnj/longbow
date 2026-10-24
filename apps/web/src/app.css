@@ -48,6 +48,8 @@
   --warn: oklch(0.52 0.12 65);
   --warn-bg: oklch(0.95 0.05 85);
   --live: oklch(0.55 0.13 245);
+  --lab: oklch(0.47 0.14 300);
+  --lab-bg: oklch(0.955 0.02 300);
 
   --radius: 0.5rem;
 }
@@ -82,6 +84,8 @@
   --warn: oklch(0.8 0.13 80);
   --warn-bg: oklch(0.28 0.05 80);
   --live: oklch(0.76 0.1 235);
+  --lab: oklch(0.78 0.11 300);
+  --lab-bg: oklch(0.215 0.03 300);
 }
 
 @theme inline {
@@ -112,6 +116,8 @@
   --color-warn: var(--warn);
   --color-warn-bg: var(--warn-bg);
   --color-live: var(--live);
+  --color-lab: var(--lab);
+  --color-lab-bg: var(--lab-bg);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
@@ -125,11 +131,31 @@
   }
   html {
     -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 13.5px;
     overscroll-behavior: none;
+  }
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  [role="tab"],
+  [role="checkbox"],
+  [role="switch"] {
+    touch-action: manipulation;
+  }
+  /* Haptic-like press: touch screens only, so desktop hover states stay calm. */
+  @media (pointer: coarse) {
+    button:not(:disabled):active,
+    [role="tab"]:active,
+    [role="checkbox"]:active,
+    [role="switch"]:active {
+      transform: scale(0.97);
+      transition: transform 70ms ease-out;
+    }
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]) {
@@ -159,6 +185,10 @@
   }
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
   .pt-safe {
     padding-top: env(safe-area-inset-top);

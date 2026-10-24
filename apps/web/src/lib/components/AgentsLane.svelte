@@ -6,13 +6,14 @@
   import { clock } from "$lib/clock.svelte";
   import { viewport } from "$lib/media.svelte";
   import { ROLE_META, latestLine } from "$lib/roles";
-  import { harness } from "$lib/store.svelte";
+  import { useScope } from "$lib/scope";
   import { openAgent } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
+  const scope = useScope();
   const LINGER_MS = 7000;
   const runs = $derived(
-    harness.subagents
+    scope.feed.subagents
       .filter((r) => r.status === "running" || (r.endedAt !== undefined && clock.now - r.endedAt < LINGER_MS))
       .slice()
       .reverse(),
@@ -22,7 +23,7 @@
   const ms = (n: number) => (reduced ? 0 : n);
 
   function line(run: SubagentRun): string {
-    const t = harness.feed.transcripts[run.id];
+    const t = scope.feed.transcripts[run.id];
     const lastAssistant = t?.messages.findLast((m) => m.role === "assistant")?.text;
     const lastTool = t?.messages.findLast((m) => m.role === "tool");
     return latestLine(
@@ -43,7 +44,7 @@
       {@const meta = ROLE_META[run.role]}
       <button
         type="button"
-        onclick={() => openAgent(run.id)}
+        onclick={() => openAgent(run.id, scope.simRunId)}
         in:fly={{ y: 8, duration: ms(200) }}
         out:fade={{ duration: ms(300) }}
         class={cn(

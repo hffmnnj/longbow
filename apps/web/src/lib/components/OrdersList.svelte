@@ -8,7 +8,7 @@
   import { etStamp, qty, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { STATUS_LABEL } from "$lib/orders";
-  import { harness } from "$lib/store.svelte";
+  import { useScope } from "$lib/scope";
   import { cn } from "$lib/utils.js";
 
   const style = (s: OrderStatus) =>
@@ -20,15 +20,16 @@
       rejected_user: "bg-muted text-muted-foreground",
       expired: "bg-muted text-muted-foreground",
     })[s];
+  const scope = useScope();
 </script>
 
-{#if !harness.loaded}
+{#if !scope.loaded}
   <div class="bg-muted/60 m-3 h-12 animate-pulse rounded"></div>
-{:else if harness.orders.length === 0}
+{:else if scope.feed.orders.length === 0}
   <Empty text="No orders yet" />
 {:else}
   <ul class="divide-border divide-y">
-    {#each harness.orders as o (o.id)}
+    {#each scope.feed.orders as o (o.id)}
       <li>
         <Collapsible.Root>
           <Collapsible.Trigger class="hover:bg-muted/50 flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors">

@@ -7,6 +7,7 @@
   import Icon from "./Icon.svelte";
   import KillSwitch from "./KillSwitch.svelte";
   import ModeControl from "./ModeControl.svelte";
+  import ViewSwitch from "./lab/ViewSwitch.svelte";
   import Pnl from "./Pnl.svelte";
   import SessionChip from "./SessionChip.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
@@ -22,13 +23,14 @@
   const status = $derived(harness.status);
   const killed = $derived(status?.settings.killSwitch ?? false);
   const account = $derived(status?.account);
+  const lab = $derived(ui.view === "lab");
   let menuOpen = $state(false);
   let confirmDisconnect = $state(false);
 </script>
 
 {#snippet equity()}
   {#if status}
-    <div class="flex flex-col leading-tight">
+    <div class={cn("flex flex-col leading-tight transition-opacity", lab && "opacity-60")}>
       <span class="num text-[17px] font-semibold md:text-[18px]">
         {account ? usd(account.equity) : "\u2014"}
       </span>
@@ -47,7 +49,7 @@
 
 {#snippet mark()}
   <div class="flex items-center gap-2" aria-label="Robinhood Harness">
-    <span class="bg-primary text-primary-foreground grid size-7 place-items-center rounded-md">
+    <span class={cn("grid size-7 place-items-center rounded-md transition-colors", lab ? "bg-lab text-background" : "bg-primary text-primary-foreground")}>
       <Icon icon={Pulse01Icon} class="size-4" strokeWidth={2.2} />
     </span>
     <span class="hidden text-[13px] font-semibold tracking-tight min-[1500px]:inline">Harness</span>
@@ -57,6 +59,7 @@
 <header
   class={cn(
     "bg-bar pt-safe relative z-30 shrink-0 border-b transition-colors",
+    lab && !killed && "bg-lab-bg border-lab/40",
     killed && "border-destructive bg-destructive/10 border-b-2",
   )}
 >
@@ -67,6 +70,7 @@
   <!-- Desktop and tablet -->
   <div class="hidden flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 md:flex 2xl:gap-x-6">
     {@render mark()}
+    <ViewSwitch />
     {@render equity()}
     <SessionChip />
     <BrokerChip bar />
@@ -94,14 +98,14 @@
   </div>
 
   <!-- Phone -->
-  <div class="flex items-center gap-3 px-3 py-2 md:hidden">
+  <div class="px-safe flex items-center gap-3 px-3 py-2 md:hidden">
     {@render mark()}
     <div class="min-w-0 flex-1">{@render equity()}</div>
-    <Button variant="outline" size="icon" class="size-10" onclick={() => (ui.palette = true)} aria-label="Open command palette">
+    <Button variant="outline" size="icon" class="size-11" onclick={() => (ui.palette = true)} aria-label="Open command palette">
       <Icon icon={Search01Icon} />
     </Button>
-    <KillSwitch compact class="h-10 px-3.5" />
-    <Button variant="outline" size="icon" class="size-10" onclick={() => (menuOpen = true)} aria-label="Open menu">
+    <KillSwitch compact class="h-11 px-3.5" />
+    <Button variant="outline" size="icon" class="size-11" onclick={() => (menuOpen = true)} aria-label="Open menu">
       <Icon icon={Menu01Icon} />
     </Button>
   </div>
