@@ -268,7 +268,8 @@ export interface AgentStatus {
   lastError?: string;
 }
 
-export type ChatRole = "user" | "assistant" | "tool" | "cycle";
+/** "helper" is a long-running subagent's report delivered to the lead agent, never something the user wrote. */
+export type ChatRole = "user" | "assistant" | "tool" | "cycle" | "helper";
 
 /** One tool call a Code Mode script made, shown nested under the script. */
 export interface ToolCallSummary {
@@ -292,8 +293,10 @@ export interface ChatMessage {
   calls?: ToolCallSummary[];
   /** For `delegate` tool messages: the subagent conversation, readable at GET /api/conversations/:id/messages. */
   childConversationId?: string;
-  /** For `delegate` tool messages: the subagent role, for example "bear". */
+  /** For `delegate` tool messages and helper reports: the subagent role, for example "bear". */
   agentRole?: string;
+  /** For helper reports: the long-running helper's name. */
+  helperName?: string;
 }
 
 export type SubagentRole = "analyst" | "bull" | "bear" | "risk_reviewer" | "researcher";

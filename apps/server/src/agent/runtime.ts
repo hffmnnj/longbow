@@ -20,6 +20,7 @@ import { CODEMODE_TOOL_NAME, createCodemodeExtension, type CodemodeNamespace } f
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import type { AgentStatus, ChatMessage, CycleKind, StatusResponse, ToolCallSummary } from "@rh/shared";
 import type { AgentControl, Clock, Config, EventBus, Logger, ModelSpec } from "../ports.ts";
+import { HELPER_REPORT_ENTRY_KIND } from "./background-subagents.ts";
 import {
   credentialFilePath,
   FileCredentialStore,
@@ -111,6 +112,16 @@ function truncate(text: string, max = MAX_TOOL_TEXT): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+/** Name and role carried by a helper-report entry, for the UI. */
+function helperTag(entry: EntryRecord): Pick<ChatMessage, "helperName" | "agentRole"> {
+  if (entry.kind !== HELPER_REPORT_ENTRY_KIND || !isRecord(entry.data)) return {};
+  const { name, role } = entry.data;
+  return {
+    ...(typeof name === "string" ? { helperName: name } : {}),
+    ...(typeof role === "string" ? { agentRole: role } : {}),
+  };
+}
+
 /** Map one transcript entry to chat messages for the UI. */
 export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
   const model = entry.model ?? [];
@@ -120,8 +131,9 @@ export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
       out.push({
         id: String(entry.id),
         at,
-        role: entry.kind === CYCLE_ENTRY_KIND ? "cycle" : "user",
+        role: entry.kind === CYCLE_ENTRY_KIND ? "cycle" : entry.kind === HELPER_REPORT_ENTRY_KIND ? "helper" : "user",
         text: userText(message),
+        ...helperTag(entry),
       });
     } else if (message.role === "assistant") {
       const text = assistantText(message);

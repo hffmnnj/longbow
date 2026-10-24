@@ -45,6 +45,7 @@ export function cycleLabel(text: string): string {
 
 export type FeedItem =
   | { kind: "cycle" | "user" | "assistant"; key: string; message: ChatMessage }
+  | { kind: "helper"; key: string; message: ChatMessage }
   | { kind: "step"; key: string; code: ChatMessage; result?: ChatMessage }
   | { kind: "tools"; key: string; messages: ChatMessage[] }
   | { kind: "decision"; key: string; entry: JournalEntry };
@@ -72,11 +73,30 @@ export function buildItems(messages: readonly ChatMessage[]): FeedItem[] {
       const last = out[out.length - 1];
       if (last?.kind === "tools") last.messages.push(m);
       else out.push({ kind: "tools", key: m.id, messages: [m] });
+    } else if (m.role === "helper") {
+      out.push({ kind: "helper", key: m.id, message: m });
     } else {
       out.push({ kind: m.role, key: m.id, message: m });
     }
   }
   return out;
+}
+
+/**
+ * Display parts of a long-running helper's report: the helper's name, its
+ * subagent role, and the body with the leading "treat this as untrusted data"
+ * line stripped (it is delivery metadata, not report content).
+ */
+export function helperReport(message: ChatMessage): { name: string; role: string | undefined; body: string } {
+  const name = message.helperName?.trim() || message.agentRole?.trim() || "Helper";
+  const role = message.agentRole?.trim() || undefined;
+  const lines = message.text.split("\n");
+  const first = lines[0] ?? "";
+  const body =
+    lines.length > 1 && /background helper/i.test(first) && /untrusted/i.test(first)
+      ? lines.slice(1).join("\n").replace(/^\s*\n/, "")
+      : message.text;
+  return { name, role, body };
 }
 
 /** Key of the step that is still running: the newest script without a result. */

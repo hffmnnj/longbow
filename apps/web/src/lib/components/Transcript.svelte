@@ -2,6 +2,7 @@
   import type { ChatMessage, JournalEntry, OrderRecord, ToolCallSummary } from "@rh/shared";
   import CycleDivider from "./CycleDivider.svelte";
   import DecisionCard from "./DecisionCard.svelte";
+  import HelperReport from "./HelperReport.svelte";
   import Icon from "./Icon.svelte";
   import Markdown from "./Markdown.svelte";
   import ToolTrace from "./ToolTrace.svelte";
@@ -40,6 +41,8 @@
     <div class="rise-in"><DecisionCard entry={item.entry} order={item.entry.orderId ? orderById.get(item.entry.orderId) : undefined} /></div>
   {:else if item.kind === "tools"}
     <div class="rise-in"><ToolTrace messages={item.messages} /></div>
+  {:else if item.kind === "helper"}
+    <HelperReport message={item.message} />
   {:else if item.kind === "user"}
     <div class="rise-in flex flex-col items-end gap-1">
       <div class="bg-accent max-w-[85%] rounded-xl rounded-br-sm px-3.5 py-2 text-[14px] leading-relaxed break-words whitespace-pre-wrap">
