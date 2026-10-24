@@ -30,3 +30,9 @@ Open http://127.0.0.1:4520 locally or http://100.101.102.103:4520 over the Tailn
 - Roll back: `git checkout <previous commit> && bun install && bun run build:web && systemctl --user restart robinhood-harness`.
 - Muse sign-in expired (agent shows "needs login"): run `muse` to sign in again; the server re-seeds from
   `~/.config/muse/auth.json` on the next start.
+- Models: the main agent runs `MAIN_MODEL` (default `openai-codex/gpt-6.1-sol#xhigh`, ChatGPT sign-in) and subagents
+  run `SUBAGENT_MODEL` (default `meta/muse-spark-1.3-contributor#xhigh`). Without a ChatGPT login the main agent falls
+  back to the subagent model and logs a warning.
+- ChatGPT sign-in (missing or expired): in `apps/server`, run `node scripts/codex-login.ts`, open the URL and code it
+  writes to `/tmp/codex-login/status.txt`, then `systemctl --user restart robinhood-harness`. It is
+  the harness's own login, separate from OpenCode's, because OpenAI refresh tokens are single use.

@@ -3,7 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-import type { Config } from "./ports.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import type { Config, ModelSpec } from "./ports.ts";
 
 function str(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
   const value = env[name];
@@ -30,7 +31,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     PUBLIC_URL: str(env, "PUBLIC_URL", `http://127.0.0.1:${port}`),
     ALLOWED_ORIGINS: (env["HARNESS_ORIGINS"] ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== ""),
     DATA_DIR: str(env, "DATA_DIR", join(home, ".local", "share", "robinhood-harness")),
-    MUSE_MODEL: str(env, "MUSE_MODEL", "muse-spark-1.3-contributor"),
+    MAIN_MODEL: parseModelSpec(str(env, "MAIN_MODEL", "openai-codex/gpt-6.1-sol#xhigh")),
+    SUBAGENT_MODEL: parseModelSpec(str(env, "SUBAGENT_MODEL", "meta/muse-spark-1.3-contributor#xhigh")),
     MUSE_AUTH_FILE: str(env, "MUSE_AUTH_FILE", join(home, ".config", "muse", "auth.json")),
     WEBSEARCH_CONFIG_FILE: str(
       env,
@@ -40,4 +42,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ROBINHOOD_MCP_URL: str(env, "ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading"),
     WEB_DIR: str(env, "WEB_DIR", join(REPO_ROOT, "apps", "web", "build")),
   };
+}
+
+const THINKING_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/** "provider/model#thinking", e.g. "openai-codex/gpt-6.1-sol#xhigh"; thinking defaults to high. */
+export function parseModelSpec(spec: string): ModelSpec {
+  const match = /^([a-z0-9-]+)\/([^#\s]+)(?:#([a-z]+))?$/.exec(spec.trim());
+  if (!match) throw new Error(`Invalid model spec "${spec}"; expected provider/model#thinking`);
+  const thinkingLevel = (match[3] ?? "high") as ThinkingLevel;
+  if (!THINKING_LEVELS.includes(thinkingLevel)) throw new Error(`Invalid thinking level "${match[3]}" in "${spec}"`);
+  return { provider: match[1]!, modelId: match[2]!, thinkingLevel };
 }

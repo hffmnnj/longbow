@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   AccountSnapshot,
   AgentStatus,
@@ -27,6 +28,13 @@ import type {
  * internals. Composition happens in `main.ts`.
  */
 
+/** A model and its thinking level, parsed from "provider/model#thinking". */
+export interface ModelSpec {
+  provider: string;
+  modelId: string;
+  thinkingLevel: ThinkingLevel;
+}
+
 export interface Config {
   /** HTTP port, default 4520. */
   PORT: number;
@@ -38,7 +46,10 @@ export interface Config {
   ALLOWED_ORIGINS: string[];
   /** State directory (mode 0700), default ~/.local/share/robinhood-harness. */
   DATA_DIR: string;
-  MUSE_MODEL: string;
+  /** Main agent model, MAIN_MODEL as "provider/model#thinking", default openai-codex/gpt-6.1-sol#xhigh. */
+  MAIN_MODEL: ModelSpec;
+  /** Subagent fleet model, SUBAGENT_MODEL, default meta/muse-spark-1.3-contributor#xhigh; also the main fallback. */
+  SUBAGENT_MODEL: ModelSpec;
   /** Muse CLI auth file to seed the Meta credential from, default ~/.config/muse/auth.json. */
   MUSE_AUTH_FILE: string;
   /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */
