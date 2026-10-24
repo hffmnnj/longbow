@@ -22,6 +22,7 @@ import { createSkillsExtension } from "./skills/tools.ts";
 import { createMarketData } from "./market/market-data.ts";
 import { createMarketExtension } from "./market/tools.ts";
 import { createSubagentExtension } from "./agent/subagents.ts";
+import { createBackgroundSubagentExtension } from "./agent/background-subagents.ts";
 import { createPushService } from "./push/service.ts";
 import { startNotifier } from "./push/notifier.ts";
 import { mountPushRoutes } from "./http/push-routes.ts";
@@ -108,6 +109,14 @@ async function main(): Promise<void> {
       log: log.child("subagents"),
       maxConcurrent: 4,
       excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision", "delegate"],
+      onRun: onSubagentRun,
+      model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
+      thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
+    }),
+    // Live only: simulations replay on a fixed clock, and helpers reporting between cycles would break it.
+    createBackgroundSubagentExtension({
+      log: log.child("background-subagents"),
+      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision"],
       onRun: onSubagentRun,
       model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
       thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
