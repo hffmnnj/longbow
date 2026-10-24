@@ -95,7 +95,7 @@
 
   {#if section === "lab"}
     <main class="flex min-h-0 flex-1 flex-col"><LabView /></main>
-  {:else if viewport.desktop && (section === "feed" || section === "history")}
+  {:else if viewport.desktop && section === "feed"}
     <main class="grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div class="border-border min-h-0 border-r"><Feed /></div>
       <div class="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">

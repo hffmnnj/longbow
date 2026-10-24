@@ -10,7 +10,7 @@
 
 <nav aria-label="Sections" class="flex items-center gap-0.5">
   {#each items as item (item.value)}
-    {@const active = ui.section === item.value || (item.value === "feed" && ui.section === "history")}
+    {@const active = ui.section === item.value}
     <button
       type="button"
       aria-current={active ? "page" : undefined}

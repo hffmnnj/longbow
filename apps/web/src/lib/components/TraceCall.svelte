@@ -115,7 +115,7 @@
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
         <Trace>
-          {#each urls as url (url)}
+          {#each urls as url, i (url + i)}
             {@const meta = sourceMeta(url)}
             <a href={url} target="_blank" rel="noopener noreferrer">
               <TraceLine>

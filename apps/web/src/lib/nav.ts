@@ -30,8 +30,11 @@ export const SECONDARY_NAV: NavItem[] = [
   { value: "lab", label: "Lab", icon: FlaskConicalIcon },
 ];
 
-/** `?view=` values from shortcuts and old links. */
+/** `?view=` values from shortcuts and old links. Every nav value opens its section; `live` is the old feed shortcut. */
+const VIEW_ALIASES: Record<string, Section> = { live: "feed" };
+
 export function sectionFromParam(v: string | null): Section | null {
-  if (v === "live") return "feed";
-  return v && [...PRIMARY_NAV, ...SECONDARY_NAV].some((i) => i.value === v) ? (v as Section) : null;
+  if (!v) return null;
+  if (v in VIEW_ALIASES) return VIEW_ALIASES[v]!;
+  return [...PRIMARY_NAV, ...SECONDARY_NAV].some((i) => i.value === v) ? (v as Section) : null;
 }
