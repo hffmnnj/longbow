@@ -1,5 +1,5 @@
-export type Section = "feed" | "portfolio" | "markets" | "performance" | "agent" | "history" | "lab";
-export const SECTIONS: readonly Section[] = ["feed", "portfolio", "markets", "performance", "agent", "history", "lab"];
+export type Section = "feed" | "portfolio" | "markets" | "performance" | "agent" | "history" | "reports" | "lab";
+export const SECTIONS: readonly Section[] = ["feed", "portfolio", "markets", "performance", "agent", "history", "reports", "lab"];
 
 /** Which overlay is open. Sheets and the palette read and write this from anywhere. */
 export const ui = $state({
@@ -17,6 +17,8 @@ export const ui = $state({
   agentSim: null as string | null,
   /** The surface on screen. Lab is the simulation workspace; the rest are the live account. */
   section: "feed" as Section,
+  /** Report open in the detail view; null shows the reports list. */
+  report: null as string | null,
   /** Order open in the detail sheet. */
   order: null as string | null,
   /** Run open in the lab. */
@@ -37,3 +39,9 @@ export const openAgent = (id: string, simRunId?: string) => {
 };
 
 export const openOrder = (id: string) => (ui.order = id);
+
+/** Opens a report in the reports section, from the list, a toast, or a deep link. */
+export const openReport = (id: string) => {
+  ui.section = "reports";
+  ui.report = id;
+};

@@ -6,6 +6,9 @@ import {
   type EquityHistory,
   type MarketOverview,
   type PerformanceSummary,
+  type Report,
+  type ReportKind,
+  type ReportSummary,
   type SymbolDetail,
   type HistoryRange,
   type JournalEntry,
@@ -63,6 +66,8 @@ export interface Api {
   history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
   equity(range: AnalyticsRange): Promise<EquityHistory>;
   performance(): Promise<PerformanceSummary>;
+  reports(kind?: ReportKind, limit?: number): Promise<ReportSummary[]>;
+  report(id: string): Promise<Report>;
   marketOverview(): Promise<MarketOverview>;
   symbolDetail(symbol: string): Promise<SymbolDetail>;
   simRuns(): Promise<SimRun[]>;
@@ -183,6 +188,14 @@ export const realApi: Api = {
     request("GET", `/api/market/history?symbol=${encodeURIComponent(symbol)}&range=${range}`),
   equity: (range) => request("GET", `/api/analytics/equity?range=${range}`),
   performance: () => request("GET", "/api/analytics/performance"),
+  reports: (kind, limit) => {
+    const q = new URLSearchParams();
+    if (kind) q.set("kind", kind);
+    if (limit !== undefined) q.set("limit", String(limit));
+    const s = q.toString();
+    return request("GET", `/api/reports${s ? `?${s}` : ""}`);
+  },
+  report: (id) => request("GET", `/api/reports/${encodeURIComponent(id)}`),
   marketOverview: () => request("GET", "/api/market/overview"),
   symbolDetail: (symbol) => request("GET", `/api/symbols/${encodeURIComponent(symbol)}`),
   simRuns: () => request("GET", "/api/sim/runs"),

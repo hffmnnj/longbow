@@ -11,6 +11,9 @@
   import OrderSheet from "$lib/components/OrderSheet.svelte";
   import PerformanceView from "$lib/components/PerformanceView.svelte";
   import PortfolioView from "$lib/components/PortfolioView.svelte";
+  import ReportSheet from "$lib/components/ReportSheet.svelte";
+  import ReportView from "$lib/components/ReportView.svelte";
+  import ReportsView from "$lib/components/ReportsView.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import LabView from "$lib/components/lab/LabView.svelte";
   import NewSimSheet from "$lib/components/lab/NewSimSheet.svelte";
@@ -27,6 +30,7 @@
   import { harness } from "$lib/store.svelte";
   import { ui } from "$lib/ui.svelte";
   import { clock } from "$lib/clock.svelte";
+  import { page } from "$app/stores";
   import { CloudOffIcon } from "$lib/icons";
   import { PRIMARY_NAV, sectionFromParam } from "$lib/nav";
   import { cn } from "$lib/utils.js";
@@ -65,6 +69,18 @@
   });
 
   const section = $derived(ui.section);
+
+  /** `?report=<id>` deep links (push notifications, copied links) open the brief, including when the app is already open. */
+  const deepReport = $derived($page.url.searchParams.get("report"));
+  $effect(() => {
+    if (deepReport) {
+      ui.section = "reports";
+      ui.report = deepReport;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("report");
+      history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+    }
+  });
 </script>
 
 <svelte:head><title>{harness.pending.length ? `(${harness.pending.length}) ` : ""}Longbow</title></svelte:head>
@@ -116,6 +132,12 @@
       {#if section === "portfolio"}<PortfolioView />
       {:else if section === "markets"}<MarketsView />
       {:else if section === "performance"}<PerformanceView />
+      {:else if section === "reports"}
+        {#if ui.report && viewport.desktop}
+          <ReportView id={ui.report} onback={() => (ui.report = null)} />
+        {:else}
+          <ReportsView />
+        {/if}
       {:else if section === "agent"}<ControlRoom />
       {:else if section === "history"}<HistoryTabs class="min-h-[70dvh]" />{/if}
     </main>
@@ -163,6 +185,7 @@
 <NewSimSheet />
 <SettingsSheet bind:open={ui.settings} />
 <SymbolSheet />
+<ReportSheet />
 <OrderSheet />
 <AgentSheet />
 <DocSheet />

@@ -3,7 +3,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
   import { isTicker } from "$lib/chart";
-  import { File01Icon, PlayIcon, PowerIcon, Settings02Icon, ChartLineData01Icon, Target01Icon, Notebook01Icon } from "$lib/icons";
+  import { File01Icon, PlayIcon, PowerIcon, Settings02Icon, ChartLineData01Icon, Target01Icon, Notebook01Icon, News01Icon } from "$lib/icons";
   import { harness } from "$lib/store.svelte";
   import { openNote, openSkill, openSymbol, ui } from "$lib/ui.svelte";
 
@@ -69,6 +69,9 @@
     <Command.Group heading="Actions">
       <Command.Item value="run cycle now" onSelect={() => run(() => harness.runCycle())}>
         <Icon icon={PlayIcon} />Run cycle now
+      </Command.Item>
+      <Command.Item value="open reports" onSelect={() => run(() => (ui.section = "reports"))}>
+        <Icon icon={News01Icon} />Open reports
       </Command.Item>
       {#each modes as m (m.value)}
         {#if m.value !== mode}
