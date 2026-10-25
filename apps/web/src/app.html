@@ -14,10 +14,13 @@
 		<meta name="apple-mobile-web-app-title" content="Longbow" />
 		<title>Longbow</title>
 		<script>
-			// Android Chrome already lays the page out below its system bars; viewport-fit=cover would add those insets
-			// a second time as empty bands above the header and below the tab bar. iOS needs cover (translucent status bar).
+			// Android Chrome already lays the page out inside its system bars; padding for insets again leaves empty bands above
+			// the header and below the tab bar. Only iOS (translucent status bar, viewport-fit=cover) needs the insets.
 			try {
-				if (/Android/i.test(navigator.userAgent)) {
+				var ua = navigator.userAgent;
+				if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
+					document.documentElement.classList.add("ios");
+				} else {
 					document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, initial-scale=1");
 				}
 			} catch (e) {}

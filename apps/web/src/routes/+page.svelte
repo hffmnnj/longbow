@@ -140,7 +140,7 @@
       <div class="min-h-0 flex-1"><Feed /></div>
     </main>
   {:else}
-    <main class="px-safe min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 md:p-4">
+    <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:p-4">
       {#if section === "portfolio"}<PortfolioView />
       {:else if section === "markets"}<MarketsView />
       {:else if section === "performance"}<PerformanceView />
@@ -156,7 +156,7 @@
   {/if}
 
   {#if !viewport.desktop}
-    <nav aria-label="Sections" class="bg-bar border-border pb-safe px-safe grid shrink-0 grid-cols-5 border-t">
+    <nav aria-label="Sections" class="bg-bar border-border pb-safe pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] grid shrink-0 grid-cols-5 border-t">
       {#each PRIMARY_NAV as item (item.value)}
         {@const active = section === item.value}
         <button

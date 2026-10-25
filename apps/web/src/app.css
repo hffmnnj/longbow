@@ -189,14 +189,11 @@
   .label-caps {
     @apply text-muted-foreground text-[10.5px] font-medium tracking-[0.08em] uppercase;
   }
-  .pb-safe {
+  /* Only iOS reports insets that the page must pad for; app.html sets html.ios. Android lays the page out inside its bars. */
+  .ios .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .px-safe {
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
-  .pt-safe {
+  .ios .pt-safe {
     padding-top: env(safe-area-inset-top);
   }
 }
