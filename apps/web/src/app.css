@@ -142,6 +142,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   button,
+  a,
   [role="tab"],
   [role="checkbox"],
   [role="switch"] {
@@ -164,6 +165,11 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+  /* Navigation chrome is tapped, never selected. Content stays selectable. */
+  nav {
+    -webkit-user-select: none;
+    user-select: none;
   }
   /* Phones: 16px inputs stop iOS zoom-on-focus. */
   @media (max-width: 767px) {
@@ -338,6 +344,18 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  /* View-transition pseudos are outside `*`; kill them explicitly. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+/* Section changes crossfade in ~180ms (see runSectionTransition). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
 }
 
 /* Code Mode script highlighting (highlight.js classes, themed from tokens) */

@@ -29,6 +29,7 @@
     tradeMarkerDates,
   } from "$lib/reports";
   import { harness } from "$lib/store.svelte";
+  import { isNativeApp, nativeCall } from "$lib/native";
   import { cn } from "$lib/utils.js";
 
   let { id, onback }: { id: string; onback: () => void } = $props();
@@ -72,12 +73,31 @@
 
   async function copyLink() {
     const url = `${location.origin}/?report=${id}`;
+    // The WebView clipboard is unreliable; the app copies natively.
+    if (isNativeApp()) {
+      try {
+        await nativeCall("copy", { text: url });
+        toast.success("Link copied");
+      } catch {
+        toast.error("Could not copy the link");
+      }
+      return;
+    }
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Link copied");
     } catch {
       toast.error("Could not copy the link");
     }
+  }
+
+  /** The WebView ignores window.print; the app prints through Android's PrintManager. */
+  function printReport(title: string) {
+    if (isNativeApp()) {
+      void nativeCall("print", { title }).catch(() => toast.error("Could not print the report"));
+      return;
+    }
+    window.print();
   }
 
   const head = "text-muted-foreground h-8 text-[11.5px]";
@@ -335,7 +355,7 @@
       <Button variant="outline" class="h-11 md:h-9" onclick={copyLink}>
         <Icon icon={Link04Icon} /> Copy link
       </Button>
-      <Button variant="outline" class="h-11 md:h-9" onclick={() => window.print()}>
+      <Button variant="outline" class="h-11 md:h-9" onclick={() => printReport(r.headline)}>
         <Icon icon={PrinterIcon} /> Print
       </Button>
     </footer>

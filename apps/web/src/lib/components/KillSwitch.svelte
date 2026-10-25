@@ -14,7 +14,7 @@
 
   function press() {
     if (engaged) confirmRelease = true;
-    else void harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged").then((ok) => ok && haptic());
+    else void harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged").then((ok) => ok && haptic("heavy"));
   }
 </script>
 
