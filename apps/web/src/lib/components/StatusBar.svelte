@@ -71,7 +71,7 @@
 
 <header
   class={cn(
-    "bg-bar pt-safe relative z-30 shrink-0 border-b transition-colors",
+    "no-print bg-bar pt-safe relative z-30 shrink-0 border-b transition-colors",
     lab && !killed && "bg-lab-bg border-lab/40",
     killed && "border-destructive bg-destructive/10 border-b-2",
   )}

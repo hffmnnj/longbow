@@ -62,7 +62,8 @@ export function figureStrip(f: ReportFacts): Figure[] {
     const diff = (f.pnlPct ?? 0) - f.benchmarkPct;
     out.push({
       key: "spy",
-      label: "vs SPY",
+      // SPY's own move; the caption carries the comparison, so the figure stays neutral.
+      label: "SPY",
       value: pctSigned(f.benchmarkPct),
       sub:
         f.pnlPct !== undefined
@@ -72,7 +73,7 @@ export function figureStrip(f: ReportFacts): Figure[] {
               ? `beat SPY by ${pct(Math.abs(diff))}`
               : `trailed SPY by ${pct(Math.abs(diff))}`
           : "same period",
-      tone: tone(f.benchmarkPct),
+      tone: "flat",
     });
   }
   if (f.trades.length > 0) {
