@@ -27,7 +27,10 @@
 | 21 | Longbow redesign: logo, dithered charts, Portfolio, Markets, Performance, control room, decision cards; analytics endpoints; helper reports in the feed | frontend + minions + coordinator | done |
 | 22 | Sector cap fed by SEC industry codes (Robinhood reports no sector) | coordinator | done |
 | 23 | Daily, weekly and trade reports: agent narrative, server figures, push, report view with print | minion + frontend-minion + coordinator | done |
-| 24 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
+| 24 | Simulation upgrade: historical, blind and bootstrap environments, realistic execution, scenario library, suites with A/B comparison, richer metrics | minions | in progress |
+| 25 | Quant tools (screen, backtest, portfolio risk, sizing) and the full-auto system prompt | minion + coordinator | in progress |
+| 26 | Lab UI for scenarios, suites and the new metrics | frontend-minion | in progress |
+| 27 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
 
 ## Follow-ups
 
