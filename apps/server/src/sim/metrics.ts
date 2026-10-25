@@ -1,6 +1,7 @@
 import type { OrderRecord, SimEquityPoint, SimFill, SimMetrics } from "@rh/shared";
 
 const TRADING_DAYS = 252;
+const MIN_CALMAR_DAYS = 20;
 
 function mean(values: number[]): number {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -95,7 +96,8 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
     const downside = Math.sqrt(returns.reduce((sum, r) => sum + Math.min(0, r) ** 2, 0) / returns.length) * Math.sqrt(TRADING_DAYS);
     metrics.sortino = downside === 0 ? undefined : avg / downside * TRADING_DAYS;
   }
-  if (equity.length > 0 && drawdown > 0) {
+  // Annualizing a few days over a tiny drawdown gives absurd numbers (1,000+), so Calmar waits for about a month.
+  if (equity.length >= MIN_CALMAR_DAYS && drawdown > 0) {
     // Geometric annualization of the run's total return over its daily marks.
     const annualized = (last!.equity / startingCash) ** (TRADING_DAYS / equity.length) - 1;
     metrics.calmar = annualized / drawdown;

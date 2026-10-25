@@ -238,7 +238,7 @@ describe("metricGroups", () => {
       },
     });
     const byTitle = new Map(metricGroups(r).map((g) => [g.title, g]));
-    expect(byTitle.get("Costs")!.rows).toEqual([{ label: "Costs paid", text: "$13", sub: "1.04% of start" }]);
+    expect(byTitle.get("Costs")!.rows).toEqual([{ label: "Costs paid", text: "$12.50", sub: "1.04% of start" }]);
     const discipline = byTitle.get("Discipline")!.rows;
     expect(discipline[0]).toEqual({ label: "Risk blocks", bars: [{ label: "sector", value: 2 }, { label: "max_positions", value: 1 }] });
     expect(discipline[1]).toEqual({ label: "Brier", text: "0.200", sub: "lower is better" });

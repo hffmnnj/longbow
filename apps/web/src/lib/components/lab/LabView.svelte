@@ -86,7 +86,7 @@
       {#if activeRuns + activeSuites > 0}
         <span class="text-lab num flex items-center gap-1.5 text-[12px]">
           <span class="bg-lab soft-pulse size-1.5 rounded-full" aria-hidden="true"></span>
-          {activeRuns + activeSuites} running
+          {activeRuns} running{activeSuites > 0 ? ` · ${activeSuites} suite${activeSuites > 1 ? "s" : ""}` : ""}
         </span>
       {/if}
       <span class="flex-1"></span>

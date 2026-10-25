@@ -33,8 +33,13 @@ test("sortino is undefined without downside and calmar needs a drawdown", () => 
   const up = calculateMetrics(100, steady, [], []);
   assert.equal(up.sortino, undefined);
   assert.equal(up.calmar, undefined);
-  const drawdown = [110, 88, 105].map((value, i) => ({ date: String(i), equity: value, cash: value, benchmark: 100 }));
-  assert.ok(Math.abs(calculateMetrics(100, drawdown, [], []).calmar! - 296.21) < 0.01);
+  const short = [110, 88, 105].map((value, i) => ({ date: String(i), equity: value, cash: value, benchmark: 100 }));
+  assert.equal(calculateMetrics(100, short, [], []).calmar, undefined, "too short to annualize");
+  // 20 marks: up to 110, down to 99 (a 10% drawdown), ending at 105.
+  const month = [...Array.from({ length: 10 }, (_, i) => 101 + i), 99, ...Array.from({ length: 9 }, () => 105)]
+    .map((value, i) => ({ date: String(i), equity: value, cash: value, benchmark: 100 }));
+  const expected = ((105 / 100) ** (252 / 20) - 1) / 0.1;
+  assert.ok(Math.abs(calculateMetrics(100, month, [], []).calmar! - expected) < 1e-9);
 });
 
 test("beta is -1 on a perfectly inverted benchmark and absent on a flat one", () => {
