@@ -10,6 +10,7 @@ import {
   SendMessageSchema,
   SettingsPatchSchema,
   type AccountSnapshot,
+  type Settings,
   type StatusResponse,
   type SubagentRun,
 } from "@rh/shared";
@@ -113,6 +114,22 @@ function csrfMiddleware(deps: Pick<AppDeps, "config">) {
     }
     await next();
   };
+}
+
+/** Human-readable summary of what a settings PATCH actually changed; undefined when nothing changed. */
+function describeSettingsChange(before: Settings, after: Settings): string | undefined {
+  const parts: string[] = [];
+  if (before.mode !== after.mode) parts.push(`mode ${before.mode} → ${after.mode}`);
+  if (before.killSwitch !== after.killSwitch) parts.push(`killSwitch ${before.killSwitch} → ${after.killSwitch}`);
+  if (before.drawdownHalted !== after.drawdownHalted) parts.push("drawdownHalted");
+  if (before.drawdownHaltedMonth !== after.drawdownHaltedMonth) parts.push("drawdownHaltedMonth");
+  if (before.cycleMinutesOpen !== after.cycleMinutesOpen) parts.push("cycleMinutesOpen");
+  if (before.cycleMinutesClosed !== after.cycleMinutesClosed) parts.push("cycleMinutesClosed");
+  if (JSON.stringify(before.watchlist) !== JSON.stringify(after.watchlist)) parts.push("watchlist");
+  for (const key of Object.keys(after.risk) as (keyof Settings["risk"])[]) {
+    if (before.risk[key] !== after.risk[key]) parts.push(`risk.${key}`);
+  }
+  return parts.length === 0 ? undefined : parts.join(", ");
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -227,6 +244,7 @@ export function createApp(deps: AppDeps): Hono {
     const body: unknown = await c.req.json().catch(() => undefined);
     const parsed = SettingsPatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "invalid body" }, 400);
+    const before = deps.store.getSettings();
     const settings = deps.store.patchSettings(parsed.data);
     deps.log.info("settings changed", {
       keys: Object.keys(parsed.data),
@@ -234,6 +252,17 @@ export function createApp(deps: AppDeps): Hono {
       killSwitch: settings.killSwitch,
       origin: c.req.header("origin") ?? "none",
     });
+    const changes = describeSettingsChange(before, settings);
+    if (changes !== undefined) {
+      const entry = deps.store.addJournal({
+        at: deps.clock.now(),
+        action: "none",
+        summary: `Settings changed: ${changes}`,
+        rationale: "Changed from the app.",
+        evidence: [],
+      });
+      deps.bus.publish({ type: "journal", entry });
+    }
     // The scheduler re-arms off status events, so publishing applies the cadence now.
     deps.bus.publish({ type: "status", status: await buildStatus(deps) });
     return c.json(settings);

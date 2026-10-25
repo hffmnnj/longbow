@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerEvent } from "@rh/shared";
 import { createEventBus } from "../events.ts";
@@ -178,4 +178,44 @@ test("stop ends every unfinished run in the suite", async () => {
     assert.equal(runner.get(suite.runs[1]!.runId)?.status, "stopped");
     assert.equal(await suites.stop("missing"), undefined);
   } finally { done(); }
+});
+
+test("a suite whose every run fails to start is not persisted and the start throws", async () => {
+  const { dataDir, bus, suites, done } = setup();
+  let failingSuites: SuiteService | undefined;
+  try {
+    const failing = new FakeRunner(bus);
+    failing.start = async () => { throw new Error("simulator exploded"); };
+    failingSuites = createSuiteService({ runner: failing, bus, log, dataDir, now: () => 1_700_000_000_000 });
+    await assert.rejects(
+      failingSuites.start({ name: "Doomed", scenarios: ["covid-crash-2020"], startingCash: 1200, variants: [{ label: "A" }] }, "user"),
+      /simulator exploded/,
+    );
+    assert.equal(failingSuites.list().length, 0);
+    assert.equal(suites.list().length, 0);
+    assert.deepEqual(readdirSync(join(dataDir, "sim", "suites")), []);
+  } finally { failingSuites?.close(); done(); }
+});
+
+test("a suite with partial start failures keeps the runs that did start", async () => {
+  const { dataDir, bus, done } = setup();
+  let partial: SuiteService | undefined;
+  try {
+    const flaky = new FakeRunner(bus);
+    const originalStart = flaky.start.bind(flaky);
+    let calls = 0;
+    flaky.start = async (config, startedBy, options) => {
+      calls += 1;
+      if (calls === 2) throw new Error("second run failed");
+      return originalStart(config, startedBy, options);
+    };
+    partial = createSuiteService({ runner: flaky, bus, log, dataDir, now: () => 1_700_000_000_000 });
+    await assert.rejects(
+      partial.start({ name: "Half", scenarios: ["covid-crash-2020"], startingCash: 1200, variants: [{ label: "A" }, { label: "B" }] }, "user"),
+      /second run failed/,
+    );
+    const kept = partial.list();
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.runs.length, 1);
+  } finally { partial?.close(); done(); }
 });

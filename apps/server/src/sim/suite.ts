@@ -279,8 +279,13 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
           }
         }
       } catch (error) {
-        suites.set(id, suite);
-        save(suite);
+        // A suite whose every run fails to start leaves nothing behind; the
+        // first start error propagates so the route answers 400. Partial
+        // failures keep the runs that did start.
+        if (suite.runs.length > 0) {
+          suites.set(id, suite);
+          save(suite);
+        }
         throw error;
       }
       suites.set(id, suite);

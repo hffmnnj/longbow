@@ -366,3 +366,55 @@ describe("app routes", () => {
     assert.equal(first.type, "status");
   });
 });
+
+describe("settings change journaling", () => {
+  function patch(body: unknown) {
+    const app = createApp(d);
+    return app.request("/api/settings", {
+      method: "PATCH",
+      headers: { ...CSRF, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  let d: ReturnType<typeof deps>;
+  beforeEach(() => {
+    d = deps();
+  });
+
+  it("journals a mode change and publishes a journal event", async () => {
+    const seen: { type: string }[] = [];
+    d.bus.subscribe((event) => {
+      seen.push(event);
+    });
+    const res = await patch({ mode: "off" });
+    assert.equal(res.status, 200);
+    const journals = d.store.listJournal(100);
+    assert.equal(journals.length, 1);
+    assert.equal(journals[0]?.action, "none");
+    assert.equal(journals[0]?.summary, "Settings changed: mode auto → off");
+    assert.equal(journals[0]?.rationale, "Changed from the app.");
+    assert.deepEqual(journals[0]?.evidence, []);
+    assert.equal(journals[0]?.symbol, undefined);
+    assert.equal(seen.filter((e) => e.type === "journal").length, 1);
+  });
+
+  it("names changed keys for watchlist and risk fields, with old and new values for the kill switch", async () => {
+    const res = await patch({ watchlist: ["SPY"], risk: { maxPositionPct: 10 }, killSwitch: true });
+    assert.equal(res.status, 200);
+    const journals = d.store.listJournal(100);
+    assert.equal(journals.length, 1);
+    assert.equal(journals[0]?.summary, "Settings changed: killSwitch false → true, watchlist, risk.maxPositionPct");
+  });
+
+  it("does not journal a PATCH that changes nothing", async () => {
+    const seen: { type: string }[] = [];
+    d.bus.subscribe((event) => {
+      seen.push(event);
+    });
+    assert.equal((await patch({})).status, 200);
+    assert.equal((await patch({ mode: "auto" })).status, 200);
+    assert.equal(d.store.listJournal(100).length, 0);
+    assert.ok(!seen.some((e) => e.type === "journal"));
+  });
+});
