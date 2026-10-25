@@ -31,6 +31,9 @@ import { mountPushRoutes } from "./http/push-routes.ts";
 import { createSimService } from "./sim/runner.ts";
 import { createSimToolsExtension } from "./sim/tools.ts";
 import { mountSimRoutes } from "./http/sim-routes.ts";
+import { createSuiteService } from "./sim/suite.ts";
+import { createQuantExtension } from "./quant/extension.ts";
+import { DEFAULT_UNIVERSE } from "./quant/universe.ts";
 import { createAnalyticsService } from "./analytics/service.ts";
 import { mountAnalyticsRoutes } from "./http/analytics-routes.ts";
 import { createReportExtension } from "./reports/extension.ts";
@@ -113,6 +116,7 @@ async function main(): Promise<void> {
     settings: () => store.getSettings(),
     credentialFile: credentialFilePath(config.DATA_DIR),
   });
+  const suites = createSuiteService({ runner: sim, bus, log: log.child("suites"), dataDir: config.DATA_DIR });
   const notes = createNotes({ dir: join(config.DATA_DIR, "workspace"), bus, clock });
   const analytics = createAnalyticsService({
     store,
@@ -162,7 +166,19 @@ async function main(): Promise<void> {
       model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
       thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
     }),
-    createSimToolsExtension({ sim }),
+    createSimToolsExtension({ sim, suites }),
+    createQuantExtension({
+      market,
+      getAccount: async () => (broker.status().state === "connected" ? await broker.snapshot().catch(() => cachedAccount) : cachedAccount),
+      getRisk: () => store.getSettings().risk,
+      universe: () => [
+        ...new Set([...DEFAULT_UNIVERSE, ...store.getSettings().watchlist, ...(cachedAccount?.positions.map((p) => p.symbol) ?? [])]),
+      ],
+      sectorOf: (symbol) => sectors.get(symbol),
+      benchmark: () => "SPY",
+      clock,
+      log: log.child("quant"),
+    }),
   ];
 
   agent = await TradingAgent.open({
@@ -253,7 +269,7 @@ async function main(): Promise<void> {
     subject: "mailto:hffmnnj@users.noreply.github.com",
   });
   mountPushRoutes(app, { push, log: log.child("push") });
-  mountSimRoutes(app, { sim, log: log.child("sim") });
+  mountSimRoutes(app, { sim, suites, log: log.child("sim") });
   mountAnalyticsRoutes(app, { analytics, log: log.child("analytics") });
   mountReportRoutes(app, { store, log: log.child("reports") });
   const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
@@ -283,6 +299,7 @@ async function main(): Promise<void> {
     clearInterval(refresher);
     clearInterval(stopWatcher);
     stopNotifier();
+    suites.close();
     void sim.close();
     scheduler.stop();
     for (const server of servers) server.close();
