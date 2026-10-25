@@ -530,15 +530,15 @@ export const ReportNarrativeSchema = z.object({
   weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** One plain sentence, the first thing the owner reads. */
   headline: z.string().min(1).max(140),
-  /** Two to four sentences of markdown. */
-  summary: z.string().min(1).max(1200),
+  /** Two to four sentences of markdown. The limits keep reports readable at a glance. */
+  summary: z.string().min(1).max(600),
   grade: ReportGradeSchema.optional(),
   /** Why the grade, in one sentence. */
-  gradeReason: z.string().max(300).optional(),
+  gradeReason: z.string().max(220).optional(),
   /** Short titled sections in markdown, for example "What worked", "What didn't", "Market". */
-  sections: z.array(z.object({ title: z.string().min(1).max(60), body: z.string().min(1).max(3000) })).max(6),
-  lessons: z.array(z.string().min(1).max(300)).max(5),
-  nextSteps: z.array(z.string().min(1).max(300)).max(5),
+  sections: z.array(z.object({ title: z.string().min(1).max(40), body: z.string().min(1).max(700) })).max(4),
+  lessons: z.array(z.string().min(1).max(200)).max(3),
+  nextSteps: z.array(z.string().min(1).max(200)).max(3),
 });
 export type ReportNarrative = z.infer<typeof ReportNarrativeSchema>;
 
