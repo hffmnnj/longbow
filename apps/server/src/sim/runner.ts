@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
-import { DEFAULT_SETTINGS, SimRunConfigSchema, type Bar, type ChatMessage, type CycleKind, type JournalEntry, type OrderRecord, type Settings, type SimRun, type SimRunConfig } from "@rh/shared";
+import { DEFAULT_SETTINGS, SimRunConfigSchema, type Bar, type ChatMessage, type CycleKind, type JournalEntry, type OrderRecord, type Settings, type SimRun, type SimRunConfigInput } from "@rh/shared";
 import type { Config, EventBus, Logger, MarketCalendar, MarketData, SkillLibrary } from "../ports.ts";
 import { openStore } from "../db/store.ts";
 import { TradingAgent } from "../agent/runtime.ts";
@@ -24,7 +24,7 @@ import { etInstant, tradingDays } from "./path.ts";
 import { jsonValue } from "./json.ts";
 
 export interface SimService {
-  start(config: SimRunConfig, startedBy: "user" | "agent"): Promise<SimRun>;
+  start(config: SimRunConfigInput, startedBy: "user" | "agent"): Promise<SimRun>;
   list(): SimRun[];
   get(id: string): SimRun | undefined;
   stop(id: string): Promise<SimRun | undefined>;
@@ -99,7 +99,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
   }
   async function execute(run: SimRun): Promise<void> {
     const runDir = dir(run.id);
-    let now = etInstant(run.config.startDate, 9);
+    const startDate = run.config.startDate;
+    if (startDate === undefined) throw new Error("Simulation start date is missing");
+    let now = etInstant(startDate, 9);
     const clock = { now: () => now };
     const bus = createSimEventBus(deps.bus, run.id);
     const store = openStore(join(runDir, "app.sqlite"), clock);
@@ -111,14 +113,14 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const bars = (symbol: string): Promise<Bar[]> => {
       let promise = history.get(symbol);
       if (promise === undefined) {
-        const from = new Date(Date.parse(`${run.config.startDate}T12:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
+        const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
         // Fetch through today for Nasdaq compatibility, but retain the historical path privately.
         promise = replayMarket.barsBetween(symbol, from, deps.calendar.etDate(Date.now())); history.set(symbol, promise);
       }
       return promise;
     };
     const spy = await bars("SPY");
-    const days = tradingDays(spy, run.config.startDate, run.config.days);
+    const days = tradingDays(spy, startDate, run.config.days);
     if (days.length !== run.config.days || days.some((b) => b.date >= deps.calendar.etDate(Date.now()))) throw new Error("Simulation range must contain the requested number of completed past trading days");
     const asOf = (): string => spy.filter((b) => b.date < deps.calendar.etDate(now) || (b.date === deps.calendar.etDate(now) && now >= etInstant(b.date, 16))).at(-1)?.date ?? (() => { throw new Error("No prior trading day available"); })();
     const historicalMarket = new MarketStore({ dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf });
@@ -229,6 +231,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     async start(input, startedBy) {
       if (closed) throw new Error("Simulation service is closed");
       const config = SimRunConfigSchema.parse(input);
+      if (config.startDate === undefined) throw new Error("A start date is required");
       if (config.startDate >= deps.calendar.etDate(Date.now())) throw new Error("Simulation must start in the past");
       if (startedBy === "agent" && (active !== undefined || queue.length > 0)) throw new Error("A simulation is already active");
       const spy = await replayMarket.barsBetween("SPY", config.startDate, deps.calendar.etDate(Date.now()));

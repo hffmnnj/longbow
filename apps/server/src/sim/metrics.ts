@@ -43,6 +43,11 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
     exposurePct: equity.length === 0 ? 0 : equity.reduce((sum, p) => sum + (p.equity - p.cash) / p.equity, 0) / equity.length * 100,
     ordersSubmitted: orders.filter((o) => o.status === "submitted").length,
     ordersRejected: orders.filter((o) => o.status === "rejected_risk" || o.status === "rejected_user" || o.status === "failed").length,
+    roundTrips: outcomes.length,
+    turnoverPct: 0,
+    costsPaid: 0,
+    costsPct: 0,
+    riskBlocks: {},
   };
   if (returns.length >= 5) {
     const mean = returns.reduce((a, b) => a + b, 0) / returns.length;

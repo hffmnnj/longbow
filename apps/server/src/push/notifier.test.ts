@@ -95,7 +95,7 @@ function simRun(status: SimRun["status"], id = "sim1"): SimRun {
     id,
     createdAt: NOW,
     startedBy: "user",
-    config: { startDate: "2026-09-01", days: 20, startingCash: 1200, cyclesPerDay: 2 },
+    config: { startDate: "2026-09-01", days: 20, startingCash: 1200, cyclesPerDay: 2, mode: "historical", execution: "realistic", model: "main" },
     status,
     progress: { day: 20, days: 20, cycle: 2, cyclesPerDay: 2 },
     equity: [],
@@ -111,6 +111,11 @@ function simRun(status: SimRun["status"], id = "sim1"): SimRun {
             exposurePct: 40,
             ordersSubmitted: 15,
             ordersRejected: 1,
+            roundTrips: 7,
+            turnoverPct: 120,
+            costsPaid: 1.5,
+            costsPct: 0.13,
+            riskBlocks: {},
           }
         : undefined,
   };

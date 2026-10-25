@@ -19,7 +19,7 @@ test("restart marks interrupted runs failed, retains results, and never seeds cr
   const dataDir = mkdtempSync("/tmp/sim-test-");
   const runDir = join(dataDir, "sim", "old-run");
   mkdirSync(runDir, { recursive: true });
-  const run: SimRun = { id: "old-run", createdAt: 1, startedBy: "user", config: { startDate: "2026-07-01", days: 1, startingCash: 1200, cyclesPerDay: 2 },
+  const run: SimRun = { id: "old-run", createdAt: 1, startedBy: "user", config: { startDate: "2026-07-01", days: 1, startingCash: 1200, cyclesPerDay: 2, mode: "historical", execution: "ideal", model: "main" },
     status: "running", progress: { day: 1, days: 1, cycle: 1, cyclesPerDay: 2 }, equity: [], fills: [], positions: [] };
   writeFileSync(join(runDir, "run.json"), JSON.stringify(run));
   writeFileSync(join(runDir, "messages.json"), JSON.stringify([{ id: "1", at: 1, role: "assistant", text: "Saved replay" }]));
@@ -43,7 +43,7 @@ test("restart marks interrupted runs failed, retains results, and never seeds cr
 test("simulation HTTP validates configuration, reports missing runs, and caps transcript limits", async () => {
   const dataDir = mkdtempSync("/tmp/sim-http-test-");
   const runDir = join(dataDir, "sim", "done-run"); mkdirSync(runDir, { recursive: true });
-  const run: SimRun = { id: "done-run", createdAt: 1, startedBy: "user", config: { startDate: "2026-07-01", days: 1, startingCash: 1200, cyclesPerDay: 2 },
+  const run: SimRun = { id: "done-run", createdAt: 1, startedBy: "user", config: { startDate: "2026-07-01", days: 1, startingCash: 1200, cyclesPerDay: 2, mode: "historical", execution: "ideal", model: "main" },
     status: "done", progress: { day: 1, days: 1, cycle: 2, cyclesPerDay: 2 }, equity: [], fills: [], positions: [] };
   writeFileSync(join(runDir, "run.json"), JSON.stringify(run));
   const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills, calendar: createNyseCalendar() });
