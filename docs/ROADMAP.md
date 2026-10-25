@@ -31,7 +31,7 @@
 | 25 | Quant tools (screen, backtest, portfolio risk, sizing) and the full-auto system prompt | minion + coordinator | done |
 | 26 | Lab UI for scenarios, suites and the new metrics | frontend-minion + coordinator | done |
 | 27 | Go-live: live trading on, auto mode, 24/7 service on 0.0.0.0 with tailnet-only peers | coordinator | done (2026-10-25) |
-| 28 | Android app: Flutter shell around the live UI, native bridge (alerts, print, haptics, copy), APK at /download/longbow.apk | frontend-minion + coordinator | in progress |
+| 28 | Android app: Flutter shell around the live UI, native bridge (alerts, print, haptics, copy), APK at /download/longbow.apk | frontend-minion + coordinator | built; awaiting on-device check |
 
 ## Follow-ups
 
