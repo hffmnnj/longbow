@@ -18,6 +18,11 @@ function num(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function concurrency(env: NodeJS.ProcessEnv): number {
+  const raw = Number(env["SIM_CONCURRENCY"]);
+  return Number.isInteger(raw) && raw >= 1 && raw <= 4 ? raw : 2;
+}
+
 /** Load server config from the environment. Every field has a same-named env var. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const home = homedir();
@@ -42,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ),
     ROBINHOOD_MCP_URL: str(env, "ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading"),
     WEB_DIR: str(env, "WEB_DIR", join(REPO_ROOT, "apps", "web", "build")),
+    SIM_CONCURRENCY: concurrency(env),
   };
 }
 
