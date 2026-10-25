@@ -370,12 +370,14 @@ export function createSimService(deps: SimServiceDeps): SimService {
       const config = SimRunConfigSchema.parse(filled);
       const mode = config.mode;
       const startDate = mode === "bootstrap" ? undefined : (config.startDate ?? library?.startDate);
-      if (startDate === undefined) throw new Error("A start date is required");
       const today = deps.calendar.etDate(Date.now());
-      if (startDate >= today) throw new Error("Simulation must start in the past");
       if (startedBy === "agent" && options?.suiteId === undefined && agentBlocked()) throw new Error("A simulation is already active");
       if (mode === "bootstrap") {
         // No date validation: the bootstrap market is synthetic and ignores startDate.
+      } else if (startDate === undefined) {
+        throw new Error("A start date is required");
+      } else if (startDate >= today) {
+        throw new Error("Simulation must start in the past");
       } else if (mode === "blind") {
         const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 800 * 86_400_000).toISOString().slice(0, 10);
         const spy = await fetchBars("SPY", from, today);

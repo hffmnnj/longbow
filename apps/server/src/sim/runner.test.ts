@@ -135,6 +135,25 @@ test("resolves scenario config and records seed, suite, variant, and aliases", a
   }
 });
 
+test("starts a bootstrap run without a start date", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-bootstrap-test-");
+  const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    fetchBars: async (s, f, t) => fixtureBars(s, f, t),
+    driver: async () => {},
+    sectorSource: createStaticSectorDirectory({}) });
+  try {
+    const run = await sim.start({ mode: "bootstrap", days: 5, seed: 7, startingCash: 1200, cyclesPerDay: 2 }, "user", { suiteId: "s1", variant: "A" });
+    assert.equal(run.config.startDate, undefined);
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error);
+    assert.equal(done.aliases?.["MKT"], "SPY");
+  } finally {
+    await sim.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("agent-started runs block each other but suite runs do not count", async () => {
   const dataDir = mkdtempSync("/tmp/sim-agent-test-");
   let release!: () => void;
