@@ -19,7 +19,9 @@
     runs.map((r, i) => ({ id: r.id, label: labels[i]!, color: COLORS[i % COLORS.length]!, points: normalizedSeries(r) })),
   );
   const rows = $derived(runs.map(metricRows));
-  const labelsCol = $derived(rows[0]?.map((r) => r.label) ?? []);
+  /** Union of metric labels so runs with different figures still line up; missing values dash. */
+  const labelsCol = $derived([...new Set(rows.flatMap((r) => r.map((c) => c.label)))]);
+  const cellFor = (col: number, label: string) => rows[col]?.find((c) => c.label === label);
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 md:p-4">
@@ -66,13 +68,16 @@
             <Table.Cell class="num py-2 text-right">{r.progress.day}/{r.progress.days}d · {r.progress.cyclesPerDay}/d</Table.Cell>
           {/each}
         </Table.Row>
-        {#each labelsCol as label, i (label)}
+        {#each labelsCol as label (label)}
           <Table.Row>
             <Table.Cell class="bg-card text-muted-foreground sticky left-0 px-3.5 py-2">{label}</Table.Cell>
-            {#each rows as col, c (runs[c]!.id)}
-              {@const cell = col[i]!}
+            {#each runs as r, c (runs[c]!.id)}
+              {@const found = cellFor(c, label)}
               <Table.Cell class="num py-2 text-right">
-                {#if cell.pnl !== undefined}<Pnl percent={cell.pnl} />{:else}{cell.text}{/if}
+                {#if found?.pnl !== undefined}<Pnl percent={found.pnl} />{:else if found?.bars}{found.bars
+                    .slice(0, 2)
+                    .map((b) => `${b.label} ${b.value}`)
+                    .join(", ")}{:else}{found?.text ?? "—"}{/if}
               </Table.Cell>
             {/each}
           </Table.Row>

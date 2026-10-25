@@ -17,6 +17,7 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import LabView from "$lib/components/lab/LabView.svelte";
   import NewSimSheet from "$lib/components/lab/NewSimSheet.svelte";
+  import NewSuiteSheet from "$lib/components/lab/NewSuiteSheet.svelte";
   import AgentSheet from "$lib/components/AgentSheet.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import DocSheet from "$lib/components/DocSheet.svelte";
@@ -183,6 +184,7 @@
   }}
 />
 <NewSimSheet />
+<NewSuiteSheet />
 <SettingsSheet bind:open={ui.settings} />
 <SymbolSheet />
 <ReportSheet />

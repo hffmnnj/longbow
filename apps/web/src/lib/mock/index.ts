@@ -179,6 +179,11 @@ export function createMockApi(): Api {
     simRun: async (id) => delay(mockSim.get(id)),
     simStart: async (config) => delay(mockSim.start(config), 250),
     simStop: async (id) => mockSim.stop(id),
+    simScenarios: async () => delay(mockSim.scenarios()),
+    simSuites: async () => delay(mockSim.suites()),
+    simSuite: async (id) => delay(mockSim.suite(id)),
+    simSuiteStart: async (config) => delay(mockSim.suiteStart(config), 250),
+    simSuiteStop: async (id) => mockSim.suiteStop(id),
     simMessages: async (id, _limit, conversationId) => {
       if (conversationId) {
         return delay([

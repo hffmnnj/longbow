@@ -24,7 +24,7 @@
   const where = $derived(
     live
       ? `Day ${run.progress.day} of ${run.progress.days}${run.currentDate ? ` · ${isoShort(run.currentDate)}` : ""} · cycle ${run.progress.cycle}/${run.progress.cyclesPerDay}`
-      : `${run.equity.length} of ${run.progress.days} days · from ${isoShort(run.config.startDate)}`,
+      : `${run.equity.length} of ${run.progress.days} days${run.config.startDate ? ` · from ${isoShort(run.config.startDate)}` : run.config.mode === "bootstrap" ? " · bootstrap" : ""}`,
   );
 </script>
 

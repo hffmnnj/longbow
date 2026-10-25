@@ -31,6 +31,8 @@ export {
   ArrowLeft01Icon,
   FlaskConicalIcon,
   GitCompareIcon,
+  HelpCircleIcon,
+  InformationCircleIcon,
   Notification01Icon,
   Share01Icon,
   CloudOffIcon,

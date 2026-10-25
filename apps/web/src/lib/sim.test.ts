@@ -1,33 +1,69 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, JournalEntry, OrderRecord, SimRun } from "@rh/shared";
+import type { ChatMessage, JournalEntry, OrderRecord, SimMetrics, SimRun, SimRunConfig, SimSuite } from "@rh/shared";
 import { applyEvent, emptyState } from "./reducer.ts";
 import {
   applySimEvent,
+  canReveal,
   compareLabels,
+  comparisonReading,
   emptySim,
+  envBadge,
   estimateMinutes,
+  excessReturn,
   formatEstimate,
+  metricGroups,
   normalizedSeries,
   riskOverrides,
   runNumbers,
   runTitle,
+  shownSymbol,
   startDateProblem,
+  suiteProgress,
+  upsertSuite,
   weekdaysAgo,
 } from "./sim.ts";
 import { fixtureOrder } from "./mock/fixtures.ts";
 
-const run = (id: string, over: Partial<SimRun> = {}): SimRun => ({
-  id,
-  createdAt: 1,
-  startedBy: "user",
-  config: { startDate: "2026-10-01", days: 5, startingCash: 1000, cyclesPerDay: 2 },
-  status: "running",
-  progress: { day: 0, days: 5, cycle: 1, cyclesPerDay: 2 },
-  equity: [],
-  positions: [],
-  fills: [],
-  ...over,
-});
+const baseConfig: SimRunConfig = {
+  mode: "historical",
+  execution: "realistic",
+  model: "main",
+  startDate: "2026-10-01",
+  days: 5,
+  startingCash: 1000,
+  cyclesPerDay: 2,
+};
+
+const run = (id: string, over: Partial<Omit<SimRun, "config">> & { config?: Partial<SimRunConfig> } = {}): SimRun => {
+  const { config: overConfig, ...rest } = over;
+  return {
+    id,
+    createdAt: 1,
+    startedBy: "user",
+    config: { ...baseConfig, ...overConfig } as SimRunConfig,
+    status: "running",
+    progress: { day: 0, days: 5, cycle: 1, cyclesPerDay: 2 },
+    equity: [],
+    positions: [],
+    fills: [],
+    ...rest,
+  };
+};
+
+const baseMetrics: SimMetrics = {
+  returnPct: 1.5,
+  benchmarkReturnPct: 0.5,
+  maxDrawdownPct: 2,
+  trades: 0,
+  exposurePct: 0,
+  ordersSubmitted: 0,
+  ordersRejected: 0,
+  roundTrips: 0,
+  turnoverPct: 0,
+  costsPaid: 0,
+  costsPct: 0,
+  riskBlocks: {},
+};
 const point = (date: string, equity: number, benchmark = 1000) => ({ date, equity, cash: 0, benchmark });
 const msg = (id: string): ChatMessage => ({ id, at: 5, role: "assistant", text: id });
 const entry = (id: string): JournalEntry => ({ id, at: 5, action: "hold", summary: id, rationale: "r", evidence: [] });
@@ -131,7 +167,7 @@ describe("runNumbers", () => {
     expect(n.maxDrawdownPct).toBeCloseTo(10, 9); // 1100 -> 990
   });
   it("prefers the server's metrics once the run has them", () => {
-    const r = run("a", { equity: [point("1", 2000)], metrics: { returnPct: 1.5, benchmarkReturnPct: 0.5, maxDrawdownPct: 2, trades: 0, exposurePct: 0, ordersSubmitted: 0, ordersRejected: 0 } });
+    const r = run("a", { equity: [point("1", 2000)], metrics: { ...baseMetrics } });
     expect(runNumbers(r)).toEqual({ returnPct: 1.5, benchmarkReturnPct: 0.5, maxDrawdownPct: 2 });
   });
   it("is null before the first close", () => {
@@ -173,5 +209,140 @@ describe("riskOverrides", () => {
   });
   it("returns no risk object when nothing is overridden", () => {
     expect(riskOverrides({ maxPositions: " " })).toEqual({ risk: undefined, errors: {} });
+  });
+});
+
+describe("metricGroups", () => {
+  it("omits undefined metrics instead of dashing them", () => {
+    const r = run("a", { equity: [point("1", 1100)], metrics: { ...baseMetrics } });
+    const groups = metricGroups(r);
+    const risk = groups.find((g) => g.title === "Return and risk")!;
+    expect(risk.rows.map((x) => x.label)).toContain("Return");
+    expect(risk.rows.map((x) => x.label)).not.toContain("Sharpe");
+    expect(risk.rows.map((x) => x.label)).not.toContain("Alpha");
+    expect(groups.some((g) => g.title === "Discipline")).toBe(false);
+    expect(groups.some((g) => g.title === "Costs")).toBe(false);
+  });
+  it("shows each figure once: costs in dollars and percent, risk blocks as bars", () => {
+    const r = run("a", {
+      equity: [point("1", 1100)],
+      metrics: {
+        ...baseMetrics,
+        returnPct: 5,
+        benchmarkReturnPct: 1,
+        sharpe: 1.2,
+        costsPaid: 12.5,
+        costsPct: 1.04,
+        riskBlocks: { sector: 2, max_positions: 1 },
+        brier: 0.2,
+      },
+    });
+    const byTitle = new Map(metricGroups(r).map((g) => [g.title, g]));
+    expect(byTitle.get("Costs")!.rows).toEqual([{ label: "Costs paid", text: "$13", sub: "1.04% of start" }]);
+    const discipline = byTitle.get("Discipline")!.rows;
+    expect(discipline[0]).toEqual({ label: "Risk blocks", bars: [{ label: "sector", value: 2 }, { label: "max_positions", value: 1 }] });
+    expect(discipline[1]).toEqual({ label: "Brier", text: "0.200", sub: "lower is better" });
+    expect(byTitle.get("Return and risk")!.rows.find((x) => x.label === "Sharpe")).toEqual({ label: "Sharpe", text: "1.20" });
+  });
+  it("is empty before the first close with no fills", () => {
+    expect(metricGroups(run("z"))).toEqual([]);
+  });
+});
+
+describe("comparisonReading", () => {
+  const suite = (meanDiff: number, ci95: [number, number]): Pick<SimSuite, "config" | "comparison"> => ({
+    config: {
+      name: "s",
+      scenarios: [],
+      bootstrapRuns: 0,
+      scenarioMode: "blind",
+      bootstrapDays: 40,
+      startingCash: 1200,
+      cyclesPerDay: 2,
+      execution: "realistic",
+      variants: [{ label: "A" }, { label: "B" }],
+    },
+    comparison: { metric: "excessReturnPct", meanDiff, ci95, pairs: 2 },
+  });
+  it("reads an inconclusive lead plainly", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9]))).toEqual({
+      text: "B beat A by 0.8 points; 95% interval −0.3 to 1.9; not conclusive",
+      conclusive: false,
+    });
+  });
+  it("calls an interval that excludes zero conclusive, either direction", () => {
+    expect(comparisonReading(suite(1.4, [0.2, 2.6]))?.conclusive).toBe(true);
+    expect(comparisonReading(suite(-1.1, [-2.0, -0.2]))).toEqual({
+      text: "A beat B by 1.1 points; 95% interval −2.0 to −0.2; conclusive",
+      conclusive: true,
+    });
+  });
+  it("is null with no comparison", () => {
+    expect(comparisonReading({ ...suite(0, [0, 0]), comparison: undefined })).toBeNull();
+  });
+});
+
+describe("alias reveal", () => {
+  const blind = () => run("b", { status: "done", config: { mode: "blind" }, aliases: { QX1: "SPY" } });
+  it("maps aliases to real symbols only when revealed", () => {
+    const r = blind();
+    expect(shownSymbol(r, "QX1", false)).toBe("QX1");
+    expect(shownSymbol(r, "QX1", true)).toBe("SPY");
+    expect(shownSymbol(r, "MSFT", true)).toBe("MSFT");
+  });
+  it("is only offered on finished runs that carry aliases", () => {
+    expect(canReveal(blind())).toBe(true);
+    expect(canReveal(run("a"))).toBe(false);
+    expect(canReveal(run("c", { status: "running", aliases: { QX1: "SPY" } }))).toBe(false);
+  });
+  it("tags blind and bootstrap headers", () => {
+    expect(envBadge(blind())).toBe("Blind · fictional dates");
+    expect(envBadge(run("d", { config: { mode: "bootstrap" }, seed: 7 }))).toBe("Bootstrap · seed 7");
+    expect(envBadge(run("e"))).toBeNull();
+  });
+  it("derives excess return from finished metrics", () => {
+    expect(excessReturn(run("a", { metrics: { ...baseMetrics, returnPct: 5, benchmarkReturnPct: 1 } }))).toBeCloseTo(4, 9);
+    expect(excessReturn(run("a"))).toBeUndefined();
+  });
+});
+
+describe("suite reducer", () => {
+  const suite = (id: string): SimSuite => ({
+    id,
+    createdAt: 1,
+    startedBy: "user",
+    config: {
+      name: id,
+      scenarios: [],
+      bootstrapRuns: 0,
+      scenarioMode: "blind",
+      bootstrapDays: 40,
+      startingCash: 1200,
+      cyclesPerDay: 2,
+      execution: "realistic",
+      variants: [{ label: "A" }],
+    },
+    status: "running",
+    runs: [],
+    summary: [],
+  });
+  it("upserts suites newest first on sim_suite events", () => {
+    let s = applySimEvent(emptySim(), { type: "sim_suite", suite: suite("s1") });
+    s = applySimEvent(s, { type: "sim_suite", suite: { ...suite("s2"), createdAt: 2 } });
+    expect(s.suites.map((x) => x.id)).toEqual(["s2", "s1"]);
+    s = applySimEvent(s, { type: "sim_suite", suite: { ...suite("s1"), status: "done" } });
+    expect(s.suites.find((x) => x.id === "s1")?.status).toBe("done");
+  });
+  it("upserts suites with the same helper the store uses", () => {
+    expect(upsertSuite([suite("s1")], { ...suite("s1"), status: "stopped" })[0]?.status).toBe("stopped");
+  });
+  it("counts finished member runs against the lab list", () => {
+    const s = suite("s1");
+    s.runs = [
+      { runId: "r1", variant: "A", mode: "blind" },
+      { runId: "r2", variant: "A", mode: "blind" },
+    ];
+    const runs = [run("r1", { status: "done" }), run("r2", { status: "running" })];
+    expect(suiteProgress(s, runs)).toEqual({ done: 1, total: 2 });
   });
 });

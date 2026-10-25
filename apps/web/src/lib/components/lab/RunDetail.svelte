@@ -23,7 +23,7 @@
   import { simFillKey } from "$lib/analytics";
   import { provideScope } from "$lib/scope";
   import { sim } from "$lib/sim.svelte";
-  import { estimateMinutes, formatEstimate, isActive, progressFraction, runTitle } from "$lib/sim";
+  import { canReveal, envBadge, estimateMinutes, formatEstimate, isActive, progressFraction, runTitle, shownSymbol } from "$lib/sim";
   import { ui } from "$lib/ui.svelte";
 
   let { run, onback }: { run: SimRun; onback?: () => void } = $props();
@@ -37,8 +37,11 @@
   });
 
   let section = $state("feed");
+  let revealed = $state(false);
   const feed = $derived(sim.feed(id));
   const live = $derived(isActive(run.status));
+  const badge = $derived(envBadge(run));
+  const revealable = $derived(canReveal(run));
   const left = $derived(
     estimateMinutes(run.progress.days - run.progress.day, run.progress.cyclesPerDay) +
       (run.progress.cyclesPerDay - run.progress.cycle + 1) * 1.5,
@@ -61,6 +64,11 @@
         </Button>
       {/if}
       <h2 class="min-w-0 flex-1 text-[16px] leading-snug font-semibold">{runTitle(run)}</h2>
+      {#if badge}
+        <span class="border-lab/40 bg-lab/12 text-lab inline-flex h-5 shrink-0 items-center rounded px-1.5 text-[10.5px] font-semibold tracking-[0.08em] uppercase">
+          {badge}
+        </span>
+      {/if}
       <PaperBadge />
       {#if live}
         <Button variant="outline" class="border-destructive/50 text-destructive hover:bg-destructive/10 h-10 gap-1.5 md:h-9" onclick={() => sim.stop(id)}>
@@ -84,6 +92,18 @@
     {/if}
     {#if run.error}
       <p class="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-[12.5px]" role="alert">{run.error}</p>
+    {/if}
+    {#if revealable}
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          class="h-10 gap-1.5 md:h-9 {revealed ? 'border-lab/60 text-lab' : ''}"
+          onclick={() => (revealed = !revealed)}
+          aria-pressed={revealed}
+        >
+          {revealed ? "Showing tickers" : "Reveal tickers"}
+        </Button>
+      </div>
     {/if}
     {#if run.config.strategy}
       <p class="text-muted-foreground line-clamp-3 max-w-prose text-[12.5px] leading-relaxed">{run.config.strategy}</p>
@@ -143,7 +163,8 @@
               <Table.Head class="text-muted-foreground h-8 text-[11.5px]">Symbol</Table.Head>
               <Table.Head class="text-muted-foreground h-8 text-right text-[11.5px]">Qty</Table.Head>
               <Table.Head class="text-muted-foreground h-8 text-right text-[11.5px] max-sm:pr-3.5">Price</Table.Head>
-              <Table.Head class="text-muted-foreground hidden h-8 pr-3.5 text-right text-[11.5px] sm:table-cell">Value</Table.Head>
+              <Table.Head class="text-muted-foreground hidden h-8 text-right text-[11.5px] sm:table-cell">Value</Table.Head>
+              <Table.Head class="text-muted-foreground h-8 pr-3.5 text-right text-[11.5px]">Cost</Table.Head>
             </Table.Row>
           </Table.Header>
           <Table.Body>
@@ -151,10 +172,11 @@
               <Table.Row>
                 <Table.Cell class="num text-muted-foreground px-3.5 py-2">{isoShort(f.date)}</Table.Cell>
                 <Table.Cell class="py-2"><SideBadge side={f.side} /></Table.Cell>
-                <Table.Cell class="py-2"><Ticker symbol={f.symbol} /></Table.Cell>
+                <Table.Cell class="py-2"><Ticker symbol={shownSymbol(run, f.symbol, revealed)} /></Table.Cell>
                 <Table.Cell class="num py-2 text-right">{qty(f.quantity)}</Table.Cell>
                 <Table.Cell class="num py-2 text-right max-sm:pr-3.5">{usd(f.price)}</Table.Cell>
-                <Table.Cell class="num hidden py-2 pr-3.5 text-right sm:table-cell">{usd(f.quantity * f.price)}</Table.Cell>
+                <Table.Cell class="num hidden py-2 text-right sm:table-cell">{usd(f.quantity * f.price)}</Table.Cell>
+                <Table.Cell class="num py-2 pr-3.5 text-right">{f.cost !== undefined ? usd(f.cost) : "—"}</Table.Cell>
               </Table.Row>
             {/each}
           </Table.Body>
@@ -177,7 +199,7 @@
           <Table.Body>
             {#each run.positions as p (p.symbol)}
               <Table.Row>
-                <Table.Cell class="px-3.5 py-2"><Ticker symbol={p.symbol} /></Table.Cell>
+                <Table.Cell class="px-3.5 py-2"><Ticker symbol={shownSymbol(run, p.symbol, revealed)} /></Table.Cell>
                 <Table.Cell class="num py-2 text-right">{qty(p.quantity)}</Table.Cell>
                 <Table.Cell class="num py-2 text-right">{usd(p.averageCost)}</Table.Cell>
                 <Table.Cell class="num py-2 text-right">{usd(p.marketValue)}</Table.Cell>

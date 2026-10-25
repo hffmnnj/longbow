@@ -1,4 +1,4 @@
-import type { ServerEvent, SimRun, SimRunConfig } from "@rh/shared";
+import type { ServerEvent, SimRun, SimRunConfig, SimScenario, SimSuite, SimSuiteConfig } from "@rh/shared";
 import { toast } from "svelte-sonner";
 import type { Api } from "./api.ts";
 import { ApiError } from "./api.ts";
@@ -11,7 +11,7 @@ import {
   upsertOrder,
   type FeedState,
 } from "./reducer.ts";
-import { applySimEvent, emptySim, upsertSimRun, type SimState } from "./sim.ts";
+import { applySimEvent, emptySim, upsertSimRun, upsertSuite, type SimState } from "./sim.ts";
 import type { FeedScope } from "./scope.ts";
 
 const errorText = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : "Something went wrong");
@@ -22,11 +22,15 @@ class SimStore {
   loaded = $state(false);
   loadError = $state<string | null>(null);
   starting = $state(false);
+  startingSuite = $state(false);
+  scenarios = $state<SimScenario[]>([]);
+  scenariosLoaded = $state(false);
   /** Run ids whose feed (messages, journal, orders) has been fetched. */
   feedLoaded = $state<Record<string, boolean>>({});
   #api: Api | null = null;
 
   runs = $derived(this.data.runs);
+  suites = $derived(this.data.suites);
 
   attach(api: Api | null): void {
     this.#api = api;
@@ -34,6 +38,8 @@ class SimStore {
       this.data = emptySim();
       this.loaded = false;
       this.feedLoaded = {};
+      this.scenarios = [];
+      this.scenariosLoaded = false;
     }
   }
 
@@ -45,6 +51,10 @@ class SimStore {
     return id ? this.data.runs.find((r) => r.id === id) : undefined;
   }
 
+  suite(id: string | null): SimSuite | undefined {
+    return id ? this.data.suites.find((s) => s.id === id) : undefined;
+  }
+
   feed(id: string): FeedState {
     return this.data.feeds[id] ?? emptyState();
   }
@@ -53,18 +63,34 @@ class SimStore {
     const api = this.#api;
     if (!api) return;
     try {
-      const fetched = await api.simRuns();
+      const [fetched, fetchedSuites] = await Promise.all([api.simRuns(), api.simSuites().catch(() => [] as SimSuite[])]);
       let runs = this.data.runs;
       // Events that arrived during the fetch are at least as new as the list.
       const live = new Map(runs.map((r) => [r.id, r]));
       runs = fetched.map((r) => live.get(r.id) ?? r);
       for (const r of live.values()) if (!runs.some((x) => x.id === r.id)) runs = upsertSimRun(runs, r);
-      this.data = { ...this.data, runs: runs.slice().sort((a, b) => b.createdAt - a.createdAt) };
+      let suites = fetchedSuites;
+      const liveSuites = new Map(this.data.suites.map((s) => [s.id, s]));
+      for (const s of liveSuites.values()) if (!suites.some((x) => x.id === s.id)) suites = upsertSuite(suites, s);
+      this.data = { ...this.data, runs: runs.slice().sort((a, b) => b.createdAt - a.createdAt), suites };
       this.loadError = null;
     } catch (e) {
       this.loadError = errorText(e);
     } finally {
       this.loaded = true;
+    }
+  }
+
+  /** Scenario library for the new-run and new-suite sheets; fails soft to a Custom-dates form. */
+  async loadScenarios(): Promise<void> {
+    const api = this.#api;
+    if (!api || this.scenariosLoaded) return;
+    try {
+      this.scenarios = await api.simScenarios();
+    } catch {
+      this.scenarios = [];
+    } finally {
+      this.scenariosLoaded = true;
     }
   }
 
@@ -122,6 +148,34 @@ class SimStore {
       toast("Stopping simulation");
     } catch (e) {
       toast.error("Could not stop the run", { description: errorText(e) });
+    }
+  }
+
+  /** Returns the new suite, or the server's message when it refuses the config. */
+  async startSuite(config: SimSuiteConfig): Promise<{ suite: SimSuite } | { error: string }> {
+    const api = this.#api;
+    if (!api) return { error: "Not connected" };
+    this.startingSuite = true;
+    try {
+      const suite = await api.simSuiteStart(config);
+      this.data = { ...this.data, suites: upsertSuite(this.data.suites, suite) };
+      return { suite };
+    } catch (e) {
+      return { error: errorText(e) };
+    } finally {
+      this.startingSuite = false;
+    }
+  }
+
+  async stopSuite(id: string): Promise<void> {
+    const api = this.#api;
+    if (!api) return;
+    try {
+      const suite = await api.simSuiteStop(id);
+      if (suite) this.data = { ...this.data, suites: upsertSuite(this.data.suites, suite) };
+      toast("Stopping suite");
+    } catch (e) {
+      toast.error("Could not stop the suite", { description: errorText(e) });
     }
   }
 
