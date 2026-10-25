@@ -33,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     PORT: port,
     HOSTS: hosts,
+    BIND_HOST: env["HARNESS_BIND"] === "0.0.0.0" ? "0.0.0.0" : undefined,
     PUBLIC_URL: str(env, "PUBLIC_URL", `http://127.0.0.1:${port}`),
     ALLOWED_ORIGINS: (env["HARNESS_ORIGINS"] ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== ""),
     DATA_DIR: str(env, "DATA_DIR", join(home, ".local", "share", "robinhood-harness")),
