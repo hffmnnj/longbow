@@ -94,7 +94,8 @@ class Harness {
     ]),
   );
 
-  #api: Api | null = null;
+  // Reactive so views that mounted before the client loaded fetch once it arrives (deep links).
+  #api = $state<Api | null>(null);
 
   requireApi(): Api {
     if (!this.#api) throw new Error("Not connected");

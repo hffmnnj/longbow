@@ -305,7 +305,6 @@
     --warn: oklch(0.52 0.12 65);
     --surface-bar: oklch(1 0 0);
   }
-  header,
   nav,
   [data-sonner-toaster],
   .no-print {
