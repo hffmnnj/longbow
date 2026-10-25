@@ -632,12 +632,43 @@ export interface SymbolDetail {
 const EtDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const Ticker = z.string().regex(/^[A-Z.]{1,10}$/);
 
+/**
+ * historical: real dates and tickers. blind: the same history on a fictional future calendar with aliased tickers and
+ * rescaled prices, so the model's memory of real events cannot help. bootstrap: a synthetic market resampled in blocks
+ * from ten years of joint daily returns (seeded), also aliased and on a fictional calendar.
+ */
+export const SimModeSchema = z.enum(["historical", "blind", "bootstrap"]);
+export type SimMode = z.infer<typeof SimModeSchema>;
+
+/** realistic: liquidity-based spreads, slippage, trade-through fills, gap-through stops, seeded intraday path. ideal: fills at the limit. */
+export const SimExecutionSchema = z.enum(["realistic", "ideal"]);
+export type SimExecution = z.infer<typeof SimExecutionSchema>;
+
+/** A named historical regime from the scenario library (GET /api/sim/scenarios). */
+export interface SimScenario {
+  id: string;
+  name: string;
+  /** One sentence on what the window tests. */
+  description: string;
+  startDate: string;
+  days: number;
+  regime: "crash" | "bear" | "bull" | "chop" | "rotation" | "shock";
+}
+
 export const SimRunConfigSchema = z.object({
   name: z.string().min(1).max(80).optional(),
-  /** First simulated NYSE trading day (ET). Must be at least `days` trading days in the past. */
-  startDate: EtDate,
+  /** Scenario library id; supplies startDate and days unless they are given. */
+  scenario: z.string().min(1).max(40).optional(),
+  mode: SimModeSchema.default("historical"),
+  execution: SimExecutionSchema.default("realistic"),
+  /** Seeds the intraday path, aliases, price scales and bootstrap draws; random when omitted, recorded on the run. */
+  seed: z.number().int().min(0).max(2_147_483_647).optional(),
+  /** "main" runs the lead model, "subagent" the cheaper subagent model (useful for large suites). */
+  model: z.enum(["main", "subagent"]).default("main"),
+  /** First simulated NYSE trading day (ET) of the source history; required for historical and blind unless a scenario is given; ignored by bootstrap. */
+  startDate: EtDate.optional(),
   /** Trading days to simulate. */
-  days: z.number().int().min(1).max(60),
+  days: z.number().int().min(1).max(120),
   startingCash: z.number().positive().max(1_000_000),
   /** 2: open check (10:15 ET) and close review (15:45 ET); 3 adds pre-open (09:00); 4 adds midday (12:30). */
   cyclesPerDay: z.union([z.literal(2), z.literal(3), z.literal(4)]),
@@ -648,6 +679,8 @@ export const SimRunConfigSchema = z.object({
   risk: RiskConfigSchema.partial().optional(),
 });
 export type SimRunConfig = z.infer<typeof SimRunConfigSchema>;
+/** What callers pass in: defaulted fields (mode, execution, model) may be omitted. */
+export type SimRunConfigInput = z.input<typeof SimRunConfigSchema>;
 
 export type SimRunStatus = "queued" | "running" | "done" | "failed" | "stopped";
 
@@ -667,6 +700,10 @@ export interface SimFill {
   quantity: number;
   price: number;
   orderId: string;
+  /** Mid price when the fill happened. */
+  mid?: number;
+  /** Dollars paid versus the mid: half-spread plus slippage (always >= 0 in realistic execution). */
+  cost?: number;
 }
 
 export interface SimMetrics {
@@ -686,6 +723,31 @@ export interface SimMetrics {
   ordersRejected: number;
   /** Brier score of entry `probabilityWin` against closed outcomes; lower is better. */
   brier?: number;
+  /** Annualized, from daily returns; absent under 5 days. */
+  sortino?: number;
+  /** Annualized return over max drawdown; absent without a drawdown. */
+  calmar?: number;
+  /** Annualized volatility of daily returns, percent. */
+  volatilityPct?: number;
+  /** Beta of daily returns to the benchmark. */
+  beta?: number;
+  /** Return minus beta times the benchmark's return over the run, percent. */
+  alphaPct?: number;
+  /** Closed round trips. */
+  roundTrips: number;
+  /** Gross profit over gross loss on closed round trips. */
+  profitFactor?: number;
+  /** Average dollars per closed round trip. */
+  expectancy?: number;
+  avgHoldingDays?: number;
+  maxConsecutiveLosses?: number;
+  /** Traded notional over average equity, percent. */
+  turnoverPct: number;
+  /** Spread and slippage paid, dollars and percent of starting cash. */
+  costsPaid: number;
+  costsPct: number;
+  /** Risk-engine rejections by rule, for example { sector: 2, max_positions: 1 }. */
+  riskBlocks: Record<string, number>;
 }
 
 export interface SimRun {
@@ -693,6 +755,15 @@ export interface SimRun {
   createdAt: number;
   startedBy: "user" | "agent";
   config: SimRunConfig;
+  /** The seed actually used. */
+  seed?: number;
+  /** For blind and bootstrap runs: alias to real symbol (bootstrap: the source symbol), filled in only when the run ends. */
+  aliases?: Record<string, string>;
+  /** For blind and bootstrap runs: the fictional calendar's first day and the source window it maps from. */
+  calendar?: { firstDay: string; sourceStart?: string; sourceEnd?: string };
+  suiteId?: string;
+  /** Suite variant label, for example "A". */
+  variant?: string;
   status: SimRunStatus;
   /** Simulated ET date currently running. */
   currentDate?: string;
@@ -702,6 +773,66 @@ export interface SimRun {
   fills: SimFill[];
   metrics?: SimMetrics;
   error?: string;
+  finishedAt?: number;
+}
+
+export const SimVariantSchema = z.object({
+  label: z.string().min(1).max(24),
+  strategy: z.string().max(2000).optional(),
+  risk: RiskConfigSchema.partial().optional(),
+  model: z.enum(["main", "subagent"]).optional(),
+});
+export type SimVariant = z.infer<typeof SimVariantSchema>;
+
+/** A batch: every variant runs on every scenario and every bootstrap seed, so variants are compared on identical markets. */
+export const SimSuiteConfigSchema = z.object({
+  name: z.string().min(1).max(80),
+  scenarios: z.array(z.string().min(1).max(40)).max(12).default([]),
+  /** Number of bootstrap markets (seeds 1..n). */
+  bootstrapRuns: z.number().int().min(0).max(10).default(0),
+  /** Historical scenarios run blind (recommended) or historical. */
+  scenarioMode: z.enum(["historical", "blind"]).default("blind"),
+  /** Bootstrap run length in trading days. */
+  bootstrapDays: z.number().int().min(5).max(120).default(40),
+  startingCash: z.number().positive().max(1_000_000),
+  cyclesPerDay: z.union([z.literal(2), z.literal(3), z.literal(4)]).default(2),
+  execution: SimExecutionSchema.default("realistic"),
+  watchlist: z.array(Ticker).min(1).max(30).optional(),
+  variants: z.array(SimVariantSchema).min(1).max(2),
+});
+export type SimSuiteConfig = z.infer<typeof SimSuiteConfigSchema>;
+
+export interface SimSuiteVariantSummary {
+  label: string;
+  runs: number;
+  done: number;
+  failed: number;
+  meanReturnPct?: number;
+  medianReturnPct?: number;
+  p10ReturnPct?: number;
+  p90ReturnPct?: number;
+  /** Mean of return minus benchmark return. */
+  meanExcessPct?: number;
+  /** Share of finished runs that beat the benchmark, percent. */
+  beatBenchmarkPct?: number;
+  worstDrawdownPct?: number;
+  medianSharpe?: number;
+  winRatePct?: number;
+  avgR?: number;
+  costsPct?: number;
+  brier?: number;
+}
+
+export interface SimSuite {
+  id: string;
+  createdAt: number;
+  startedBy: "user" | "agent";
+  config: SimSuiteConfig;
+  status: SimRunStatus;
+  runs: { runId: string; variant: string; scenario?: string; seed?: number; mode: SimMode }[];
+  summary: SimSuiteVariantSummary[];
+  /** With two variants: B minus A on excess return over paired markets, with a bootstrap 95% interval. */
+  comparison?: { metric: "excessReturnPct"; meanDiff: number; ci95: [number, number]; pairs: number };
   finishedAt?: number;
 }
 
@@ -746,7 +877,8 @@ export type ServerEvent =
   | { type: "order"; order: OrderRecord; simRunId?: string }
   | { type: "note"; note: NoteFile; simRunId?: string }
   | { type: "sim"; run: SimRun }
-  | { type: "report"; report: ReportSummary; simRunId?: string };
+  | { type: "report"; report: ReportSummary; simRunId?: string }
+  | { type: "sim_suite"; suite: SimSuite; simRunId?: string };
 
 export interface ConnectResponse {
   /** Robinhood sign-in URL to open in the browser. */
