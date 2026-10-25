@@ -297,6 +297,7 @@ describe("trade selection", () => {
     const facts = await buildTradeFacts(d, "VRT");
     assert.equal(facts.trade?.trade.source, "robinhood");
     assert.equal(facts.trade?.trade.pnl, 25);
+    assert.equal(facts.pnl, 25, "a trade report's headline P&L is the trade's own");
     assert.equal(facts.trade?.plan, undefined);
     assert.equal(facts.trade?.entryOrderId, undefined);
     assert.equal(facts.periodStart, "2026-10-23");
