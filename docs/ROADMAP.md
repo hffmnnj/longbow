@@ -27,9 +27,9 @@
 | 21 | Longbow redesign: logo, dithered charts, Portfolio, Markets, Performance, control room, decision cards; analytics endpoints; helper reports in the feed | frontend + minions + coordinator | done |
 | 22 | Sector cap fed by SEC industry codes (Robinhood reports no sector) | coordinator | done |
 | 23 | Daily, weekly and trade reports: agent narrative, server figures, push, report view with print | minion + frontend-minion + coordinator | done |
-| 24 | Simulation upgrade: historical, blind and bootstrap environments, realistic execution, scenario library, suites with A/B comparison, richer metrics | minions | in progress |
-| 25 | Quant tools (screen, backtest, portfolio risk, sizing) and the full-auto system prompt | minion + coordinator | in progress |
-| 26 | Lab UI for scenarios, suites and the new metrics | frontend-minion | in progress |
+| 24 | Simulation upgrade: historical, blind and bootstrap environments, realistic execution, scenario library, suites with A/B comparison, richer metrics | minions + coordinator | done |
+| 25 | Quant tools (screen, backtest, portfolio risk, sizing) and the full-auto system prompt | minion + coordinator | done |
+| 26 | Lab UI for scenarios, suites and the new metrics | frontend-minion + coordinator | done |
 | 27 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
 
 ## Follow-ups
@@ -44,3 +44,6 @@
 - The native `generate_image` tool fails with "Session project changed" in this project; the logo is a hand-built SVG until it works.
 - Phone Markets index table clips its trend column; it should scroll or drop a column.
 - SIC-based sectors are coarse; widely held names are overridden in apps/server/src/market/sectors.ts.
+- Suite strip chart over-scales its dot with one run per variant; a suite whose runs all failed to start is kept as an empty failed suite.
+- Sim agents retried an identical risk-rejected order four times; the prompt forbids it, so watch whether it recurs after the stop-rounding fix.
+- Run a full blind suite (several scenarios plus bootstrap markets) to set a baseline for the new prompt before go-live.
