@@ -47,6 +47,14 @@ describe("reportPeriodWords", () => {
     expect(reportPeriodWords("trade", "2026-10-06", "2026-10-24")).toBe("Oct 6 – Oct 24");
   });
 
+  it("renders a one-day span as a single date for every kind", () => {
+    expect(reportPeriodWords("trade", "2026-09-28", "2026-09-28")).toBe("Mon, Sep 28");
+    expect(reportPeriodWords("weekly", "2026-10-26", "2026-10-26")).toBe("Mon, Oct 26");
+    expect(reportPeriodWords("daily", "2026-10-26", "2026-10-26")).toBe("Monday, Oct 26");
+    expect(reportPeriodShort("trade", "2026-09-28", "2026-09-28")).toBe("Sep 28");
+    expect(reportPeriodShort("weekly", "2026-10-26", "2026-10-26")).toBe("Oct 26");
+  });
+
   it("falls back to the raw input when the date is not parseable", () => {
     expect(reportPeriodWords("daily", "soon", "soon")).toBe("soon");
     expect(reportPeriodShort("daily", "soon", "soon")).toBe("soon");
@@ -84,6 +92,57 @@ describe("figureStrip", () => {
     expect(figs.map((f) => f.key)).toEqual(["trades", "winrate", "avgr", "heat"]);
     expect(figs.find((f) => f.key === "trades")).toMatchObject({ value: "2", sub: "50.00% won" });
     expect(figs.find((f) => f.key === "avgr")?.value).toBe("+1.20R");
+  });
+
+  it("shows only the trade's own figures on a trade report", () => {
+    const figs = figureStrip(
+      facts({
+        pnl: -6.73,
+        pnlPct: -2.5,
+        benchmarkPct: -0.74,
+        trades: [
+          { symbol: "VRT", closedAt: 1, quantity: 1, exitPrice: 2, pnl: -6.73, source: "robinhood" },
+          { symbol: "CEG", closedAt: 2, quantity: 1, exitPrice: 2, pnl: -8.21, source: "robinhood" },
+        ],
+        realizedPnl: -14.94,
+        winRatePct: 0,
+        avgR: -0.5,
+        heatPct: 2.14,
+        trade: {
+          trade: {
+            symbol: "VRT",
+            closedAt: 1,
+            quantity: 1,
+            exitPrice: 2,
+            pnl: -6.73,
+            rMultiple: -1,
+            holdingDays: 6,
+            source: "robinhood",
+          },
+          bars: [],
+        },
+      }),
+    );
+    expect(figs.map((f) => f.key)).toEqual(["pnl", "spy", "r", "holding"]);
+    expect(figs.find((f) => f.key === "pnl")).toMatchObject({ value: "−$6.73", sub: "−2.50%" });
+    expect(figs.find((f) => f.key === "r")).toMatchObject({ value: "−1.00R", label: "R multiple" });
+    expect(figs.find((f) => f.key === "holding")).toMatchObject({ value: "6 days" });
+  });
+
+  it("omits the trade's R and holding figures when the plan is unknown", () => {
+    const figs = figureStrip(
+      facts({
+        pnl: -6.73,
+        benchmarkPct: -0.74,
+        winRatePct: 0,
+        heatPct: 2.14,
+        trade: {
+          trade: { symbol: "VRT", closedAt: 1, quantity: 1, exitPrice: 2, pnl: -6.73, source: "robinhood" },
+          bars: [],
+        },
+      }),
+    );
+    expect(figs.map((f) => f.key)).toEqual(["pnl", "spy"]);
   });
 });
 
@@ -139,7 +198,7 @@ describe("planOutcomeRows", () => {
     expect(rows[4]).toMatchObject({ planned: "Nov 13", realized: "6 days held" });
   });
 
-  it("marks planned cells unknown when the entry carried no plan", () => {
+  it("shows only known outcomes with no stop-out claim when the entry carried no plan", () => {
     const r = tradeReport({
       trade: {
         symbol: "XLE",
@@ -152,9 +211,27 @@ describe("planOutcomeRows", () => {
       },
     });
     const rows = planOutcomeRows(r);
-    expect(rows).toHaveLength(5);
-    expect(rows[0]?.planned).toBe("—");
-    expect(rows[2]).toMatchObject({ planned: "—", realized: "Stopped out" });
+    expect(rows.map((x) => x.label)).toEqual(["Realized P&L", "Exit price"]);
+    expect(rows[0]).toMatchObject({ planned: "—", realized: "−$12.00" });
+    expect(rows[1]).toMatchObject({ planned: "—", realized: "$91.62" });
+    expect(rows.some((x) => /stop/i.test(x.realized))).toBe(false);
+  });
+
+  it("adds the holding period when it is known and there is no plan", () => {
+    const r = tradeReport({
+      trade: {
+        symbol: "VRT",
+        closedAt: 2,
+        quantity: 1,
+        exitPrice: 253.25,
+        pnl: -6.73,
+        holdingDays: 6,
+        source: "robinhood",
+      },
+    });
+    const rows = planOutcomeRows(r);
+    expect(rows.map((x) => x.label)).toEqual(["Realized P&L", "Exit price", "Holding period"]);
+    expect(rows[2]).toMatchObject({ planned: "—", realized: "6 days held" });
   });
 });
 
@@ -209,6 +286,14 @@ describe("tradeMarkerDates", () => {
   it("clamps stamps outside the bar range and drops a time stop past the last bar", () => {
     expect(tradeMarkerDates(bars, ms("2026-09-20"), ms("2026-11-01"), "2026-11-01")).toEqual({
       entry: "2026-10-01",
+      exit: "2026-10-06",
+      timeStop: undefined,
+    });
+  });
+
+  it("omits the entry marker when the entry date is unknown", () => {
+    expect(tradeMarkerDates(bars, undefined, ms("2026-10-06"))).toEqual({
+      entry: undefined,
       exit: "2026-10-06",
       timeStop: undefined,
     });

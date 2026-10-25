@@ -56,12 +56,18 @@
     const t = shown?.facts.trade;
     if (!shown || !t) return [];
     const at = tradeMarkerDates(t.bars, t.trade.openedAt, t.trade.closedAt, t.plan?.timeStopDate);
-    const out: PriceMarker[] = [
-      { time: at.entry, label: "Entry", kind: "entry" },
-      { time: at.exit, label: "Exit", kind: "exit", tone: t.trade.pnl >= 0 ? "gain" : "loss" },
-    ];
+    const out: PriceMarker[] = [];
+    if (at.entry !== undefined) out.push({ time: at.entry, label: "Entry", kind: "entry" });
+    out.push({ time: at.exit, label: "Exit", kind: "exit", tone: t.trade.pnl >= 0 ? "gain" : "loss" });
     if (at.timeStop) out.push({ time: at.timeStop, label: "Time stop", kind: "timestop" });
     return out;
+  });
+  /** Screen-reader name for the price path, naming only the marks actually drawn. */
+  const chartAria = $derived.by(() => {
+    const t = shown?.facts.trade;
+    if (!shown || !t) return "Price chart";
+    const marks = chartMarkers.map((m) => m.label.toLowerCase()).join(", ");
+    return `${shown.symbol ?? "Trade"} price path${marks ? ` with ${marks} mark${chartMarkers.length === 1 ? "" : "s"}` : ""}${t.plan ? " and stop line" : ""}`;
   });
 
   async function copyLink() {
@@ -130,16 +136,22 @@
             bars={trade.bars}
             lines={trade.plan ? [{ price: trade.plan.invalidationPrice, label: `Stop ${usd(trade.plan.invalidationPrice)}`, tone: "loss" }] : []}
             markers={chartMarkers}
-            ariaLabel={`${r.symbol} price path with entry, exit and stop marks`}
+            ariaLabel={chartAria}
             class="h-72 md:h-80"
           />
           <p class="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px]">
-            <span class="text-primary flex items-center gap-1.5"><i class="bg-primary inline-block size-2 rounded-full"></i>Entry</span>
+            {#if chartMarkers.some((m) => m.kind === "entry")}
+              <span class="text-primary flex items-center gap-1.5"><i class="bg-primary inline-block size-2 rounded-full"></i>Entry</span>
+            {/if}
             <span class={cn("flex items-center gap-1.5", trade.trade.pnl >= 0 ? "text-gain" : "text-loss")}>
               <i class={cn("inline-block size-2 rounded-full", trade.trade.pnl >= 0 ? "bg-gain" : "bg-loss")}></i>Exit
             </span>
-            <span class="flex items-center gap-1.5"><i class="border-loss inline-block h-0 w-4 border-t-2 border-dashed"></i>Invalidation</span>
-            <span class="flex items-center gap-1.5"><i class="bg-muted-foreground inline-block size-2 rounded-full"></i>Time stop</span>
+            {#if trade.plan}
+              <span class="flex items-center gap-1.5"><i class="border-loss inline-block h-0 w-4 border-t-2 border-dashed"></i>Invalidation</span>
+            {/if}
+            {#if chartMarkers.some((m) => m.kind === "timestop")}
+              <span class="flex items-center gap-1.5"><i class="bg-muted-foreground inline-block size-2 rounded-full"></i>Time stop</span>
+            {/if}
           </p>
         </div>
       </Panel>
@@ -318,7 +330,7 @@
 
     <p class="text-muted-foreground num text-[11.5px]">
       {reportPeriodShort(r.kind, r.periodStart, r.periodEnd)} · {usdSigned(f.pnl ?? 0)}{f.pnlPct !== undefined ? ` (${pctSigned(f.pnlPct)})` : ""}
-      {#if f.realizedPnl !== 0 && (f.pnl ?? 0) !== f.realizedPnl} · realized {usdSigned(f.realizedPnl)}{/if}
+      {#if !trade && f.realizedPnl !== 0 && (f.pnl ?? 0) !== f.realizedPnl} · realized {usdSigned(f.realizedPnl)}{/if}
     </p>
   </article>
 {:else if loadable?.state === "error"}
