@@ -82,7 +82,7 @@
 
   <!-- Desktop and tablet -->
   <div class="hidden md:block">
-    <div class="flex items-center gap-5 px-4 pt-2">
+    <div class="flex items-center gap-5 px-4 pt-1.5">
       {@render mark()}
       <SectionNav />
       <div class="ml-auto flex items-center gap-1">
@@ -102,7 +102,7 @@
         <ThemeToggle />
       </div>
     </div>
-    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2 2xl:gap-x-7">
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-1.5 2xl:gap-x-7">
       {@render equity()}
       <SessionChip />
       <BrokerChip bar />
@@ -116,7 +116,7 @@
   </div>
 
   <!-- Phone -->
-  <div class="px-safe flex items-center gap-3 px-3 py-2 md:hidden">
+  <div class="px-safe flex items-center gap-3 px-3 py-1.5 md:hidden">
     {@render mark()}
     <div class="min-w-0 flex-1">{@render equity()}</div>
     <Button variant="outline" size="icon" class="size-11" onclick={() => (ui.palette = true)} aria-label="Open command palette">
