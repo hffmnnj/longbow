@@ -24,6 +24,8 @@ export function reportPeriodWords(kind: ReportKind, periodStart: string, periodE
     const d = parsed(periodStart);
     return d ? `${weekdayLong.format(d)}, ${monthDay.format(d)}` : periodStart;
   }
+  // A one-day span renders as a single date, whatever the kind.
+  if (periodStart === periodEnd) return isoDay(periodStart);
   if (kind === "weekly") return `Week of ${shortDate(periodStart)}`;
   return `${shortDate(periodStart)} – ${shortDate(periodEnd)}`;
 }
@@ -31,7 +33,7 @@ export function reportPeriodWords(kind: ReportKind, periodStart: string, periodE
 /** Short period for list rows: one date for daily reports, a range otherwise. */
 export function reportPeriodShort(kind: ReportKind, periodStart: string, periodEnd: string): string {
   if (kind === "daily") return isoDay(periodStart);
-  if (periodStart === periodEnd) return isoDay(periodStart);
+  if (periodStart === periodEnd) return isoShort(periodStart);
   return `${isoShort(periodStart)} – ${isoShort(periodEnd)}`;
 }
 
@@ -45,7 +47,10 @@ export interface Figure {
 
 /**
  * The figure strip for a report brief. Every figure with data is included;
- * an undefined figure is omitted rather than shown as zero.
+ * an undefined figure is omitted rather than shown as zero. Trade reports
+ * describe one position, so they show only the trade's own figures; the
+ * day-level tallies below (trades closed, win rate, average R, heat) belong
+ * to daily and weekly reports.
  */
 export function figureStrip(f: ReportFacts): Figure[] {
   const out: Figure[] = [];
@@ -76,6 +81,8 @@ export function figureStrip(f: ReportFacts): Figure[] {
       tone: "flat",
     });
   }
+  const trade = f.trade?.trade;
+  if (trade) return tradeFigures(out, trade.rMultiple, trade.holdingDays);
   if (f.trades.length > 0) {
     out.push({
       key: "trades",
@@ -103,6 +110,27 @@ export function figureStrip(f: ReportFacts): Figure[] {
   return out;
 }
 
+/** The trade's own R multiple and holding period, appended after P&L and SPY for a trade report. */
+function tradeFigures(out: Figure[], rMultiple: number | undefined, holdingDays: number | undefined): Figure[] {
+  if (rMultiple !== undefined) {
+    out.push({
+      key: "r",
+      label: "R multiple",
+      value: `${rMultiple >= 0 ? "+" : "−"}${Math.abs(rMultiple).toFixed(2)}R`,
+      tone: tone(rMultiple),
+    });
+  }
+  if (holdingDays !== undefined) {
+    out.push({
+      key: "holding",
+      label: "Holding",
+      value: `${holdingDays} day${holdingDays === 1 ? "" : "s"}`,
+      tone: "flat",
+    });
+  }
+  return out;
+}
+
 export interface PlanRow {
   label: string;
   planned: string;
@@ -115,6 +143,26 @@ export function planOutcomeRows(r: Report): PlanRow[] {
   if (!t) return [];
   const plan = t.plan;
   const tr = t.trade;
+  if (!plan) {
+    // No plan on record (for example a Robinhood-history import): show only
+    // outcomes known from the fill itself, and never label one a stop-out.
+    const rows: PlanRow[] = [
+      {
+        label: "Realized P&L",
+        planned: "—",
+        realized: `${usdSigned(tr.pnl)}${tr.pnlPct !== undefined ? ` (${pctSigned(tr.pnlPct)})` : ""}`,
+      },
+      { label: "Exit price", planned: "—", realized: usd(tr.exitPrice) },
+    ];
+    if (tr.holdingDays !== undefined) {
+      rows.push({
+        label: "Holding period",
+        planned: "—",
+        realized: `${tr.holdingDays} day${tr.holdingDays === 1 ? "" : "s"} held`,
+      });
+    }
+    return rows;
+  }
   const won = tr.pnl >= 0;
   return [
     {
@@ -202,8 +250,8 @@ export function reportToast(r: ReportSummary): { title: string; body: string } {
 }
 
 export interface TradeMarkerDates {
-  /** Bar date of (or just after) the entry. */
-  entry: string;
+  /** Bar date of (or just after) the entry. Absent when the entry date is unknown. */
+  entry?: string;
   /** Bar date of (or just before) the exit. */
   exit: string;
   /** Bar date marking the time stop, when it falls inside the bar range. */
@@ -213,7 +261,8 @@ export interface TradeMarkerDates {
 /**
  * Resolves entry, exit and time-stop dates onto actual bar dates so the
  * price-path chart can mark them. Falls back to the first/last bar when the
- * stamp sits outside the range.
+ * stamp sits outside the range. With no entry stamp there is no entry marker:
+ * guessing the first bar would point at a day the position may not have existed.
  */
 export function tradeMarkerDates(
   bars: readonly { date: string }[],
@@ -225,10 +274,10 @@ export function tradeMarkerDates(
   const last = bars[bars.length - 1]?.date ?? "";
   const etDay = (ms: number): string =>
     new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const entryDay = openedAt !== undefined ? etDay(openedAt) : first;
+  const entryDay = openedAt !== undefined ? etDay(openedAt) : undefined;
   const exitDay = etDay(closedAt);
   return {
-    entry: bars.find((b) => b.date >= entryDay)?.date ?? first,
+    entry: entryDay ? (bars.find((b) => b.date >= entryDay)?.date ?? first) : undefined,
     exit: [...bars].reverse().find((b) => b.date <= exitDay)?.date ?? last,
     timeStop: timeStopDate ? bars.find((b) => b.date >= timeStopDate)?.date : undefined,
   };
