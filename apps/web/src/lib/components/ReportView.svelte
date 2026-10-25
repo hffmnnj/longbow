@@ -170,7 +170,12 @@
               <Table.Row>
                 <Table.Cell class="text-muted-foreground py-2">{row.label}</Table.Cell>
                 <Table.Cell class="num py-2 text-right">{row.planned}</Table.Cell>
-                <Table.Cell class="num py-2 text-right font-medium">{row.realized}</Table.Cell>
+                <Table.Cell class="num py-2 text-right font-medium">
+                  {row.realized}
+                  {#if row.fees !== undefined}
+                    <span class="text-muted-foreground block text-[11px] font-normal">incl. {usd(row.fees)} fees</span>
+                  {/if}
+                </Table.Cell>
               </Table.Row>
             {/each}
           </Table.Body>
@@ -243,7 +248,14 @@
                   <Table.Row>
                     <Table.Cell class="px-3.5 py-1.5"><Ticker symbol={t.symbol} /></Table.Cell>
                     <Table.Cell class="num py-1.5">{isoShort(new Date(t.closedAt).toISOString().slice(0, 10))}</Table.Cell>
-                    <Table.Cell class="py-1.5 text-right"><Pnl amount={t.pnl} percent={t.pnlPct} /></Table.Cell>
+                    <Table.Cell class="py-1.5 text-right">
+                      <span class="flex flex-col items-end">
+                        <Pnl amount={t.pnl} percent={t.pnlPct} />
+                        {#if t.fees !== undefined && t.fees > 0}
+                          <span class="text-muted-foreground text-[11px]">incl. {usd(t.fees)} fees</span>
+                        {/if}
+                      </span>
+                    </Table.Cell>
                     <Table.Cell class={cn("num py-1.5 text-right", t.rMultiple !== undefined && (t.rMultiple >= 0 ? "text-gain" : "text-loss"))}>
                       {t.rMultiple !== undefined ? `${t.rMultiple >= 0 ? "+" : "−"}${Math.abs(t.rMultiple).toFixed(1)}R` : "—"}
                     </Table.Cell>

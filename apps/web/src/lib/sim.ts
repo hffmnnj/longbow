@@ -1,4 +1,4 @@
-import { RiskConfigSchema, type RiskConfig, type ServerEvent, type SimMetrics, type SimRun, type SimRunConfig, type SimRunStatus, type SimSuite } from "@rh/shared";
+import { RiskConfigSchema, type RiskConfig, type ServerEvent, type SimFill, type SimMetrics, type SimRun, type SimRunConfig, type SimRunStatus, type SimSuite } from "@rh/shared";
 import { applyEvent, emptyState, type FeedState } from "./reducer.ts";
 import { fieldError, type RiskKey } from "./settingsForm.ts";
 
@@ -136,6 +136,12 @@ export function runNumbers(run: SimRun): RunNumbers | null {
   };
 }
 
+/** Full cost of a fill: spread/slippage plus regulatory fees. Undefined when the fill records neither. */
+export function fillCost(f: Pick<SimFill, "cost" | "fees">): number | undefined {
+  if (f.cost === undefined && f.fees === undefined) return undefined;
+  return (f.cost ?? 0) + (f.fees ?? 0);
+}
+
 /** Alpha is plain return minus benchmark return, in percentage points. */
 export const alpha = (n: Pick<SimMetrics, "returnPct" | "benchmarkReturnPct">) => n.returnPct - n.benchmarkReturnPct;
 
@@ -266,6 +272,8 @@ export function metricGroups(run: SimRun): MetricGroup[] {
   if (m && !(m.costsPaid === 0 && m.costsPct === 0 && run.fills.length === 0)) {
     // Costs on a small account are cents, so they keep two decimals where other money figures round.
     costs.push({ label: "Costs paid", text: `$${m.costsPaid.toFixed(2)}`, sub: `${m.costsPct.toFixed(2)}% of start` });
+    // Regulatory fees alone, already included in the costs above.
+    if (m.feesPaid !== undefined && m.feesPaid > 0) costs.push({ label: "Fees", text: `$${m.feesPaid.toFixed(2)}` });
   }
   if (costs.length) ret.push({ title: "Costs", rows: costs });
 

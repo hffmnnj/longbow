@@ -16,11 +16,13 @@
   } = $props();
 
   const held = $derived(new Set(harness.positions.map((p) => p.symbol)));
-  const head = "text-muted-foreground h-8 text-[11.5px]";
+  const head = "text-muted-foreground h-8 text-[11.5px] whitespace-nowrap";
+  const num = "num py-1.5 text-right whitespace-nowrap";
   const maxRel = $derived(Math.max(8, ...rows.map((r) => Math.abs(r.relStrength3m ?? 0))));
 </script>
 
-<Table.Root class="text-[12.5px]">
+<!-- min-w keeps every column at a readable width; the table wrapper scrolls horizontally inside the card on phones. -->
+<Table.Root class="min-w-[34rem] text-[12.5px]">
   <Table.Header>
     <Table.Row class="hover:bg-transparent">
       <Table.Head class="{head} px-3.5">{relative ? "Sector" : "Index"}</Table.Head>
@@ -49,12 +51,12 @@
           </div>
         </Table.Cell>
         <Table.Cell class="py-1.5"><DitherSpark values={r.spark} label={`${r.symbol} three month trend`} class="h-7 w-20" /></Table.Cell>
-        <Table.Cell class="num py-1.5 text-right">{usd(r.last)}</Table.Cell>
-        <Table.Cell class="py-1.5 text-right"><Pnl percent={r.changePct1d} /></Table.Cell>
-        <Table.Cell class="hidden py-1.5 text-right sm:table-cell"><Pnl percent={r.return1m} /></Table.Cell>
-        <Table.Cell class="hidden py-1.5 text-right sm:table-cell"><Pnl percent={r.return3m} /></Table.Cell>
+        <Table.Cell class={num}>{usd(r.last)}</Table.Cell>
+        <Table.Cell class="py-1.5 text-right whitespace-nowrap"><Pnl percent={r.changePct1d} /></Table.Cell>
+        <Table.Cell class="hidden py-1.5 text-right whitespace-nowrap sm:table-cell"><Pnl percent={r.return1m} /></Table.Cell>
+        <Table.Cell class="hidden py-1.5 text-right whitespace-nowrap sm:table-cell"><Pnl percent={r.return3m} /></Table.Cell>
         {#if relative}
-          <Table.Cell class="py-1.5 pr-3.5">
+          <Table.Cell class="py-1.5 pr-3.5 whitespace-nowrap">
             {#if r.relStrength3m !== undefined}
               <div class="ml-auto flex w-36 items-center justify-end gap-2">
                 <DitherBar class="w-16 shrink-0" value={Math.abs(r.relStrength3m)} max={maxRel} tone={r.relStrength3m >= 0 ? "gain" : "loss"} label={`${r.symbol} ${r.relStrength3m >= 0 ? "ahead of" : "behind"} SPY by ${pct(Math.abs(r.relStrength3m))} over three months`} />
@@ -63,7 +65,7 @@
             {:else}<span class="text-muted-foreground">&mdash;</span>{/if}
           </Table.Cell>
         {:else}
-          <Table.Cell class="py-1.5 pr-3.5 text-right">
+          <Table.Cell class="py-1.5 pr-3.5 text-right whitespace-nowrap">
             <span class="text-muted-foreground flex justify-end gap-1.5 text-[11px]">
               <span class={cn(r.aboveSma50 ? "text-gain" : "text-loss")} title={r.aboveSma50 ? "Above its 50 day average" : "Below its 50 day average"}>{r.aboveSma50 ? "▲" : "▼"} 50d</span>
               <span class={cn(r.aboveSma200 ? "text-gain" : "text-loss")} title={r.aboveSma200 ? "Above its 200 day average" : "Below its 200 day average"}>{r.aboveSma200 ? "▲" : "▼"} 200d</span>

@@ -233,6 +233,21 @@ describe("planOutcomeRows", () => {
     expect(rows.map((x) => x.label)).toEqual(["Realized P&L", "Exit price", "Holding period"]);
     expect(rows[2]).toMatchObject({ planned: "—", realized: "6 days held" });
   });
+
+  it("carries regulatory fees on the realized P&L row only when they are above zero", () => {
+    const withFees = tradeReport({
+      trade: { symbol: "NVDA", closedAt: 2, quantity: 12, exitPrice: 111.6, pnl: -81.6, fees: 0.04, source: "harness" },
+    });
+    expect(planOutcomeRows(withFees)[0]).toMatchObject({ label: "Realized P&L", fees: 0.04 });
+    const zeroFees = tradeReport({
+      trade: { symbol: "NVDA", closedAt: 2, quantity: 12, exitPrice: 111.6, pnl: -81.6, fees: 0, source: "harness" },
+    });
+    expect(planOutcomeRows(zeroFees)[0]).not.toHaveProperty("fees");
+    const noFees = tradeReport({
+      trade: { symbol: "NVDA", closedAt: 2, quantity: 12, exitPrice: 111.6, pnl: -81.6, source: "harness" },
+    });
+    expect(planOutcomeRows(noFees)[0]).not.toHaveProperty("fees");
+  });
 });
 
 describe("groupReportsByWeek", () => {
