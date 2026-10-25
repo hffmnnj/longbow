@@ -33,6 +33,10 @@ import { createSimToolsExtension } from "./sim/tools.ts";
 import { mountSimRoutes } from "./http/sim-routes.ts";
 import { createAnalyticsService } from "./analytics/service.ts";
 import { mountAnalyticsRoutes } from "./http/analytics-routes.ts";
+import { createReportExtension } from "./reports/extension.ts";
+import { isLastTradingDayOfWeek } from "./reports/ids.ts";
+import { ensureDailyReport } from "./reports/service.ts";
+import { mountReportRoutes } from "./http/report-routes.ts";
 import { credentialFilePath } from "./agent/credential-store.ts";
 
 const MAX_SUBAGENT_RUNS = 50;
@@ -126,13 +130,26 @@ async function main(): Promise<void> {
     createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, cancelOrder: (id) => gate.cancel(id) }),
     await createWebsearchExtension({ configFile: config.WEBSEARCH_CONFIG_FILE, log: log.child("websearch") }),
     createJournalExtension({ store, bus, clock, currentCycleId }),
+    // Live only: simulations build their own extension list and never publish reports.
+    createReportExtension({
+      store,
+      market,
+      broker,
+      getAccount: () => cachedAccount,
+      notes,
+      calendar,
+      clock,
+      log: log.child("reports"),
+      bus,
+      currentCycleId,
+    }),
     createTraderPromptExtension(),
     createSkillsExtension({ library: skills, notes }),
     createMarketExtension({ market, dataDir: config.DATA_DIR, log: log.child("market"), clock }),
     createSubagentExtension({
       log: log.child("subagents"),
       maxConcurrent: 4,
-      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision", "delegate"],
+      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision", "publish_report", "delegate"],
       onRun: onSubagentRun,
       model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
       thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
@@ -140,7 +157,7 @@ async function main(): Promise<void> {
     // Live only: simulations replay on a fixed clock, and helpers reporting between cycles would break it.
     createBackgroundSubagentExtension({
       log: log.child("background-subagents"),
-      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision"],
+      excludedTools: ["submit_order", "cancel_order", "notes_write", "notes_append", "record_decision", "publish_report"],
       onRun: onSubagentRun,
       model: { provider: config.SUBAGENT_MODEL.provider, modelId: config.SUBAGENT_MODEL.modelId },
       thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
@@ -165,6 +182,31 @@ async function main(): Promise<void> {
         settings: store.getSettings(),
         halts: await gate.halts(),
         account: cachedAccount,
+        isLastTradingDayOfWeek: isLastTradingDayOfWeek(calendar, calendar.etDate(clock.now())),
+      });
+    },
+    // Safety net: a post_close cycle that ends without a daily report for the
+    // date publishes one from the cycle's own review, so the owner always gets
+    // the daily numbers.
+    onSettled: (kind) => {
+      if (kind !== "post_close") return;
+      const date = calendar.etDate(clock.now());
+      void ensureDailyReport(
+        {
+          store,
+          market,
+          broker,
+          getAccount: () => cachedAccount,
+          notes,
+          calendar,
+          clock,
+          log: log.child("reports"),
+          bus,
+          currentCycleId,
+        },
+        date,
+      ).catch((error: unknown) => {
+        log.warn("daily report safety net failed", { date, error: error instanceof Error ? error.message : "unknown" });
       });
     },
   });
@@ -213,6 +255,7 @@ async function main(): Promise<void> {
   mountPushRoutes(app, { push, log: log.child("push") });
   mountSimRoutes(app, { sim, log: log.child("sim") });
   mountAnalyticsRoutes(app, { analytics, log: log.child("analytics") });
+  mountReportRoutes(app, { store, log: log.child("reports") });
   const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
 
   const refresher = setInterval(() => {

@@ -3,6 +3,7 @@ import type {
   JournalEntry,
   OrderRecord,
   PushPayload,
+  ReportSummary,
   ServerEvent,
   SimRun,
   StatusResponse,
@@ -45,7 +46,7 @@ function errorMessage(error: unknown): string {
 
 /**
  * Watches the bus and pushes what matters in an automatic system: fills and
- * failures, trading halts, agent/broker disconnects, the post-close review,
+ * failures, trading halts, agent/broker disconnects, report publications,
  * and finished simulations. Simulation live events carry `simRunId` and are
  * ignored; only the terminal `sim` run event notifies.
  *
@@ -63,8 +64,6 @@ export function startNotifier(deps: NotifierDeps): () => void {
   let lastHalts: HaltReason[] = [];
   let lastAgentState: string | undefined;
   let lastBrokerState: string | undefined;
-  /** ISO day of the last post-close summary, so there is at most one a day. */
-  let lastReviewDay: string | undefined;
   /** ISO day of the last pre-open plan, so the morning brief is sent at most once a day. */
   let lastBriefDay: string | undefined;
 
@@ -150,16 +149,20 @@ export function startNotifier(deps: NotifierDeps): () => void {
 
   function onJournal(entry: JournalEntry): void {
     const day = new Date(entry.at).toISOString().slice(0, 10);
-    if (entry.cycleId?.startsWith("pre_open")) {
-      if (lastBriefDay === day) return;
-      lastBriefDay = day;
-      deliver({ title: "Morning plan", body: entry.summary, tag: "brief" });
-      return;
-    }
-    if (entry.cycleId === undefined || !entry.cycleId.startsWith("post_close")) return;
-    if (lastReviewDay === day) return;
-    lastReviewDay = day;
-    deliver({ title: "Day review", body: entry.summary, tag: "review" });
+    if (entry.cycleId === undefined || !entry.cycleId.startsWith("pre_open")) return;
+    if (lastBriefDay === day) return;
+    lastBriefDay = day;
+    deliver({ title: "Morning plan", body: entry.summary, tag: "brief" });
+  }
+
+  function onReport(report: ReportSummary): void {
+    const title =
+      report.kind === "daily"
+        ? "Daily report"
+        : report.kind === "weekly"
+          ? "Weekly report"
+          : `Trade report · ${report.symbol ?? "?"}`;
+    deliver({ title, body: report.headline, url: `/?report=${report.id}`, tag: `report-${report.id}` });
   }
 
   function onSim(run: SimRun): void {
@@ -203,6 +206,9 @@ export function startNotifier(deps: NotifierDeps): () => void {
           break;
         case "journal":
           onJournal(event.entry);
+          break;
+        case "report":
+          onReport(event.report);
           break;
         case "sim":
           onSim(event.run);

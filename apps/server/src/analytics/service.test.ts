@@ -86,6 +86,9 @@ function fakeStore(orders: OrderRecord[]): Store {
     markEquity: () => {},
     equityMarks: () => ({}),
     equitySeries: () => [],
+    saveReport: () => {},
+    report: () => undefined,
+    reports: () => [],
   };
 }
 

@@ -220,7 +220,7 @@ describe("push notifier", () => {
     assert.equal(push.payloads.length, 2);
   });
 
-  it("sends one post-close review per day", async () => {
+  it("stays silent on post-close journal entries: the daily report replaces the day review", async () => {
     const entry = {
       id: "j1",
       at: NOW,
@@ -232,17 +232,72 @@ describe("push notifier", () => {
     };
     bus.publish({ type: "journal", entry });
     bus.publish({ type: "journal", entry: { ...entry, id: "j2" } });
-    bus.publish({ type: "journal", entry: { ...entry, id: "j3", cycleId: "intraday_1" } });
     await flush();
-    assert.equal(push.payloads.length, 1);
-    assert.equal(push.payloads[0]?.title, "Day review");
-    assert.equal(push.payloads[0]?.tag, "review");
-    assert.equal(push.payloads[0]?.body, "Flat day, no entries. Awaiting breakout.");
+    assert.equal(push.payloads.length, 0);
+  });
 
-    nowMs += 86_400_000;
-    bus.publish({ type: "journal", entry: { ...entry, id: "j4", at: NOW + 86_400_000 } });
+  it("pushes published reports with the headline and a deep link", async () => {
+    const daily = {
+      id: "daily-2026-10-26",
+      kind: "daily" as const,
+      at: NOW,
+      periodStart: "2026-10-26",
+      periodEnd: "2026-10-26",
+      headline: "Flat day, no entries; one stop exit held the loss to plan.",
+      pnl: 12.3,
+      pnlPct: 1.02,
+    };
+    bus.publish({ type: "report", report: daily });
+    bus.publish({ type: "report", report: daily });
+    const weekly = {
+      id: "weekly-2026-10-26",
+      kind: "weekly" as const,
+      at: NOW,
+      periodStart: "2026-10-26",
+      periodEnd: "2026-10-30",
+      headline: "Up 2% on two disciplined exits.",
+    };
+    bus.publish({ type: "report", report: weekly });
+    const trade = {
+      id: "trade-NVDA-123",
+      kind: "trade" as const,
+      at: NOW,
+      symbol: "NVDA",
+      periodStart: "2026-10-20",
+      periodEnd: "2026-10-26",
+      headline: "Sold NVDA into strength at the time stop.",
+      grade: "B" as const,
+    };
+    bus.publish({ type: "report", report: trade });
     await flush();
-    assert.equal(push.payloads.length, 2);
+    // The duplicate daily publish collapses onto the same tag.
+    assert.equal(push.payloads.length, 3);
+    assert.equal(push.payloads[0]?.title, "Daily report");
+    assert.equal(push.payloads[0]?.tag, "report-daily-2026-10-26");
+    assert.equal(push.payloads[0]?.url, "/?report=daily-2026-10-26");
+    assert.equal(push.payloads[0]?.body, daily.headline);
+    assert.equal(push.payloads[1]?.title, "Weekly report");
+    assert.equal(push.payloads[1]?.tag, "report-weekly-2026-10-26");
+    assert.equal(push.payloads[2]?.title, "Trade report · NVDA");
+    assert.equal(push.payloads[2]?.tag, "report-trade-NVDA-123");
+    assert.equal(push.payloads[2]?.url, "/?report=trade-NVDA-123");
+  });
+
+  it("ignores report events from simulation runs", async () => {
+    bus.publish({
+      type: "report",
+      report: {
+        id: "daily-2026-10-26",
+        kind: "daily",
+        at: NOW,
+        periodStart: "2026-10-26",
+        periodEnd: "2026-10-26",
+        headline: "Sim day.",
+      },
+      simRunId: "sim1",
+    });
+    await flush();
+    assert.equal(push.payloads.length, 0);
   });
 
   it("sends one morning plan per day from the pre-open cycle", async () => {

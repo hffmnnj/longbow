@@ -7,8 +7,11 @@ import {
   SettingsSchema,
   type JournalEntry,
   type OrderRecord,
+  type Report,
+  type ReportKind,
 } from "@rh/shared";
 import type { Clock, Store } from "../ports.ts";
+import { summarizeReport } from "../reports/ids.ts";
 
 /**
  * App state in one SQLite file, synchronous via node:sqlite with WAL.
@@ -45,6 +48,13 @@ export function openStore(path: string, _clock: Clock): Store {
       day_start REAL NOT NULL,
       day_high REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      body TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS reports_at ON reports (at DESC);
   `);
   // Additive migration: the latest observed equity of the day, so charts plot a close rather than the high.
   const markColumns = db.prepare("PRAGMA table_info(equity_marks)").all() as { name: string }[];
@@ -209,6 +219,30 @@ export function openStore(path: string, _clock: Clock): Store {
         dayHigh: row.day_high,
         dayLast: row.day_last ?? row.day_high,
       }));
+    },
+
+    saveReport(report: Report): void {
+      db.prepare(
+        "INSERT INTO reports (id, kind, at, body) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, at = excluded.at, body = excluded.body",
+      ).run(report.id, report.kind, report.at, JSON.stringify(report));
+    },
+
+    report(id: string): Report | undefined {
+      const row = db.prepare("SELECT body FROM reports WHERE id = ?").get(id) as
+        | { body: string }
+        | undefined;
+      return row === undefined ? undefined : (JSON.parse(row.body) as Report);
+    },
+
+    reports(query: { kind?: ReportKind; limit: number }): ReturnType<Store["reports"]> {
+      const limit = Math.min(100, Math.max(1, Math.floor(query.limit)));
+      const rows =
+        query.kind === undefined
+          ? (db.prepare("SELECT body FROM reports ORDER BY at DESC LIMIT ?").all(limit) as { body: string }[])
+          : (db.prepare("SELECT body FROM reports WHERE kind = ? ORDER BY at DESC LIMIT ?").all(query.kind, limit) as {
+              body: string;
+            }[]);
+      return rows.map((row) => summarizeReport(JSON.parse(row.body) as Report));
     },
   };
 }

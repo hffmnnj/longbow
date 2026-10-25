@@ -10,6 +10,9 @@ import {
   type OrderRecord,
   type PriceHistory,
   type Quote,
+  type Report,
+  type ReportKind,
+  type ReportSummary,
   type ServerEvent,
   type Settings,
   type SettingsPatch,
@@ -126,6 +129,13 @@ class FakeStore implements Store {
     return [...this.marks]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([etDate, equities]) => ({ etDate, dayStart: equities[0] ?? 0, dayHigh: Math.max(...equities), dayLast: equities.at(-1) ?? 0 }));
+  }
+  saveReport(_report: Report): void {}
+  report(_id: string): Report | undefined {
+    return undefined;
+  }
+  reports(_query: { kind?: ReportKind; limit: number }): ReportSummary[] {
+    return [];
   }
 }
 

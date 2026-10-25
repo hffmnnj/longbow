@@ -76,6 +76,8 @@ export interface TradingAgentDeps {
   credentialFile?: string;
   onRegistry?: (registry: Registry) => void;
   cycleInput: (kind: CycleKind, cycleId: string) => Promise<string>;
+  /** Called after a cycle's run settles (success or failure); used for safety nets. Never in simulations. */
+  onSettled?: (kind: CycleKind, cycleId: string) => void;
 }
 
 function etMinute(now: number): string {
@@ -310,6 +312,14 @@ export class TradingAgent implements AgentControl {
     return this.activeCycleId;
   }
 
+  private settled(kind: CycleKind, cycleId: string): void {
+    try {
+      this.deps.onSettled?.(kind, cycleId);
+    } catch (error) {
+      this.deps.log.warn("cycle settled hook failed", { error: error instanceof Error ? error.message : "unknown" });
+    }
+  }
+
   /** Let main.ts feed scheduler output and status snapshots without widening the ports. */
   setStatusSnapshot(provider: () => Omit<StatusResponse, "agent"> | Promise<Omit<StatusResponse, "agent">>): void {
     this.statusSnapshot = provider;
@@ -392,10 +402,12 @@ export class TradingAgent implements AgentControl {
         if (this.activeCycleId === cycleId) this.activeCycleId = undefined;
         this.runningCount = Math.max(0, this.runningCount - 1);
         this.maybePublishStatus();
+        this.settled(kind, cycleId);
       }).catch(() => {
         if (this.activeCycleId === cycleId) this.activeCycleId = undefined;
         this.runningCount = Math.max(0, this.runningCount - 1);
         this.maybePublishStatus();
+        this.settled(kind, cycleId);
       });
     } catch (error) {
       this.activeCycleId = undefined;
@@ -471,6 +483,7 @@ export class TradingAgent implements AgentControl {
       this.activeCycleId = undefined;
       this.runningCount = Math.max(0, this.runningCount - 1);
       this.maybePublishStatus();
+      this.settled(kind, cycleId);
     }
   }
 
