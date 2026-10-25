@@ -370,6 +370,20 @@ describe("risk engine", () => {
     assert.deepEqual(failedRules(input), []);
   });
 
+  it("min_hold treats a stop rounded to the cent from an unround invalidation as protective, but not a cent above", () => {
+    const rounded = passingInput();
+    rounded.intent = { ...rounded.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 139.22, limitPrice: 138.5, timeInForce: "gtc" };
+    rounded.lotOpenedEtDate = TODAY;
+    rounded.recentOrders = [submittedBuy("AAPL", NOW - 3_600_000, 139.21999185)];
+    assert.ok(!failedRules(rounded).includes("min_hold"));
+
+    const above = passingInput();
+    above.intent = { ...above.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 139.23, limitPrice: 138.5, timeInForce: "gtc" };
+    above.lotOpenedEtDate = TODAY;
+    above.recentOrders = [submittedBuy("AAPL", NOW - 3_600_000, 139.21999185)];
+    assert.ok(failedRules(above).includes("min_hold"));
+  });
+
   it("min_hold still blocks a stop above the entry invalidation", () => {
     const input = passingInput();
     input.intent = { ...input.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 146, limitPrice: 145.5, timeInForce: "gtc" };

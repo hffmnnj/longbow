@@ -89,13 +89,16 @@ export function countDayTrades(
   return count;
 }
 
+/** Half a cent: a stop rounded to the cent from an unround invalidation (193.21999 -> 193.22) is still the same level. */
+const CENT_ROUNDING = 0.005;
+
 /** A resting sell stop at or below the entry's invalidation: it can only fire as a stop exit. */
 function isProtectiveStop(intent: OrderIntent, invalidationPrice: number): boolean {
   return (
     intent.side === "sell" &&
     intent.orderType === "stop_limit" &&
     intent.stopPrice !== undefined &&
-    intent.stopPrice <= invalidationPrice
+    intent.stopPrice <= invalidationPrice + CENT_ROUNDING
   );
 }
 
