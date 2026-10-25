@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_SETTINGS, type JournalEntry, type OrderRecord } from "@rh/shared";
+import { DEFAULT_SETTINGS, type JournalEntry, type OrderRecord, type Report } from "@rh/shared";
 import { openStore } from "./store.ts";
 import type { Clock } from "../ports.ts";
 
@@ -144,5 +144,54 @@ describe("store equity marks", () => {
     assert.deepEqual(store.equityMarks("2026-11-02"), { dayStart: 90_000, monthPeak: 90_000 });
     assert.deepEqual(store.equityMarks("2026-10-28"), { monthPeak: 102_000 });
     assert.deepEqual(store.equitySeries()[0], { etDate: "2026-10-26", dayStart: 100_000, dayHigh: 101_000, dayLast: 99_000 });
+  });
+});
+
+describe("store reports", () => {
+  const dailyReport = (id: string, at: number, headline: string): Report => ({
+    id,
+    kind: "daily",
+    at,
+    periodStart: "2026-10-26",
+    periodEnd: "2026-10-26",
+    headline,
+    narrative: { kind: "daily", headline, summary: "Summary.", sections: [], lessons: [], nextSteps: [] },
+    facts: {
+      periodStart: "2026-10-26",
+      periodEnd: "2026-10-26",
+      equityCurve: [],
+      trades: [],
+      realizedPnl: 0,
+      orders: { submitted: 0, filled: 0, rejected: 0, cancelled: 0, failed: 0 },
+      positions: [],
+      decisions: [],
+    },
+  });
+
+  it("saves_reads_and_lists_newest_first_with_a_kind_filter", () => {
+    const store = openStore(dbPath(), clock);
+    assert.equal(store.report("daily-2026-10-26"), undefined);
+    store.saveReport(dailyReport("daily-2026-10-26", 300, "First."));
+    store.saveReport({ ...dailyReport("weekly-2026-10-19", 200, "Week."), kind: "weekly" });
+    store.saveReport({ ...dailyReport("daily-2026-10-25", 100, "Prior."), periodStart: "2026-10-25", periodEnd: "2026-10-25" });
+    assert.equal(store.report("daily-2026-10-26")?.headline, "First.");
+    assert.deepEqual(store.reports({ limit: 10 }).map((r) => r.id), ["daily-2026-10-26", "weekly-2026-10-19", "daily-2026-10-25"]);
+    assert.deepEqual(store.reports({ kind: "daily", limit: 10 }).map((r) => r.id), ["daily-2026-10-26", "daily-2026-10-25"]);
+    assert.equal(store.reports({ kind: "trade", limit: 10 }).length, 0);
+    assert.equal(store.reports({ limit: 2 }).length, 2);
+  });
+
+  it("replaces a republished report instead of duplicating", () => {
+    const store = openStore(dbPath(), clock);
+    store.saveReport(dailyReport("daily-2026-10-26", 300, "First."));
+    store.saveReport(dailyReport("daily-2026-10-26", 400, "Second."));
+    assert.equal(store.reports({ limit: 10 }).length, 1);
+    assert.equal(store.report("daily-2026-10-26")?.headline, "Second.");
+  });
+
+  it("persists reports across opens", () => {
+    const store = openStore(dbPath(), clock);
+    store.saveReport(dailyReport("daily-2026-10-26", 300, "First."));
+    assert.equal(openStore(dbPath(), clock).report("daily-2026-10-26")?.headline, "First.");
   });
 });

@@ -1,7 +1,6 @@
 import type {
   AccountSnapshot,
   AnalyticsRange,
-  ClosedTrade,
   EquityHistory,
   ExposureRow,
   MarketOverview,
@@ -21,14 +20,15 @@ import {
   brierScore,
   calibrationBuckets,
   classifyRegime,
+  closeOnOrBefore,
   economicCalendar,
   holdingsReplayValues,
   maxDrawdownPct,
-  pairHarnessTrades,
   parseThesisStop,
   returnPct,
   summarizeTrades,
 } from "./compute.ts";
+import { readAllClosedTrades } from "./trades.ts";
 
 export interface AnalyticsDeps {
   store: Store;
@@ -75,16 +75,6 @@ function etDateMinusDays(today: string, days: number): string {
 
 function etDatePlusDays(today: string, days: number): string {
   return new Date(new Date(`${today}T12:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
-}
-
-/** Close on `date`, or the most recent earlier close (up to 10 calendar days back). */
-function closeOnOrBefore(byDate: Map<string, number>, date: string): number | undefined {
-  for (let back = 0; back <= 10; back++) {
-    const day = etDateMinusDays(date, back);
-    const close = byDate.get(day);
-    if (close !== undefined) return close;
-  }
-  return undefined;
 }
 
 /** Bounded-concurrency map that never throws: each item resolves to a settled result. */
@@ -239,26 +229,9 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
 
   async function performance(): Promise<PerformanceSummary> {
     const orders = deps.store.ordersSince(0);
-    const harness = pairHarnessTrades(orders);
-    let robinhood: ClosedTrade[] = [];
-    if (deps.broker.status().state === "connected" && typeof deps.broker.tradeHistory === "function") {
-      try {
-        robinhood = (await deps.broker.tradeHistory()).map((t) => ({
-          symbol: t.symbol,
-          closedAt: t.closedAt,
-          quantity: t.quantity,
-          exitPrice: t.exitPrice,
-          pnl: t.pnl,
-          source: "robinhood" as const,
-        }));
-      } catch (error) {
-        // Older trades are a supplement: a disconnected or failing broker
-        // still yields the full harness picture.
-        deps.log.warn("robinhood trade history unavailable", { error: error instanceof Error ? error.message : "unknown" });
-      }
-    }
-    const trades = [...harness, ...robinhood].sort((a, b) => a.closedAt - b.closedAt);
+    const trades = await readAllClosedTrades(deps);
     const summary = summarizeTrades(trades);
+    const harness = trades.filter((t) => t.source === "harness");
     const rhStops = await readRhStops();
     const account = deps.getAccount();
     const equityValue = account?.equity ?? 0;

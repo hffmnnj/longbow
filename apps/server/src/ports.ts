@@ -17,6 +17,9 @@ import type {
   OrderIntent,
   OrderRecord,
   Quote,
+  Report,
+  ReportKind,
+  ReportSummary,
   ServerEvent,
   Settings,
   SettingsPatch,
@@ -111,6 +114,12 @@ export interface Store {
   /** Every recorded ET day oldest first: the day's starting and peak observed equity. */
   /** One row per ET day; dayLast is the latest observed equity, the closest thing to a close. */
   equitySeries(): { etDate: string; dayStart: number; dayHigh: number; dayLast: number }[];
+
+  /** Stores a report, replacing any report with the same id (ids are deterministic per period). */
+  saveReport(report: Report): void;
+  report(id: string): Report | undefined;
+  /** Report summaries, newest first. */
+  reports(query: { kind?: ReportKind; limit: number }): ReportSummary[];
 }
 
 /**

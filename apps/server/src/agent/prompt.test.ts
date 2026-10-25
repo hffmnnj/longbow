@@ -128,6 +128,25 @@ describe("cycleInput", () => {
     assert.match(cycleInput(input({ kind: "post_close" })), /fills|review/i);
   });
 
+  it("post_close_without_the_week_flag_keeps_the_review_only", () => {
+    const text = cycleInput(input({ kind: "post_close" }));
+    assert.match(text, /trade-review-and-calibration/);
+    assert.ok(!text.includes("publish_report"), "simulations have no report tool");
+  });
+
+  it("post_close_with_the_flag_publishes_trade_then_daily_reports", () => {
+    for (const last of [true, false]) {
+      const text = cycleInput(input({ kind: "post_close", isLastTradingDayOfWeek: last }));
+      assert.match(text, /publish_report/);
+      assert.match(text, /grade the decision quality, not the outcome/);
+      assert.match(text, /one-sentence gradeReason/);
+      assert.match(text, /quoting figures only from the tool's returned facts/);
+      assert.match(text, /"What worked"/);
+      if (last) assert.match(text, /also publish the weekly report/);
+      else assert.match(text, /skip the weekly report/);
+    }
+  });
+
   it("includes_per_trade_risk_dollars_when_account_known", () => {
     const text = cycleInput(input({}));
     assert.match(text, /1%\/trade/, "names the live per-trade risk percent");

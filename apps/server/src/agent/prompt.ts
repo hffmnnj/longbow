@@ -122,6 +122,8 @@ export interface CycleInput {
   settings: Settings;
   halts: HaltReason[];
   account: AccountSnapshot | null;
+  /** Set for live cycles; absent in simulations, which have no report tool. */
+  isLastTradingDayOfWeek?: boolean;
 }
 
 const etDateTime = new Intl.DateTimeFormat("en-CA", {
@@ -207,19 +209,33 @@ const INTRADAY_JOB =
 const OVERNIGHT_JOB =
   "Job: research only — the market is closed, so orders are impossible right now. Refresh theses on held names and candidates, scan for new candidates with market_compare and market_indicators when there is time, use analyst subagents in parallel for deeper work, and keep it brief when nothing changed.";
 
-function jobFor(kind: CycleKind, isOpen: boolean): string {
+function jobFor(kind: CycleKind, isOpen: boolean, isLastTradingDayOfWeek?: boolean): string {
   switch (kind) {
     case "pre_open":
       return "Job: read lessons.md first and apply what it says today. Load market-regime and classify the regime from market_volatility, market_yields, and index and sector trends. Review overnight news, today's market_economic_calendar, and market_earnings for held symbols and the watchlist. Write plan.md with at most two candidate entries, their trigger levels, invalidations, and time stops, and journal the plan.";
     case "intraday":
       return INTRADAY_JOB;
     case "post_close":
-      return "Job: load trade-review-and-calibration, review the day's decisions and fills against their theses. For every trade closed today, judge decision quality apart from the outcome: was the plan followed (entry, size, stop, time stop), and would you take the same trade again with what you knew then. A loss on a good plan is not a lesson; a win on a broken rule is. Update theses/<SYMBOL>.md, append any durable lesson to lessons.md, and journal a short review of what worked and what did not.";
+      return postCloseJob(isLastTradingDayOfWeek);
     case "overnight":
       return OVERNIGHT_JOB;
     case "manual":
       return isOpen ? INTRADAY_JOB : OVERNIGHT_JOB;
   }
+}
+
+function postCloseJob(isLastTradingDayOfWeek?: boolean): string {
+  const review =
+    "Job: load trade-review-and-calibration, review the day's decisions and fills against their theses. For every trade closed today, judge decision quality apart from the outcome: was the plan followed (entry, size, stop, time stop), and would you take the same trade again with what you knew then. A loss on a good plan is not a lesson; a win on a broken rule is. Update theses/<SYMBOL>.md, append any durable lesson to lessons.md, and journal a short review of what worked and what did not.";
+  if (isLastTradingDayOfWeek === undefined) return review;
+  return (
+    `${review} Then publish reports with publish_report, quoting figures only from the tool's returned facts: ` +
+    "one trade report per trade closed today (grade the decision quality, not the outcome, with a one-sentence gradeReason), then the daily report. " +
+    "Keep the narrative plain and specific, and keep headline, summary, sections (\"What worked\", \"What didn't\", \"Market\", \"Positions\"), lessons and next steps short." +
+    (isLastTradingDayOfWeek
+      ? " Today is the last trading day of the week: also publish the weekly report."
+      : " Today is not the last trading day of the week: skip the weekly report.")
+  );
 }
 
 /** User message for one scheduled cycle. All situational facts live here, never in the cached sections. */
@@ -234,7 +250,7 @@ export function cycleInput(input: CycleInput): string {
     `Watchlist: ${settings.watchlist.length > 0 ? settings.watchlist.join(", ") : "(empty)"}.`,
     accountSummary(account),
     "",
-    jobFor(kind, market.isOpen),
+    jobFor(kind, market.isOpen, input.isLastTradingDayOfWeek),
     "End the cycle with the one record_decision call.",
   ].join("\n");
 }

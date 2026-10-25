@@ -172,6 +172,16 @@ export function returnPct(values: number[]): number | undefined {
   return (last / first - 1) * 100;
 }
 
+/** Close on `date`, or the most recent earlier close (up to 10 calendar days back). */
+export function closeOnOrBefore(byDate: Map<string, number>, date: string): number | undefined {
+  for (let back = 0; back <= 10; back++) {
+    const day = new Date(new Date(`${date}T12:00:00Z`).getTime() - back * 86_400_000).toISOString().slice(0, 10);
+    const close = byDate.get(day);
+    if (close !== undefined) return close;
+  }
+  return undefined;
+}
+
 /**
  * What today's holdings plus today's cash would have been worth on each past
  * date: a replay, never the account's real history. Each symbol is priced at

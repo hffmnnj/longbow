@@ -64,6 +64,9 @@ function fakeStore(): Store & { settings: ReturnType<Store["getSettings"]> } {
     markEquity: () => {},
     equityMarks: () => ({}),
     equitySeries: () => [],
+    saveReport: () => {},
+    report: () => undefined,
+    reports: () => [],
   };
 }
 
