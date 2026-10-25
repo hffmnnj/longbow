@@ -511,6 +511,93 @@ export interface MarketOverview {
   earnings: { symbol: string; date: string; time?: string; held: boolean }[];
 }
 
+// ---------------------------------------------------------------------------
+// Reports: the agent writes the narrative, the server computes every number.
+
+export const ReportKindSchema = z.enum(["daily", "weekly", "trade"]);
+export type ReportKind = z.infer<typeof ReportKindSchema>;
+
+/** Decision quality, judged apart from the outcome: a loss on a well-run plan can earn an A. */
+export const ReportGradeSchema = z.enum(["A", "B", "C", "D", "F"]);
+export type ReportGrade = z.infer<typeof ReportGradeSchema>;
+
+/** What the agent submits through the `publish_report` tool. */
+export const ReportNarrativeSchema = z.object({
+  kind: ReportKindSchema,
+  /** Trade reports only: the closed symbol. */
+  symbol: z.string().regex(/^[A-Z.]{1,10}$/).optional(),
+  /** Weekly reports only: the Monday (ET date) of the week covered; defaults to the current week. */
+  weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** One plain sentence, the first thing the owner reads. */
+  headline: z.string().min(1).max(140),
+  /** Two to four sentences of markdown. */
+  summary: z.string().min(1).max(1200),
+  grade: ReportGradeSchema.optional(),
+  /** Why the grade, in one sentence. */
+  gradeReason: z.string().max(300).optional(),
+  /** Short titled sections in markdown, for example "What worked", "What didn't", "Market". */
+  sections: z.array(z.object({ title: z.string().min(1).max(60), body: z.string().min(1).max(3000) })).max(6),
+  lessons: z.array(z.string().min(1).max(300)).max(5),
+  nextSteps: z.array(z.string().min(1).max(300)).max(5),
+});
+export type ReportNarrative = z.infer<typeof ReportNarrativeSchema>;
+
+/** Server-computed figures for the report's period; never written by the model. */
+export interface ReportFacts {
+  /** ET dates, inclusive. A trade report spans entry to exit. */
+  periodStart: string;
+  periodEnd: string;
+  startEquity?: number;
+  endEquity?: number;
+  pnl?: number;
+  pnlPct?: number;
+  /** SPY's percent change over the same period. */
+  benchmarkPct?: number;
+  /** Daily equity marks in the period (dayLast), oldest first. */
+  equityCurve: { date: string; equity: number }[];
+  /** Trades closed in the period. */
+  trades: ClosedTrade[];
+  realizedPnl: number;
+  winRatePct?: number;
+  avgR?: number;
+  orders: { submitted: number; filled: number; rejected: number; cancelled: number; failed: number };
+  /** Holdings at the end of the period. */
+  positions: { symbol: string; weightPct: number; unrealizedPnl: number; sector?: string }[];
+  heatPct?: number;
+  /** The decisions journaled in the period, newest first, at most 20. */
+  decisions: Pick<JournalEntry, "id" | "at" | "action" | "symbol" | "summary">[];
+  /** Trade reports only. */
+  trade?: {
+    trade: ClosedTrade;
+    /** The entry order's plan as submitted. */
+    plan?: Pick<OrderIntent, "thesis" | "invalidationPrice" | "timeStopDate" | "probabilityWin" | "expectedGainPct" | "expectedLossPct">;
+    entryOrderId?: string;
+    exitOrderId?: string;
+    /** Daily bars from 20 trading days before entry to 5 after exit, for the price-path chart. */
+    bars: Bar[];
+  };
+}
+
+export interface ReportSummary {
+  id: string;
+  kind: ReportKind;
+  at: number;
+  /** Trade reports: the symbol. */
+  symbol?: string;
+  periodStart: string;
+  periodEnd: string;
+  headline: string;
+  grade?: ReportGrade;
+  pnl?: number;
+  pnlPct?: number;
+}
+
+export interface Report extends ReportSummary {
+  cycleId?: string;
+  narrative: ReportNarrative;
+  facts: ReportFacts;
+}
+
 export interface SymbolDetail {
   symbol: string;
   name?: string;
@@ -657,7 +744,8 @@ export type ServerEvent =
   | { type: "journal"; entry: JournalEntry; simRunId?: string }
   | { type: "order"; order: OrderRecord; simRunId?: string }
   | { type: "note"; note: NoteFile; simRunId?: string }
-  | { type: "sim"; run: SimRun };
+  | { type: "sim"; run: SimRun }
+  | { type: "report"; report: ReportSummary; simRunId?: string };
 
 export interface ConnectResponse {
   /** Robinhood sign-in URL to open in the browser. */
