@@ -24,7 +24,10 @@
 | 18 | Integration, systemd service, live simulation test, QA, PR | coordinator | done |
 | 19 | Live Robinhood sign-in and real tool-schema mapping, harness-held fractional stops, live-trading lock | coordinator + engineer | done |
 | 20 | Main agent on ChatGPT gpt-6.1-sol xhigh, subagents on Muse xhigh, long-running background subagents | coordinator + minion | done |
-| 21 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
+| 21 | Longbow redesign: logo, dithered charts, Portfolio, Markets, Performance, control room, decision cards; analytics endpoints; helper reports in the feed | frontend + minions + coordinator | done |
+| 22 | Sector cap fed by SEC industry codes (Robinhood reports no sector) | coordinator | done |
+| 23 | Daily, weekly and trade reports: agent narrative, server figures, push, report view with print | minion + frontend-minion | in progress |
+| 24 | Go-live: owner says go, set HARNESS_LIVE_TRADING=1 and mode auto, execute the adoption exit queue | coordinator | waiting on the owner |
 
 ## Follow-ups
 
@@ -32,7 +35,9 @@
 - Fractional stops are protected only while the harness runs during regular hours.
 - Background helper stop cannot abort a child turn already running (no abort API on the tool context).
 - Simulations run without background helpers; reports between cycles would break the fixed clock.
-- Calibration report: Brier score of `probabilityWin` against outcomes.
 - Wash-sale lot tracking.
 - Settings changes are logged but not journaled; the live mode was found off once with no record of who changed it.
 - Push delivery, install, badge, and safe areas on a real phone are untested.
+- The native `generate_image` tool fails with "Session project changed" in this project; the logo is a hand-built SVG until it works.
+- Phone Markets index table clips its trend column; it should scroll or drop a column.
+- SIC-based sectors are coarse; widely held names are overridden in apps/server/src/market/sectors.ts.
