@@ -20,6 +20,8 @@ import { createSkillLibrary } from "./skills/library.ts";
 import { createNotes } from "./skills/notes.ts";
 import { createSkillsExtension } from "./skills/tools.ts";
 import { createMarketData } from "./market/market-data.ts";
+import { MarketCache } from "./market/cache.ts";
+import { createSectorDirectory } from "./market/sectors.ts";
 import { createMarketExtension } from "./market/tools.ts";
 import { createSubagentExtension } from "./agent/subagents.ts";
 import { createBackgroundSubagentExtension } from "./agent/background-subagents.ts";
@@ -61,7 +63,8 @@ async function main(): Promise<void> {
     }
   };
   const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
-  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk"), market });
+  const sectors = createSectorDirectory({ cache: new MarketCache(config.DATA_DIR, log.child("sectors"), clock), log: log.child("sectors") });
+  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk"), market, sectors });
 
   // Late-bound: extensions and the scheduler need the agent's id before it exists.
   let agent: TradingAgent | undefined;
@@ -71,7 +74,15 @@ async function main(): Promise<void> {
   const refreshAccount = async (why: string): Promise<void> => {
     if (broker.status().state !== "connected") return;
     try {
-      cachedAccount = await broker.snapshot();
+      const snapshot = await broker.snapshot();
+      await sectors.resolve(snapshot.positions.map((p) => p.symbol));
+      cachedAccount = {
+        ...snapshot,
+        positions: snapshot.positions.map((p) => {
+          const sector = p.sector ?? sectors.get(p.symbol);
+          return sector === undefined ? p : { ...p, sector };
+        }),
+      };
       store.markEquity(cachedAccount.at, calendar.etDate(cachedAccount.at), cachedAccount.equity);
     } catch (error) {
       log.warn("account refresh failed", { why, error: error instanceof Error ? error.message : "unknown" });

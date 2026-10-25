@@ -18,6 +18,7 @@ import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import { watchStops } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
+import type { SectorDirectory } from "../market/sectors.ts";
 
 const NOW = Date.UTC(2026, 10, 2, 15, 5, 0);
 
@@ -189,7 +190,7 @@ class FakeMarketData implements MarketData {
   }
 }
 
-function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null }) {
+function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null; sectors?: SectorDirectory }) {
   const store = new FakeStore();
   if (options?.mode !== undefined) store.settings = { ...store.settings, mode: options.mode };
   const broker = new FakeBroker();
@@ -217,6 +218,7 @@ function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null }
     bus,
     log,
     ...(market === null ? {} : { market }),
+    ...(options?.sectors === undefined ? {} : { sectors: options.sectors }),
   });
   return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
 }
@@ -240,6 +242,26 @@ function liveSetup() {
   const stop = { ...baseIntent(), side: "sell" as const, quantity: 0.832971, orderType: "stop_limit" as const, limitPrice: 139.3, stopPrice: 140, invalidationPrice: 140, timeInForce: "gtc" as const };
   return { ...fixture, broker, executions, cancellations, stop };
 }
+
+describe("sector cap with broker positions that carry no sector", () => {
+  it("counts held exposure through the sector directory", async () => {
+    const resolved: string[][] = [];
+    const sectors: SectorDirectory = {
+      get: (symbol) => (symbol === "AAPL" || symbol === "NVDA" ? "Technology" : undefined),
+      resolve: async (symbols) => {
+        resolved.push([...symbols]);
+      },
+    };
+    const { gate, broker, store } = setup({ mode: "auto", sectors });
+    const cap = store.settings.risk.maxSectorPct;
+    // Robinhood reports no sector; the held AAPL already fills the Technology allowance.
+    broker.snapshotValue.positions[0] = { symbol: "AAPL", quantity: 400, averageCost: 145, marketValue: 100_000 * (cap / 100), unrealizedPnl: 0 };
+    const order = await gate.submit({ ...baseIntent(), symbol: "NVDA" });
+    const check = order.verdict.checks.find((c) => c.rule === "sector");
+    assert.equal(check?.ok, false, JSON.stringify(check));
+    assert.deepEqual(resolved[0], ["NVDA", "AAPL"]);
+  });
+});
 
 describe("harness-held fractional protection", () => {
   it("stores approved fractional stops without sending a Robinhood review or placement", async () => {

@@ -10,6 +10,7 @@ import { etDayEndEpoch } from "./calendar.ts";
 import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
+import type { SectorDirectory } from "../market/sectors.ts";
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -27,6 +28,8 @@ export interface OrderGateDeps {
   log: Logger;
   /** Free market-data provider for the earnings and liquidity entry rules. */
   market?: MarketData;
+  /** Sectors for symbols the broker reports without one, so the sector cap sees real exposure. */
+  sectors?: SectorDirectory;
 }
 
 function shortError(error: unknown, max = 200): string {
@@ -248,6 +251,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
       const account = snapshot;
+      await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)]);
       const verdict = evaluate({
         intent: valid,
         settings,
@@ -265,7 +269,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
         marketDataAvailable: marketInputs.marketDataAvailable,
         sectorOf: (symbol: string) =>
-          account.positions.find((p) => p.symbol === symbol)?.sector,
+          account.positions.find((p) => p.symbol === symbol)?.sector ?? deps.sectors?.get(symbol),
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now,
       });
@@ -444,6 +448,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         )
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
+      await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)]);
       const verdict = evaluate({
         intent: existing.intent,
         settings,
@@ -461,7 +466,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
         marketDataAvailable: marketInputs.marketDataAvailable,
         sectorOf: (symbol: string) =>
-          snapshot.positions.find((p) => p.symbol === symbol)?.sector,
+          snapshot.positions.find((p) => p.symbol === symbol)?.sector ?? deps.sectors?.get(symbol),
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now: checkAt,
       });
