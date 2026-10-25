@@ -28,6 +28,7 @@ import { createBackgroundSubagentExtension } from "./agent/background-subagents.
 import { createPushService } from "./push/service.ts";
 import { startNotifier } from "./push/notifier.ts";
 import { mountPushRoutes } from "./http/push-routes.ts";
+import { createNativePushHub } from "./push/native-stream.ts";
 import { createSimService } from "./sim/runner.ts";
 import { createSimToolsExtension } from "./sim/tools.ts";
 import { mountSimRoutes } from "./http/sim-routes.ts";
@@ -269,10 +270,12 @@ async function main(): Promise<void> {
     subject: "mailto:hffmnnj@users.noreply.github.com",
   });
   mountPushRoutes(app, { push, log: log.child("push") });
+  const nativePush = createNativePushHub();
+  nativePush.mount(app);
   mountSimRoutes(app, { sim, suites, log: log.child("sim") });
   mountAnalyticsRoutes(app, { analytics, log: log.child("analytics") });
   mountReportRoutes(app, { store, log: log.child("reports") });
-  const stopNotifier = startNotifier({ bus, push, log: log.child("push") });
+  const stopNotifier = startNotifier({ bus, push: nativePush.wrap(push), log: log.child("push") });
 
   const refresher = setInterval(() => {
     if (calendar.clock(clock.now()).session !== "regular") return;
