@@ -264,7 +264,8 @@ export function metricGroups(run: SimRun): MetricGroup[] {
 
   const costs: MetricRow[] = [];
   if (m && !(m.costsPaid === 0 && m.costsPct === 0 && run.fills.length === 0)) {
-    costs.push({ label: "Costs paid", text: usdShort(m.costsPaid), sub: `${m.costsPct.toFixed(2)}% of start` });
+    // Costs on a small account are cents, so they keep two decimals where other money figures round.
+    costs.push({ label: "Costs paid", text: `$${m.costsPaid.toFixed(2)}`, sub: `${m.costsPct.toFixed(2)}% of start` });
   }
   if (costs.length) ret.push({ title: "Costs", rows: costs });
 
