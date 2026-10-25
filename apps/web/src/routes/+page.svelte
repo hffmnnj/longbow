@@ -164,7 +164,7 @@
           aria-current={active ? "page" : undefined}
           onclick={() => select(item.value)}
           class={cn(
-            "text-muted-foreground relative flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
+            "text-muted-foreground relative flex h-12 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
             "after:bg-foreground after:absolute after:inset-x-5 after:top-0 after:h-0.5 after:rounded-full after:opacity-0",
             active && "text-foreground after:opacity-100",
           )}
