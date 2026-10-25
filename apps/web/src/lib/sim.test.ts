@@ -10,6 +10,7 @@ import {
   envBadge,
   estimateMinutes,
   excessReturn,
+  fillCost,
   formatEstimate,
   metricGroups,
   normalizedSeries,
@@ -246,6 +247,39 @@ describe("metricGroups", () => {
   });
   it("is empty before the first close with no fills", () => {
     expect(metricGroups(run("z"))).toEqual([]);
+  });
+  it("shows a Fees row only when regulatory fees are above zero", () => {
+    const withFees = run("a", {
+      equity: [point("1", 1100)],
+      metrics: { ...baseMetrics, costsPaid: 12.54, costsPct: 1.25, feesPaid: 0.04 },
+    });
+    expect(metricGroups(withFees).find((g) => g.title === "Costs")!.rows).toEqual([
+      { label: "Costs paid", text: "$12.54", sub: "1.25% of start" },
+      { label: "Fees", text: "$0.04" },
+    ]);
+    const zeroFees = run("b", {
+      equity: [point("1", 1100)],
+      metrics: { ...baseMetrics, costsPaid: 12.5, costsPct: 1.25, feesPaid: 0 },
+    });
+    expect(metricGroups(zeroFees).find((g) => g.title === "Costs")!.rows.map((r) => r.label)).not.toContain("Fees");
+    const noFees = run("c", {
+      equity: [point("1", 1100)],
+      metrics: { ...baseMetrics, costsPaid: 12.5, costsPct: 1.25 },
+    });
+    expect(metricGroups(noFees).find((g) => g.title === "Costs")!.rows.map((r) => r.label)).not.toContain("Fees");
+  });
+});
+
+describe("fillCost", () => {
+  it("adds spread cost and regulatory fees into one full cost", () => {
+    expect(fillCost({ cost: 0.1, fees: 0.04 })).toBeCloseTo(0.14, 9);
+  });
+  it("tolerates a fill that records only one of the two", () => {
+    expect(fillCost({ cost: 0.1 })).toBeCloseTo(0.1, 9);
+    expect(fillCost({ fees: 0.04 })).toBeCloseTo(0.04, 9);
+  });
+  it("is undefined when the fill records neither", () => {
+    expect(fillCost({})).toBeUndefined();
   });
 });
 

@@ -15,6 +15,10 @@
   const PAD = 5;
   const ROW = 26;
   const TOP = 9;
+  /** Dot radius and variant-label size stay fixed no matter how many runs a suite holds. */
+  const DOT_R = 2.1;
+  const LABEL_FS = 3.4;
+  const LANE_JITTER = 2.4;
   const plotted = $derived(runs.filter((r) => r.value !== undefined));
   const lo = $derived(plotted.length ? Math.min(...plotted.map((r) => r.value!), 0) : -1);
   const hi = $derived(plotted.length ? Math.max(...plotted.map((r) => r.value!), 0) : 1);
@@ -32,13 +36,14 @@
       <line x1={x(0)} y1={TOP - 2} x2={x(0)} y2={height - TOP + 2} stroke="var(--border)" stroke-width="0.4" stroke-dasharray="1.2 1" />
       {#each variants as label, gi (label)}
         {@const y = TOP + gi * ROW + ROW / 2}
-        <text x={PAD} y={y - 8} font-size="3.4" fill="var(--muted-foreground)" font-family="var(--font-mono)">{label}</text>
-        {#each plotted.filter((r) => r.variant === label) as r, i (r.id)}
+        {@const lane = plotted.filter((r) => r.variant === label)}
+        <text x={PAD} y={y - 8} font-size={LABEL_FS} fill="var(--muted-foreground)" font-family="var(--font-mono)">{label}</text>
+        {#each lane as r, i (r.id)}
           {@const t = tone(r.value!)}
           <circle
             cx={x(r.value!)}
-            cy={y + (i % 2 === 0 ? -2.4 : 2.4)}
-            r="2.1"
+            cy={lane.length === 1 ? y : y + (i % 2 === 0 ? -LANE_JITTER : LANE_JITTER)}
+            r={DOT_R}
             fill={t === "gain" ? "var(--gain)" : t === "loss" ? "var(--loss)" : "var(--muted-foreground)"}
             opacity="0.9"
           >

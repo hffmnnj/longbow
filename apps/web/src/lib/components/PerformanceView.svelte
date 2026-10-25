@@ -140,7 +140,14 @@
                       <Table.Cell class="px-3.5 py-1.5"><Ticker symbol={t.symbol} /></Table.Cell>
                       <Table.Cell class="num py-1.5">{day.format(t.closedAt)}</Table.Cell>
                       <Table.Cell class="num hidden py-1.5 text-right sm:table-cell">{t.holdingDays !== undefined ? `${t.holdingDays}d` : "\u2014"}</Table.Cell>
-                      <Table.Cell class="py-1.5 text-right"><Pnl amount={t.pnl} percent={t.pnlPct} /></Table.Cell>
+                      <Table.Cell class="py-1.5 text-right">
+                        <span class="flex flex-col items-end">
+                          <Pnl amount={t.pnl} percent={t.pnlPct} />
+                          {#if t.fees !== undefined && t.fees > 0}
+                            <span class="text-muted-foreground text-[11px]">incl. {usd(t.fees)} fees</span>
+                          {/if}
+                        </span>
+                      </Table.Cell>
                       <Table.Cell class={cn("num py-1.5 text-right", t.rMultiple !== undefined && (t.rMultiple >= 0 ? "text-gain" : "text-loss"))}>
                         {t.rMultiple !== undefined ? `${t.rMultiple >= 0 ? "+" : "\u2212"}${Math.abs(t.rMultiple).toFixed(1)}R` : "\u2014"}
                       </Table.Cell>

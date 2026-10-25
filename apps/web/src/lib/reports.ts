@@ -135,6 +135,8 @@ export interface PlanRow {
   label: string;
   planned: string;
   realized: string;
+  /** Regulatory fees netted out of a realized P&L, dollars, when known and above zero. */
+  fees?: number;
 }
 
 /** Plan-versus-outcome table for a trade report. Planned cells read "—" when the plan is missing. */
@@ -143,6 +145,7 @@ export function planOutcomeRows(r: Report): PlanRow[] {
   if (!t) return [];
   const plan = t.plan;
   const tr = t.trade;
+  const fees = tr.fees !== undefined && tr.fees > 0 ? tr.fees : undefined;
   if (!plan) {
     // No plan on record (for example a Robinhood-history import): show only
     // outcomes known from the fill itself, and never label one a stop-out.
@@ -151,6 +154,7 @@ export function planOutcomeRows(r: Report): PlanRow[] {
         label: "Realized P&L",
         planned: "—",
         realized: `${usdSigned(tr.pnl)}${tr.pnlPct !== undefined ? ` (${pctSigned(tr.pnlPct)})` : ""}`,
+        ...(fees !== undefined ? { fees } : {}),
       },
       { label: "Exit price", planned: "—", realized: usd(tr.exitPrice) },
     ];
@@ -169,6 +173,7 @@ export function planOutcomeRows(r: Report): PlanRow[] {
       label: "Target gain",
       planned: plan ? `+${pct(plan.expectedGainPct)}` : "—",
       realized: `${usdSigned(tr.pnl)}${tr.pnlPct !== undefined ? ` (${pctSigned(tr.pnlPct)})` : ""}`,
+      ...(fees !== undefined ? { fees } : {}),
     },
     {
       label: "Loss to stop",

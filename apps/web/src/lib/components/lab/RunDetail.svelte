@@ -23,7 +23,7 @@
   import { simFillKey } from "$lib/analytics";
   import { provideScope } from "$lib/scope";
   import { sim } from "$lib/sim.svelte";
-  import { canReveal, envBadge, estimateMinutes, formatEstimate, isActive, progressFraction, runTitle, shownSymbol } from "$lib/sim";
+  import { canReveal, envBadge, estimateMinutes, fillCost, formatEstimate, isActive, progressFraction, runTitle, shownSymbol } from "$lib/sim";
   import { ui } from "$lib/ui.svelte";
 
   let { run, onback }: { run: SimRun; onback?: () => void } = $props();
@@ -169,6 +169,7 @@
           </Table.Header>
           <Table.Body>
             {#each run.fills.toReversed() as f, i (simFillKey(f, i))}
+              {@const fullCost = fillCost(f)}
               <Table.Row>
                 <Table.Cell class="num text-muted-foreground px-3.5 py-2">{isoShort(f.date)}</Table.Cell>
                 <Table.Cell class="py-2"><SideBadge side={f.side} /></Table.Cell>
@@ -176,7 +177,7 @@
                 <Table.Cell class="num py-2 text-right">{qty(f.quantity)}</Table.Cell>
                 <Table.Cell class="num py-2 text-right max-sm:pr-3.5">{usd(f.price)}</Table.Cell>
                 <Table.Cell class="num hidden py-2 text-right sm:table-cell">{usd(f.quantity * f.price)}</Table.Cell>
-                <Table.Cell class="num py-2 pr-3.5 text-right">{f.cost !== undefined ? usd(f.cost) : "—"}</Table.Cell>
+                <Table.Cell class="num py-2 pr-3.5 text-right">{fullCost !== undefined ? usd(fullCost) : "—"}</Table.Cell>
               </Table.Row>
             {/each}
           </Table.Body>
