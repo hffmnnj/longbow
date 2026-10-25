@@ -14,6 +14,15 @@
 		<meta name="apple-mobile-web-app-title" content="Longbow" />
 		<title>Longbow</title>
 		<script>
+			// Android Chrome already lays the page out below its system bars; viewport-fit=cover would add those insets
+			// a second time as empty bands above the header and below the tab bar. iOS needs cover (translucent status bar).
+			try {
+				if (/Android/i.test(navigator.userAgent)) {
+					document.querySelector('meta[name="viewport"]').setAttribute("content", "width=device-width, initial-scale=1");
+				}
+			} catch (e) {}
+		</script>
+		<script>
 			// First visit is dark: mode-watcher writes "system" before it reads its own defaultMode.
 			try {
 				if (!localStorage.getItem("mode-watcher-mode")) localStorage.setItem("mode-watcher-mode", "dark");
