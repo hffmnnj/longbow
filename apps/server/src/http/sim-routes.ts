@@ -1,9 +1,11 @@
 import type { Hono } from "hono";
-import { SimRunConfigSchema } from "@rh/shared";
+import { SimRunConfigSchema, SimSuiteConfigSchema } from "@rh/shared";
 import type { Logger } from "../ports.ts";
 import type { SimService } from "../sim/runner.ts";
+import type { SuiteService } from "../sim/suite.ts";
+import { SCENARIOS } from "../sim/scenarios.ts";
 
-export function mountSimRoutes(app: Hono, { sim, log }: { sim: SimService; log: Logger }): void {
+export function mountSimRoutes(app: Hono, { sim, log, suites }: { sim: SimService; log: Logger; suites?: SuiteService }): void {
   app.post("/api/sim/runs", async (c) => {
     try {
       const parsed = SimRunConfigSchema.safeParse(await c.req.json());
@@ -26,4 +28,30 @@ export function mountSimRoutes(app: Hono, { sim, log }: { sim: SimService; log: 
   });
   app.get("/api/sim/runs/:id/journal", (c) => sim.get(c.req.param("id")) === undefined ? c.json({ error: "Unknown simulation" }, 404) : c.json(sim.journal(c.req.param("id"))));
   app.get("/api/sim/runs/:id/orders", (c) => sim.get(c.req.param("id")) === undefined ? c.json({ error: "Unknown simulation" }, 404) : c.json(sim.orders(c.req.param("id"))));
+  app.get("/api/sim/scenarios", (c) => c.json(SCENARIOS));
+  app.get("/api/sim/suites", (c) => {
+    if (suites === undefined) return c.json({ error: "Simulation suites are unavailable" }, 503);
+    return c.json(suites.list());
+  });
+  app.get("/api/sim/suites/:id", (c) => {
+    if (suites === undefined) return c.json({ error: "Simulation suites are unavailable" }, 503);
+    const suite = suites.get(c.req.param("id"));
+    return suite === undefined ? c.json({ error: "Unknown simulation suite" }, 404) : c.json(suite);
+  });
+  app.post("/api/sim/suites", async (c) => {
+    if (suites === undefined) return c.json({ error: "Simulation suites are unavailable" }, 503);
+    try {
+      const parsed = SimSuiteConfigSchema.safeParse(await c.req.json());
+      if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid suite configuration" }, 400);
+      return c.json(await suites.start(parsed.data, "user"), 201);
+    } catch (error) {
+      log.warn("simulation suite rejected", { error: String(error) });
+      return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+    }
+  });
+  app.post("/api/sim/suites/:id/stop", async (c) => {
+    if (suites === undefined) return c.json({ error: "Simulation suites are unavailable" }, 503);
+    const suite = await suites.stop(c.req.param("id"));
+    return suite === undefined ? c.json({ error: "Unknown simulation suite" }, 404) : c.json(suite);
+  });
 }
