@@ -65,7 +65,8 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
   const last = equity.at(-1);
   const averageEquity = equity.length === 0 ? startingCash : mean(equity.map((p) => p.equity));
   const notional = fills.reduce((sum, f) => sum + f.price * f.quantity, 0);
-  const costsPaid = fills.reduce((sum, f) => sum + (f.cost ?? 0), 0);
+  const feesPaid = fills.reduce((sum, f) => sum + (f.fees ?? 0), 0);
+  const costsPaid = fills.reduce((sum, f) => sum + (f.cost ?? 0), 0) + feesPaid;
   const riskBlocks: Record<string, number> = {};
   for (const order of orders) {
     if (order.status !== "rejected_risk") continue;
@@ -85,6 +86,7 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
     turnoverPct: averageEquity === 0 ? 0 : notional / averageEquity * 100,
     costsPaid,
     costsPct: costsPaid / startingCash * 100,
+    ...(feesPaid > 0 ? { feesPaid } : {}),
     riskBlocks,
   };
   if (returns.length >= 5) {

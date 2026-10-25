@@ -65,6 +65,18 @@ describe("pairHarnessTrades", () => {
     assert.equal(trade.closedAt, 3000);
   });
 
+  it("reports P&L net of regulatory fees", () => {
+    const day = Date.UTC(2026, 10, 2, 15);
+    const orders = [
+      order({ intent: intent("AAPL", "buy", 15), filledQuantity: 15, averageFillPrice: 100, createdAt: day, updatedAt: day }),
+      order({ intent: intent("AAPL", "sell", 15), filledQuantity: 15, averageFillPrice: 120, createdAt: day + 86_400_000, updatedAt: day + 86_400_000 }),
+    ];
+    const [trade] = pairHarnessTrades(orders);
+    // Sale of $1,800: SEC fee $0.03708 rounds up to $0.04; CAT and TAF are zero at 15 shares.
+    assert.equal(trade?.fees, 0.04);
+    assert.ok(Math.abs((trade?.pnl ?? 0) - (300 - 0.04)) < 1e-9);
+  });
+
   it("computes the R multiple from the entry invalidation price", () => {
     const orders = [
       order({ intent: { ...intent("MSFT", "buy", 10), limitPrice: 100, invalidationPrice: 90 }, filledQuantity: 10, averageFillPrice: 100, createdAt: 1000, updatedAt: 1000 }),

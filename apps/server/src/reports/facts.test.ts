@@ -210,7 +210,8 @@ describe("daily facts", () => {
     const facts = await buildDailyFacts(d, "2026-10-26");
     assert.equal(facts.trades.length, 1);
     assert.equal(facts.trades[0]?.symbol, "NVDA");
-    assert.equal(facts.realizedPnl, 50);
+    // $50 gross minus the 3¢ SEC fee on the $1,050 sale.
+    assert.equal(facts.realizedPnl, 49.97);
     assert.equal(facts.winRatePct, 100);
     // The open AAPL buy is not a closed trade; pending and held orders are not outcomes.
     assert.deepEqual(facts.orders, { submitted: 0, filled: 2, rejected: 1, cancelled: 1, failed: 1 });

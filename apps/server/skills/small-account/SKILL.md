@@ -31,7 +31,7 @@ Do not day trade. Opening and closing the same name in one session counts toward
 
 ## Cost control
 
-There are no commissions, so spread plus slippage is the entire cost line. Re-check the spread on a fresh quote immediately before `submit_order`; if it exceeds the live gate, pass regardless of the chart. Prefer entries near the mid with day orders, and never chase more than a few basis points past the planned limit: on an $18 risk budget, a 30-cent slip on 4 shares is $1.20, or nearly 7% of the risk, gone before the trade starts.
+There are no commissions, and sales of $500 or less (and 50 shares or fewer) skip the SEC and FINRA fees, so at this size spread plus slippage is usually the whole cost line. Larger sales add those fees, ADRs such as TSM carry a small yearly custody fee per share, and the risk engine rejects an entry whose estimatedCostPct is below spread plus fees. Profit always means net of all of it. Re-check the spread on a fresh quote immediately before `submit_order`; if it exceeds the live gate, pass regardless of the chart. Prefer entries near the mid with day orders, and never chase more than a few basis points past the planned limit: on an $18 risk budget, a 30-cent slip on 4 shares is $1.20, or nearly 7% of the risk, gone before the trade starts.
 
 ## When buying power is too small
 

@@ -1,5 +1,7 @@
 import type { CalibrationBucket, ClosedTrade, OrderRecord } from "@rh/shared";
 import { maxDrawdown as indicatorMaxDrawdown } from "../market/indicators.ts";
+import { equityFees } from "../fees.ts";
+import { etDateForInstant } from "../risk/calendar.ts";
 
 /**
  * Pure analytics math for the dashboard endpoints. Every function here is
@@ -46,17 +48,19 @@ export function harnessLegs(orders: OrderRecord[]): FillLeg[] {
  * skipped (its entry is unknown). Unmatched buy lots stay open.
  */
 export function pairHarnessTrades(orders: OrderRecord[]): ClosedTrade[] {
-  const lots = new Map<string, { quantity: number; price: number; at: number; invalidationPrice?: number; probabilityWin?: number }[]>();
+  const lots = new Map<string, { quantity: number; price: number; at: number; feePerShare: number; invalidationPrice?: number; probabilityWin?: number }[]>();
   const out: ClosedTrade[] = [];
   for (const leg of harnessLegs(orders)) {
     const queue = lots.get(leg.symbol) ?? [];
     if (leg.side === "buy") {
-      queue.push({ quantity: leg.quantity, price: leg.price, at: leg.at, invalidationPrice: leg.invalidationPrice, ...(leg.probabilityWin === undefined ? {} : { probabilityWin: leg.probabilityWin }) });
+      const buyFees = equityFees({ side: "buy", quantity: leg.quantity, price: leg.price, date: etDateForInstant(leg.at) }).total;
+      queue.push({ quantity: leg.quantity, price: leg.price, at: leg.at, feePerShare: leg.quantity > 0 ? buyFees / leg.quantity : 0, invalidationPrice: leg.invalidationPrice, ...(leg.probabilityWin === undefined ? {} : { probabilityWin: leg.probabilityWin }) });
       lots.set(leg.symbol, queue);
       continue;
     }
     let remaining = leg.quantity;
     let cost = 0;
+    let fees = 0;
     let risk = 0;
     let probSum = 0;
     let probQty = 0;
@@ -65,6 +69,7 @@ export function pairHarnessTrades(orders: OrderRecord[]): ClosedTrade[] {
       const lot = queue[0] as (typeof queue)[number];
       const matched = Math.min(remaining, lot.quantity);
       cost += lot.price * matched;
+      fees += lot.feePerShare * matched;
       if (lot.invalidationPrice !== undefined && lot.invalidationPrice > 0 && lot.invalidationPrice < lot.price) {
         risk += (lot.price - lot.invalidationPrice) * matched;
       }
@@ -79,7 +84,9 @@ export function pairHarnessTrades(orders: OrderRecord[]): ClosedTrade[] {
     }
     const matchedQty = leg.quantity - remaining;
     if (matchedQty < 1e-9 || openedAt === undefined) continue;
-    const tradePnl = leg.price * matchedQty - cost;
+    const sellFees = equityFees({ side: "sell", quantity: leg.quantity, price: leg.price, date: etDateForInstant(leg.at) }).total;
+    fees += sellFees * (matchedQty / leg.quantity);
+    const tradePnl = leg.price * matchedQty - cost - fees;
     const entryPrice = cost / matchedQty;
     out.push({
       symbol: leg.symbol,
@@ -90,6 +97,7 @@ export function pairHarnessTrades(orders: OrderRecord[]): ClosedTrade[] {
       exitPrice: leg.price,
       pnl: tradePnl,
       pnlPct: cost === 0 ? undefined : (tradePnl / cost) * 100,
+      ...(fees > 0 ? { fees } : {}),
       ...(risk > 0 ? { rMultiple: tradePnl / risk } : {}),
       holdingDays: Math.max(0, (leg.at - openedAt) / 86_400_000),
       ...(probQty > 0 ? { probabilityWin: probSum / probQty } : {}),

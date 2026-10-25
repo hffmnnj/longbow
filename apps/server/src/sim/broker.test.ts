@@ -59,6 +59,21 @@ test("sale cash cannot fund a same-day rebuy and settles on the next session", a
   await broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 100.01 });
   assert.equal(broker.fills().length, 3);
 });
+test("regulatory fees on a sale over $500 come out of the settled proceeds", async () => {
+  const { broker, at } = fixture(1200);
+  await broker.placeOrder({ ...intent, quantity: 6, limitPrice: 100.01 });
+  await broker.placeOrder({ ...intent, side: "sell", quantity: 6, limitPrice: 99 });
+  const sale = broker.fills().at(-1);
+  const buy = broker.fills()[0];
+  // About $600 sold: SEC fee $0.0124 rounds up to $0.02; TAF and CAT are zero at 6 shares.
+  assert.equal(sale?.fees, 0.02);
+  assert.equal(buy?.fees, undefined, "a small buy carries no fee");
+  at("2026-07-02", 9, 30); await broker.advance();
+  assert.ok(buy !== undefined && sale !== undefined);
+  const expected = 1200 - 6 * buy.price + 6 * sale.price - 0.02;
+  assert.ok(Math.abs(((await broker.snapshot()).settledCash ?? 0) - expected) < 1e-9);
+});
+
 test("resting buys reserve cash and cancellation releases it", async () => {
   const { broker } = fixture(100);
   const order = await broker.placeOrder({ ...intent, limitPrice: 95 });

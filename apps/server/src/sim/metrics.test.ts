@@ -85,7 +85,7 @@ test("closed round trips report profit factor, expectancy, holding days and loss
 test("turnover, costs and risk blocks come from fills and rejected orders", () => {
   const fills: SimFill[] = [
     { at: 1, date: "2026-07-01", symbol: "SPY", side: "buy", quantity: 10, price: 100, orderId: "b", mid: 100.05, cost: 0.5 },
-    { at: 2, date: "2026-07-02", symbol: "SPY", side: "sell", quantity: 10, price: 110, orderId: "s", mid: 109.95, cost: 0.5 },
+    { at: 2, date: "2026-07-02", symbol: "SPY", side: "sell", quantity: 10, price: 110, orderId: "s", mid: 109.95, cost: 0.5, fees: 0.03 },
   ];
   const equity = [{ date: "2026-07-01", equity: 1000, cash: 0, benchmark: 1000 }, { date: "2026-07-02", equity: 1200, cash: 100, benchmark: 1010 }];
   const orders: OrderRecord[] = [
@@ -102,8 +102,9 @@ test("turnover, costs and risk blocks come from fills and rejected orders", () =
   ];
   const metrics = calculateMetrics(1000, equity, fills, orders);
   assert.ok(Math.abs(metrics.turnoverPct - 190.909) < 0.001);
-  assert.equal(metrics.costsPaid, 1);
-  assert.ok(Math.abs(metrics.costsPct - 0.1) < 1e-10);
+  assert.equal(metrics.costsPaid, 1.03, "spread, slippage and fees");
+  assert.equal(metrics.feesPaid, 0.03);
+  assert.ok(Math.abs(metrics.costsPct - 0.103) < 1e-10);
   assert.deepEqual(metrics.riskBlocks, { sector: 2 });
 });
 test("round-trip metrics wait for a fully closed entry and use original intent risk", () => {
