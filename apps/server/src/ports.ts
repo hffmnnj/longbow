@@ -56,6 +56,8 @@ export interface Config {
   MAIN_MODEL: ModelSpec;
   /** Subagent fleet model, SUBAGENT_MODEL, default meta/muse-spark-1.3-contributor#xhigh; also the main fallback. */
   SUBAGENT_MODEL: ModelSpec;
+  /** Max concurrent simulation runs, SIM_CONCURRENCY, integer 1 to 4, default 2. */
+  SIM_CONCURRENCY: number;
   /** Muse CLI auth file to seed the Meta credential from, default ~/.config/muse/auth.json. */
   MUSE_AUTH_FILE: string;
   /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */

@@ -23,6 +23,7 @@ import {
   sma,
 } from "./indicators.ts";
 import { createPointInTimeMarketData, MarketStore } from "./market-data.ts";
+import type { ExtendedHistory } from "./market-data.ts";
 import {
   fetchEarningsCalendar,
   fetchEarningsDate,
@@ -49,6 +50,13 @@ export interface MarketExtensionDeps {
   asOf?: () => string | undefined;
   /** Overridable fetch for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
+  /**
+   * Blind and bootstrap simulations: register only price history, indicators
+   * and compare, all reading the injected point-in-time market. Earnings,
+   * calendars, VIX, yields and SEC tools stay unregistered so the agent can
+   * never reach a real-world source through them.
+   */
+  pricesOnly?: boolean;
 }
 
 const SYMBOL_PATTERN = "^[A-Z.]{1,10}$";
@@ -309,6 +317,17 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   // absent. The cutoff is read per call because the simulated date advances.
   const pit = createPointInTimeMarketData(market, () => asOf?.() ?? etDate(clock.now()));
 
+  /**
+   * Indicator input for pricesOnly markets: the full transformed series from
+   * the injected market (warmup included), with the range window counted back
+   * from the simulated date. Never touches the Nasdaq-backed store.
+   */
+  async function scenarioExtended(symbol: string, range: HistoryRange): Promise<ExtendedHistory> {
+    const full = (await pit.history(symbol, "5y")).bars;
+    const window = full.length > VOL_WINDOW[range] ? full.slice(full.length - VOL_WINDOW[range]) : full;
+    return { window, full };
+  }
+
   /** "As of <date>: " prefix for every text output when simulating, else "". */
   function tag(): string {
     const cutoff = asOf?.();
@@ -379,7 +398,9 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     async execute(args) {
       try {
         const range = rangeOr(args.range as RangeArg, "1y");
-        const { window, full } = await store.extended(args.symbol, range);
+        const { window, full } = deps.pricesOnly === true
+          ? await scenarioExtended(args.symbol, range)
+          : await store.extended(args.symbol, range);
         const last = window[window.length - 1] ?? full[full.length - 1];
         if (!last) return fail(`No price history found for ${args.symbol} (${range}).`);
         const c = closes(full);
@@ -799,7 +820,9 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
 
   return defineExtension({
     name: "market",
-    tools: [priceHistory, indicators, compare, earnings, earningsCalendar, economicCalendar, volatility, yields, secCompany],
+    tools: deps.pricesOnly === true
+      ? [priceHistory, indicators, compare]
+      : [priceHistory, indicators, compare, earnings, earningsCalendar, economicCalendar, volatility, yields, secCompany],
   });
 }
 
