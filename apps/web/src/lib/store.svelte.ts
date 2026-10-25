@@ -109,7 +109,7 @@ class Harness {
     sim.attach(this.#api);
     this.#unsubscribe = this.#api.subscribe({
       onEvent: (e) => {
-        if (e.type === "sim" || ("simRunId" in e && e.simRunId)) {
+        if (e.type === "sim" || e.type === "sim_suite" || ("simRunId" in e && e.simRunId)) {
           sim.apply(e);
           return;
         }

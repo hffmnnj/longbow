@@ -9,15 +9,11 @@ import {
   type Report,
   type ReportKind,
   type ReportSummary,
-  type SymbolDetail,
-  type HistoryRange,
-  type JournalEntry,
-  type NoteContent,
-  type NoteFile,
-  type PriceHistory,
-  type PushSubscriptionInput,
   type SimRun,
   type SimRunConfig,
+  type SimScenario,
+  type SimSuite,
+  type SimSuiteConfig,
   type Skill,
   type SkillSummary,
   type SubagentRun,
@@ -26,6 +22,13 @@ import {
   type Settings,
   type SettingsPatch,
   type StatusResponse,
+  type SymbolDetail,
+  type HistoryRange,
+  type JournalEntry,
+  type NoteContent,
+  type NoteFile,
+  type PriceHistory,
+  type PushSubscriptionInput,
 } from "@rh/shared";
 
 export class ApiError extends Error {
@@ -74,6 +77,11 @@ export interface Api {
   simRun(id: string): Promise<SimRun>;
   simStart(config: SimRunConfig): Promise<SimRun>;
   simStop(id: string): Promise<SimRun | void>;
+  simScenarios(): Promise<SimScenario[]>;
+  simSuites(): Promise<SimSuite[]>;
+  simSuite(id: string): Promise<SimSuite>;
+  simSuiteStart(config: SimSuiteConfig): Promise<SimSuite>;
+  simSuiteStop(id: string): Promise<SimSuite | void>;
   simMessages(id: string, limit?: number, conversationId?: string): Promise<ChatMessage[]>;
   simJournal(id: string): Promise<JournalEntry[]>;
   simOrders(id: string): Promise<OrderRecord[]>;
@@ -202,6 +210,11 @@ export const realApi: Api = {
   simRun: (id) => request("GET", `/api/sim/runs/${encodeURIComponent(id)}`),
   simStart: (config) => request("POST", "/api/sim/runs", config),
   simStop: (id) => request("POST", `/api/sim/runs/${encodeURIComponent(id)}/stop`, {}),
+  simScenarios: () => request("GET", "/api/sim/scenarios"),
+  simSuites: () => request("GET", "/api/sim/suites"),
+  simSuite: (id) => request("GET", `/api/sim/suites/${encodeURIComponent(id)}`),
+  simSuiteStart: (config) => request("POST", "/api/sim/suites", config),
+  simSuiteStop: (id) => request("POST", `/api/sim/suites/${encodeURIComponent(id)}/stop`, {}),
   simMessages: (id, limit = 200, conversationId) =>
     request(
       "GET",

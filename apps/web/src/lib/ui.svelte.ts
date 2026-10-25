@@ -27,6 +27,11 @@ export const ui = $state({
   compare: [] as string[],
   comparing: false,
   newSim: false,
+  /** Lab tab: the run list or the variant suites. */
+  labTab: "runs" as "runs" | "suites",
+  /** Suite open in the detail pane; null shows the suite list. */
+  suite: null as string | null,
+  newSuite: false,
   confirmKill: false,
 });
 
