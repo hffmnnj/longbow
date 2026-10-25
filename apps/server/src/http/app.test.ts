@@ -1,5 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { DEFAULT_SETTINGS, type OrderRecord } from "@rh/shared";
 import { createApp, type AppDeps } from "./app.ts";
 import { loadConfig } from "../config.ts";
@@ -248,6 +250,22 @@ describe("app routes", () => {
   let d: ReturnType<typeof deps>;
   beforeEach(() => {
     d = deps();
+  });
+
+  it("serves the published Android app and says plainly when there is none", async () => {
+    const dataDir = mkdtempSync("/tmp/apk-test-");
+    try {
+      const app = createApp({ ...d, config: { ...d.config, DATA_DIR: dataDir } });
+      assert.equal((await app.request("/download/longbow.apk")).status, 404);
+      mkdirSync(join(dataDir, "downloads"));
+      writeFileSync(join(dataDir, "downloads", "longbow.apk"), "PK-apk-bytes");
+      const res = await app.request("/download/longbow.apk");
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get("content-type"), "application/vnd.android.package-archive");
+      assert.equal(await res.text(), "PK-apk-bytes");
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it("returns 400 on an invalid message body", async () => {
