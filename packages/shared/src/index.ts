@@ -549,6 +549,7 @@ export interface ReportFacts {
   periodEnd: string;
   startEquity?: number;
   endEquity?: number;
+  /** The account's P&L over the period; for a trade report, the trade's own realized P&L. */
   pnl?: number;
   pnlPct?: number;
   /** SPY's percent change over the same period. */

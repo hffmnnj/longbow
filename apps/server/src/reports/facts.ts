@@ -396,6 +396,9 @@ export async function buildTradeFacts(deps: ReportFactsDeps, symbol: string): Pr
     periodEnd: exitDate,
     ...equitySlice(deps, entryDate, exitDate),
     ...(await periodFacts(deps, entryDate, exitDate)),
+    // A trade report's P&L is the trade's own, not the account's over the holding period.
+    pnl: selected.trade.pnl,
+    ...(selected.trade.pnlPct === undefined ? { pnlPct: undefined } : { pnlPct: selected.trade.pnlPct }),
     trade: {
       trade: selected.trade,
       ...(selected.plan === undefined ? {} : { plan: selected.plan }),
