@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+
+import 'bridge.dart';
 
 /// Base URL of the served Longbow web app. Override at build time, e.g.
 /// `flutter build apk --release --dart-define=LONGBOW_URL=https://host:8443/`.
@@ -13,7 +16,7 @@ const String longbowUrl = String.fromEnvironment(
 );
 
 /// Longbow dark surface, shared by the web app theme-color, the Android
-/// system bars, the splash, and every native screen.
+/// system bars, the native splash, the loading overlay, and error screen.
 const Color longbowBackground = Color(0xFF16191d);
 
 /// Suffix appended to the WebView user agent so the server can tell the
@@ -22,6 +25,35 @@ const String longbowUserAgentSuffix = ' LongbowAndroid/1.0';
 
 /// How often the unreachable screen retries on its own.
 const Duration retryInterval = Duration(seconds: 10);
+
+/// Channel the web app's `LongbowBridge` posts to.
+const String bridgeChannel = 'LongbowBridge';
+
+/// Method channel to the Android embedding (print, notifications, deep links).
+const MethodChannel nativeChannel = MethodChannel('longbow/native');
+
+/// Haptic kinds the web app sends over the bridge.
+const Set<String> hapticKinds = <String>{
+  'selection',
+  'light',
+  'medium',
+  'heavy',
+  'success',
+  'warning',
+  'error',
+};
+
+/// Asks the open web page whether it consumed an Escape keypress. bits-ui
+/// sheets, dialogs, and the command palette listen for Escape on `document`
+/// and preventDefault it when they close, so `defaultPrevented` tells the
+/// app whether a native back press should dismiss a sheet (true) or walk
+/// WebView history (false). Returns false when nothing overlays the page.
+const String escapeProbe = '(function(){'
+    'var s="[role=dialog][data-state=open],[role=menu][data-state=open],[role=listbox][data-state=open]";'
+    'if(!document.querySelector(s))return false;'
+    'var e=new KeyboardEvent("keydown",{key:"Escape",code:"Escape",keyCode:27,which:27,bubbles:true,cancelable:true});'
+    'document.dispatchEvent(e);'
+    'return true;})()';
 
 void main() {
   runApp(const LongbowApp());
@@ -87,6 +119,9 @@ class LongbowHome extends StatefulWidget {
 class _LongbowHomeState extends State<LongbowHome>
     with WidgetsBindingObserver {
   LongbowStatus _status = LongbowStatus.loading;
+
+  /// True once the first page finished loading; drives the crossfade.
+  bool _ready = false;
   WebViewController? _controller;
   Timer? _retryTimer;
 
@@ -101,11 +136,17 @@ class _LongbowHomeState extends State<LongbowHome>
   void initState() {
     super.initState();
     _status = widget.initialStatus;
+    _ready = _status == LongbowStatus.ready;
     SystemChrome.setSystemUIOverlayStyle(_systemBars);
     WidgetsBinding.instance.addObserver(this);
+    nativeChannel.setMethodCallHandler(_onNativeMethod);
     if (_status == LongbowStatus.unreachable) {
       _beginAutoRetry();
     } else {
+      if (_status == LongbowStatus.ready) {
+        // Widget tests inject the ready state with no WebView.
+        _controller ??= _buildController();
+      }
       unawaited(_load());
     }
   }
@@ -127,16 +168,45 @@ class _LongbowHomeState extends State<LongbowHome>
     }
   }
 
+  /// Calls from the Android embedding: notification taps while running.
+  Future<void> _onNativeMethod(MethodCall call) async {
+    if (call.method == 'openUrl') {
+      final Object? args = call.arguments;
+      final String? url = args is Map
+          ? args['url'] as String?
+          : args as String?;
+      if (url != null && url.isNotEmpty) unawaited(_openUrl(url));
+    }
+  }
+
+  Future<void> _openUrl(String url) async {
+    final String target = resolveLaunchUrl(base: longbowUrl, path: url);
+    try {
+      final WebViewController controller = _controller ??= _buildController();
+      if (_status == LongbowStatus.unreachable) {
+        if (mounted) setState(() => _status = LongbowStatus.loading);
+      }
+      await controller.loadRequest(Uri.parse(target));
+    } catch (_) {
+      _showUnreachable();
+    }
+  }
+
   WebViewController _buildController() {
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(longbowBackground)
+      ..addJavaScriptChannel(bridgeChannel,
+          onMessageReceived: _onBridgeMessage)
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: _decideNavigation,
           onPageFinished: (_) {
             if (!mounted || _status == LongbowStatus.unreachable) return;
-            setState(() => _status = LongbowStatus.ready);
+            setState(() {
+              _status = LongbowStatus.ready;
+              _ready = true;
+            });
           },
           onWebResourceError: (error) {
             if (error.isForMainFrame ?? false) _showUnreachable();
@@ -148,6 +218,113 @@ class _LongbowHomeState extends State<LongbowHome>
         ),
       );
     return controller;
+  }
+
+  /// One `LongbowBridge.postMessage(JSON.stringify({ id, method, args }))`.
+  Future<void> _onBridgeMessage(JavaScriptMessage message) async {
+    final WebViewController? controller = _controller;
+    if (controller == null) return;
+    late final BridgeRequest request;
+    try {
+      request = BridgeRequest.parse(message.message);
+    } catch (e) {
+      // No id to answer; nothing the web is waiting on.
+      debugPrint('LongbowBridge: ignoring malformed message: $e');
+      return;
+    }
+    Future<void> reply({Object? value, String? error}) {
+      return controller.runJavaScript(
+        bridgeReply(request.id, value: value, error: error),
+      );
+    }
+
+    try {
+      switch (request.method) {
+        case 'haptic':
+          await _doHaptic(request.args['kind'] as String?);
+          await reply();
+        case 'copy':
+          final Object? text = request.args['text'];
+          if (text is! String || text.isEmpty) {
+            await reply(error: 'copy needs { text }');
+            return;
+          }
+          await Clipboard.setData(ClipboardData(text: text));
+          await HapticFeedback.lightImpact();
+          await reply();
+        case 'badge':
+          // No-op: launchers show notification dots from the alert
+          // notifications, so there is nothing to set or clear.
+          await reply();
+        case 'print':
+          final Object? title = request.args['title'];
+          await nativeChannel.invokeMethod('print', <String, Object?>{
+            'identifier': _webViewIdentifier(),
+            'title': title is String && title.isNotEmpty
+                ? title
+                : 'Longbow report',
+          });
+          await reply();
+        case 'notifications.status':
+          final String? status = await nativeChannel
+              .invokeMethod<String>('notificationsStatus');
+          await reply(value: status ?? 'off');
+        case 'notifications.enable':
+          final String? status = await nativeChannel
+              .invokeMethod<String>('notificationsEnable', <String, Object?>{
+            'baseUrl': longbowUrl,
+          });
+          await reply(value: status ?? 'off');
+        case 'notifications.disable':
+          final String? status = await nativeChannel
+              .invokeMethod<String>('notificationsDisable');
+          await reply(value: status ?? 'off');
+        default:
+          await reply(error: 'unknown method "${request.method}"');
+      }
+    } on PlatformException catch (e) {
+      try {
+        await reply(error: e.message ?? 'native call failed');
+      } catch (_) {
+        // The page is gone; nothing left to answer.
+      }
+    } catch (e) {
+      try {
+        await reply(error: '$e');
+      } catch (_) {
+        // The page is gone; nothing left to answer.
+      }
+    }
+  }
+
+  int? _webViewIdentifier() {
+    final WebViewController? controller = _controller;
+    if (controller?.platform is AndroidWebViewController) {
+      return (controller!.platform as AndroidWebViewController)
+          .webViewIdentifier;
+    }
+    return null;
+  }
+
+  static Future<void> _doHaptic(String? kind) {
+    if (kind != null && !hapticKinds.contains(kind)) {
+      throw ArgumentError('unknown haptic kind "$kind"');
+    }
+    switch (kind) {
+      case 'selection':
+        return HapticFeedback.selectionClick();
+      case 'medium':
+      case 'success':
+        return HapticFeedback.mediumImpact();
+      case 'heavy':
+      case 'warning':
+        return HapticFeedback.heavyImpact();
+      case 'error':
+        return HapticFeedback.vibrate();
+      case 'light':
+      default:
+        return HapticFeedback.lightImpact();
+    }
   }
 
   /// Same-origin navigations stay in the WebView; everything else
@@ -173,7 +350,16 @@ class _LongbowHomeState extends State<LongbowHome>
       if (current != null && !current.contains('LongbowAndroid')) {
         await controller.setUserAgent('$current$longbowUserAgentSuffix');
       }
-      await controller.loadRequest(Uri.parse(longbowUrl));
+      if (controller.platform is AndroidWebViewController) {
+        // Pinch zoom fights the app's own touch targets; the PWA layout
+        // already fits the phone width.
+        await (controller.platform as AndroidWebViewController)
+            .enableZoom(false);
+      }
+      final String? initial =
+          await nativeChannel.invokeMethod<String>('getInitialUrl');
+      final String start = resolveLaunchUrl(base: longbowUrl, path: initial);
+      await controller.loadRequest(Uri.parse(start));
     } catch (_) {
       _showUnreachable();
     }
@@ -192,7 +378,10 @@ class _LongbowHomeState extends State<LongbowHome>
   void _showUnreachable() {
     if (!mounted) return;
     if (_status != LongbowStatus.unreachable) {
-      setState(() => _status = LongbowStatus.unreachable);
+      setState(() {
+        _status = LongbowStatus.unreachable;
+        _ready = false;
+      });
     }
     _beginAutoRetry();
   }
@@ -206,17 +395,29 @@ class _LongbowHomeState extends State<LongbowHome>
   Future<void> _onPopInvoked(bool didPop) async {
     if (didPop) return;
     final controller = _controller;
-    if (_status != LongbowStatus.unreachable &&
-        controller != null &&
-        await controller.canGoBack()) {
-      await controller.goBack();
-    } else {
-      await SystemNavigator.pop();
+    if (_status != LongbowStatus.unreachable && controller != null) {
+      // Let the web app close an open sheet first: it consumes the
+      // synthetic Escape exactly when a sheet, dialog, or menu is open.
+      // Otherwise walk WebView history, else leave the app.
+      try {
+        final consumed =
+            await controller.runJavaScriptReturningResult(escapeProbe);
+        if (consumed == true) return;
+      } catch (_) {
+        // A page that cannot run the probe cannot consume the back press.
+      }
+      if (await controller.canGoBack()) {
+        await controller.goBack();
+        return;
+      }
     }
+    await SystemNavigator.pop();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Skip the crossfade when the OS asks for reduced motion.
+    final bool reduceMotion = MediaQuery.disableAnimationsOf(context);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) => _onPopInvoked(didPop),
@@ -228,9 +429,14 @@ class _LongbowHomeState extends State<LongbowHome>
               : Stack(
                   children: [
                     if (_controller != null)
-                      WebViewWidget(controller: _controller!),
-                    if (_status == LongbowStatus.loading)
-                      const SplashLook(),
+                      AnimatedOpacity(
+                        opacity: _ready ? 1 : 0,
+                        duration: reduceMotion
+                            ? Duration.zero
+                            : const Duration(milliseconds: 200),
+                        child: WebViewWidget(controller: _controller!),
+                      ),
+                    if (!_ready) const SplashLook(),
                   ],
                 ),
         ),

@@ -27,6 +27,7 @@
     import { startClock } from "$lib/clock.svelte";
   import { viewport, watchViewport } from "$lib/media.svelte";
   import { haptic, registerServiceWorker, setBadge } from "$lib/pwa.svelte";
+  import { runSectionTransition } from "$lib/native";
   import { ago } from "$lib/format";
   import { harness } from "$lib/store.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -75,13 +76,23 @@
   const deepReport = $derived($page.url.searchParams.get("report"));
   $effect(() => {
     if (deepReport) {
-      ui.section = "reports";
-      ui.report = deepReport;
+      runSectionTransition(() => {
+        ui.section = "reports";
+        ui.report = deepReport;
+      });
       const url = new URL(window.location.href);
       url.searchParams.delete("report");
       history.replaceState(history.state, "", url.pathname + url.search + url.hash);
     }
   });
+
+  function select(next: typeof ui.section) {
+    if (ui.section === next) return;
+    haptic("selection");
+    runSectionTransition(() => {
+      ui.section = next;
+    });
+  }
 </script>
 
 <svelte:head><title>{harness.pending.length ? `(${harness.pending.length}) ` : ""}Longbow</title></svelte:head>
@@ -151,7 +162,7 @@
         <button
           type="button"
           aria-current={active ? "page" : undefined}
-          onclick={() => (ui.section = item.value)}
+          onclick={() => select(item.value)}
           class={cn(
             "text-muted-foreground relative flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
             "after:bg-foreground after:absolute after:inset-x-5 after:top-0 after:h-0.5 after:rounded-full after:opacity-0",
@@ -180,7 +191,7 @@
   confirmLabel="Engage kill switch"
   destructive
   onconfirm={async () => {
-    if (await harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged")) haptic();
+    if (await harness.quickPatch("kill", { killSwitch: true }, "Kill switch engaged")) haptic("heavy");
   }}
 />
 <NewSimSheet />

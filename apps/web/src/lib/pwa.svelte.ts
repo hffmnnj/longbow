@@ -1,6 +1,7 @@
 import { toast } from "svelte-sonner";
 import { PushSubscriptionSchema } from "@rh/shared";
 import { harness } from "./store.svelte.ts";
+import { isNativeApp, nativeCall, type HapticKind, type NotificationStatus } from "./native.ts";
 import { needsHomeScreen, urlBase64ToUint8Array, type PushState } from "./push.ts";
 
 /** Registers the service worker and surfaces a waiting update as a toast with a Reload action. */
@@ -42,8 +43,12 @@ export function registerServiceWorker(): void {
     .catch(() => {});
 }
 
-/** Home Screen badge: halts plus failed orders today. Clears at zero. */
+/** Home Screen badge: halts plus failed orders today. Clears at zero. No-op in the app: launchers show dots from the alert notifications. */
 export function setBadge(count: number): void {
+  if (isNativeApp()) {
+    void nativeCall("badge", { count }).catch(() => {});
+    return;
+  }
   const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
   try {
     if (count > 0) void nav.setAppBadge?.(count)?.catch(() => {});
@@ -53,15 +58,31 @@ export function setBadge(count: number): void {
   }
 }
 
-export function haptic(ms = 30): void {
+/** Web fallback durations for each haptic kind; the app plays them natively instead. */
+const WEB_HAPTIC: Record<HapticKind, number | number[]> = {
+  selection: 10,
+  light: 20,
+  medium: 30,
+  heavy: 50,
+  success: [20, 40, 20],
+  warning: [40, 40, 40],
+  error: [60, 40, 60],
+};
+
+export function haptic(kind: HapticKind = "light"): void {
+  if (isNativeApp()) {
+    void nativeCall("haptic", { kind }).catch(() => {});
+    return;
+  }
   try {
-    navigator.vibrate?.(ms);
+    navigator.vibrate?.(WEB_HAPTIC[kind]);
   } catch {
     /* unsupported */
   }
 }
 
 export function isStandalone(): boolean {
+  if (isNativeApp()) return true;
   const nav = navigator as Navigator & { standalone?: boolean };
   return nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
 }
@@ -86,6 +107,16 @@ class PushStore {
 
   async refresh(): Promise<void> {
     this.homeScreen = iosNeedsHomeScreen();
+    // The app has no PushManager; its foreground service owns the toggle.
+    if (isNativeApp()) {
+      try {
+        this.state = await nativeCall<NotificationStatus>("notifications.status");
+      } catch {
+        this.state = "off";
+      }
+      this.ready = true;
+      return;
+    }
     if (!this.#supported()) {
       this.state = "unsupported";
       this.ready = true;
@@ -110,7 +141,21 @@ class PushStore {
   }
 
   async enable(): Promise<void> {
-    if (this.busy || !this.#supported()) return;
+    if (this.busy) return;
+    if (isNativeApp()) {
+      this.busy = true;
+      try {
+        this.state = await nativeCall<NotificationStatus>("notifications.enable");
+        if (this.state === "on") toast.success("Notifications on");
+      } catch (e) {
+        toast.error("Could not turn on notifications", { description: e instanceof Error ? e.message : undefined });
+        await this.refresh();
+      } finally {
+        this.busy = false;
+      }
+      return;
+    }
+    if (!this.#supported()) return;
     this.busy = true;
     try {
       const permission = await Notification.requestPermission();
@@ -139,6 +184,17 @@ class PushStore {
 
   async disable(): Promise<void> {
     if (this.busy) return;
+    if (isNativeApp()) {
+      this.busy = true;
+      try {
+        this.state = await nativeCall<NotificationStatus>("notifications.disable");
+      } catch (e) {
+        toast.error("Could not turn off notifications", { description: e instanceof Error ? e.message : undefined });
+      } finally {
+        this.busy = false;
+      }
+      return;
+    }
     this.busy = true;
     try {
       const reg = await navigator.serviceWorker.getRegistration();
