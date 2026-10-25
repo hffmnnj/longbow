@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isAllowedPeer } from "./peers.ts";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import {
@@ -116,6 +117,13 @@ function csrfMiddleware(deps: Pick<AppDeps, "config">) {
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // The node adapter exposes the socket; in-process test requests have none and are local by construction.
+  app.use(async (c, next) => {
+    const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket;
+    if (socket !== undefined && !isAllowedPeer(socket.remoteAddress)) return c.text("Forbidden", 403);
+    await next();
+  });
 
   app.use(csrfMiddleware(deps) as never);
 

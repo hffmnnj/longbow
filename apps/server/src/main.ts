@@ -285,7 +285,7 @@ async function main(): Promise<void> {
   }, 60_000);
   stopWatcher.unref();
 
-  const servers = config.HOSTS.map((hostname) =>
+  const servers = (config.BIND_HOST === undefined ? config.HOSTS : [config.BIND_HOST]).map((hostname) =>
     serve({ fetch: app.fetch, port: config.PORT, hostname }, (info) => {
       log.info("listening", { host: info.address, port: info.port });
     }),

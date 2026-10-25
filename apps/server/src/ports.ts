@@ -44,6 +44,8 @@ export interface Config {
   PORT: number;
   /** Listen addresses, default ["127.0.0.1"] plus the Tailnet address when HARNESS_TAILNET_HOST is set. */
   HOSTS: string[];
+  /** "0.0.0.0" listens on every interface (peers still limited to loopback and the tailnet); unset listens on HOSTS. */
+  BIND_HOST?: "0.0.0.0";
   /** Origin the browser uses, for the OAuth redirect URI and Origin checks, default http://127.0.0.1:4520. */
   PUBLIC_URL: string;
   /** Extra browser origins allowed on mutating requests, such as the Tailscale HTTPS URL (HARNESS_ORIGINS, comma separated). */
