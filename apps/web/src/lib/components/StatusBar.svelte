@@ -116,7 +116,7 @@
   </div>
 
   <!-- Phone -->
-  <div class="px-safe flex items-center gap-3 px-3 py-1.5 md:hidden">
+  <div class="flex items-center gap-3 py-1.5 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:hidden">
     {@render mark()}
     <div class="min-w-0 flex-1">{@render equity()}</div>
     <Button variant="outline" size="icon" class="size-11" onclick={() => (ui.palette = true)} aria-label="Open command palette">
