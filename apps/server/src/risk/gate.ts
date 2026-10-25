@@ -42,6 +42,35 @@ function failedVerdict(detail: string): RiskVerdict {
   return { approved: false, isExit: false, checks: [{ rule: "broker", ok: false, detail }] };
 }
 
+/** Identical retries of a recent risk rejection are refused without re-running the engine. */
+const DUPLICATE_RETRY_WINDOW_MS = 30 * 60_000;
+
+const etTimeFormat = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Cent-level price comparison so 150 and 150.004 count as the same price. */
+function sameCent(a: number | undefined, b: number | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return Math.round(a * 100) === Math.round(b * 100);
+}
+
+/** Same tradable shape: symbol, side, order type, quantity, prices, and lifetime. Cycle and thesis ignored. */
+function isIdenticalRetry(a: OrderIntent, b: OrderIntent): boolean {
+  return (
+    a.symbol === b.symbol &&
+    a.side === b.side &&
+    a.orderType === b.orderType &&
+    a.quantity === b.quantity &&
+    sameCent(a.limitPrice, b.limitPrice) &&
+    sameCent(a.stopPrice, b.stopPrice) &&
+    a.timeInForce === b.timeInForce
+  );
+}
+
 const MARKET_DATA_TIMEOUT_MS = 15_000;
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -195,6 +224,29 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
       const valid = parsed.data;
+
+      const duplicate = store
+        .ordersSince(now - DUPLICATE_RETRY_WINDOW_MS)
+        .find((o) => o.status === "rejected_risk" && isIdenticalRetry(o.intent, valid));
+      if (duplicate !== undefined) {
+        const rules = duplicate.verdict.checks.filter((c) => !c.ok).map((c) => c.rule);
+        const order: OrderRecord = {
+          ...duplicate,
+          error:
+            `Identical to order ${duplicate.id} rejected at ` +
+            `${etTimeFormat.format(new Date(duplicate.createdAt))} ET` +
+            ` for ${rules.length === 0 ? "risk rules" : rules.join(", ")}.` +
+            ` Change the input that failed instead of retrying.`,
+        };
+        publish(order);
+        log.info("order rejected as identical retry", {
+          orderId: duplicate.id,
+          symbol: valid.symbol,
+          side: valid.side,
+          quantity: valid.quantity,
+        });
+        return order;
+      }
 
       let snapshot: AccountSnapshot;
       try {

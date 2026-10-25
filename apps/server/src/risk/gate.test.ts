@@ -495,3 +495,74 @@ describe("order gate", () => {
     assert.equal(broker.quoteCalls, 0);
   });
 });
+
+describe("identical-retry guard", () => {
+  it("refuses an identical retry within 30 minutes without a new order and names the failed rules", async () => {
+    const { gate, store, broker } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, killSwitch: true };
+    const first = await gate.submit(baseIntent());
+    assert.equal(first.status, "rejected_risk");
+    assert.ok(first.verdict.checks.some((c) => c.rule === "kill_switch" && !c.ok));
+    const snapshotCalls = broker.snapshotCalls;
+    const retry = await gate.submit({ ...baseIntent() });
+    assert.equal(retry.id, first.id);
+    assert.equal(retry.status, "rejected_risk");
+    assert.match(
+      retry.error ?? "",
+      /Identical to order order-1 rejected at \d{2}:\d{2} ET for kill_switch\. Change the input that failed instead of retrying\./,
+    );
+    assert.equal(store.orders.size, 1);
+    assert.equal(broker.snapshotCalls, snapshotCalls);
+  });
+
+  it("evaluates a retry with a changed limit price normally", async () => {
+    const { gate, store, broker } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, killSwitch: true };
+    const first = await gate.submit(baseIntent());
+    const changed = await gate.submit({ ...baseIntent(), limitPrice: 151 });
+    assert.notEqual(changed.id, first.id);
+    assert.equal(changed.status, "rejected_risk");
+    assert.equal(changed.error, undefined);
+    assert.equal(store.orders.size, 2);
+    assert.equal(broker.snapshotCalls, 2);
+  });
+
+  it("treats a sub-cent price difference as the same order", async () => {
+    const { gate, store, broker } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, killSwitch: true };
+    const first = await gate.submit(baseIntent());
+    const retry = await gate.submit({ ...baseIntent(), limitPrice: 150.004 });
+    assert.equal(retry.id, first.id);
+    assert.match(retry.error ?? "", /Identical to order order-1/);
+    assert.equal(store.orders.size, 1);
+    assert.equal(broker.snapshotCalls, 1);
+  });
+
+  it("evaluates an identical retry after 31 minutes normally", async () => {
+    const { gate, store, broker, setNow } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, killSwitch: true };
+    const first = await gate.submit(baseIntent());
+    setNow(NOW + 31 * 60_000);
+    const retry = await gate.submit({ ...baseIntent() });
+    assert.notEqual(retry.id, first.id);
+    assert.equal(retry.status, "rejected_risk");
+    assert.equal(store.orders.size, 2);
+    assert.equal(broker.snapshotCalls, 2);
+  });
+
+  it("blocks only the exact duplicate of a rejected exit", async () => {
+    const { gate, store, broker } = setup({ mode: "auto" });
+    store.settings = { ...store.settings, killSwitch: true };
+    const exit = { ...baseIntent(), side: "sell" as const, quantity: 5, invalidationPrice: 160 };
+    const first = await gate.submit(exit);
+    assert.equal(first.status, "rejected_risk");
+    const retry = await gate.submit({ ...exit });
+    assert.equal(retry.id, first.id);
+    assert.match(retry.error ?? "", /Identical to order/);
+    assert.equal(store.orders.size, 1);
+    const snapshotCalls = broker.snapshotCalls;
+    const changedQty = await gate.submit({ ...exit, quantity: 6 });
+    assert.notEqual(changedQty.id, first.id);
+    assert.equal(broker.snapshotCalls, snapshotCalls + 1);
+  });
+});
