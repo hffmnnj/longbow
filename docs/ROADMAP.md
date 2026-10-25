@@ -47,3 +47,4 @@
 - Suite strip chart over-scales its dot with one run per variant; a suite whose runs all failed to start is kept as an empty failed suite.
 - Sim agents retried an identical risk-rejected order four times; the prompt forbids it, so watch whether it recurs after the stop-rounding fix.
 - Run a full blind suite (several scenarios plus bootstrap markets) to set a baseline for the new prompt before go-live.
+- Fee schedule in apps/server/src/fees.ts: FINRA's TAF pause ends 2026-12-31 and the SEC resets the Section 31 rate each spring; update the table when either changes.
