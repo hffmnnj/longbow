@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { Readable } from "node:stream";
 import { join } from "node:path";
 import { isAllowedPeer } from "./peers.ts";
 import { Hono } from "hono";
@@ -326,6 +327,20 @@ export function createApp(deps: AppDeps): Hono {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+      },
+    });
+  });
+
+  // The Android app, published to <DATA_DIR>/downloads by apps/mobile/scripts/publish.sh; tailnet-only like the rest.
+  app.get("/download/longbow.apk", (c) => {
+    const apk = join(deps.config.DATA_DIR, "downloads", "longbow.apk");
+    if (!existsSync(apk)) return c.text("The Android app has not been published yet.", 404);
+    return new Response(Readable.toWeb(createReadStream(apk)) as ReadableStream, {
+      headers: {
+        "Content-Type": "application/vnd.android.package-archive",
+        "Content-Disposition": 'attachment; filename="longbow.apk"',
+        "Content-Length": String(statSync(apk).size),
+        "Cache-Control": "no-store",
       },
     });
   });
