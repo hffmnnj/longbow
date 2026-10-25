@@ -431,6 +431,18 @@ describe("risk engine", () => {
     assert.deepEqual(failedRules(input), ["ev_after_costs"]);
   });
 
+  it("ev_after_costs requires stated costs to cover round-trip fees as well as the spread", () => {
+    // Spread is 0.0667%; a $1,500 sale adds an SEC fee of about 0.003% of notional.
+    const small = passingInput();
+    small.intent = { ...small.intent, quantity: 1, estimatedCostPct: 0.067 };
+    assert.ok(!failedRules(small).includes("ev_after_costs"), "no fees under $500");
+    const large = passingInput();
+    large.intent = { ...large.intent, quantity: 10, estimatedCostPct: 0.067 };
+    assert.ok(failedRules(large).includes("ev_after_costs"), "the spread alone no longer covers it");
+    large.intent = { ...large.intent, estimatedCostPct: 0.07 };
+    assert.ok(!failedRules(large).includes("ev_after_costs"));
+  });
+
   it("time_stop blocks a stop that is not after today", () => {
     const input = passingInput();
     input.intent = { ...input.intent, timeStopDate: TODAY };

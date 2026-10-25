@@ -420,8 +420,11 @@ export interface ClosedTrade {
   quantity: number;
   entryPrice?: number;
   exitPrice: number;
+  /** Realized P&L net of regulatory fees. */
   pnl: number;
   pnlPct?: number;
+  /** Regulatory fees on both legs, dollars, when known (harness trades); already subtracted from pnl. */
+  fees?: number;
   /** Realized P&L over planned risk (entry minus invalidation), for harness trades with a plan. */
   rMultiple?: number;
   holdingDays?: number;
@@ -704,6 +707,8 @@ export interface SimFill {
   mid?: number;
   /** Dollars paid versus the mid: half-spread plus slippage (always >= 0 in realistic execution). */
   cost?: number;
+  /** Regulatory fees charged on this fill (SEC, FINRA TAF, CAT), dollars; deducted from cash. */
+  fees?: number;
 }
 
 export interface SimMetrics {
@@ -743,11 +748,13 @@ export interface SimMetrics {
   maxConsecutiveLosses?: number;
   /** Traded notional over average equity, percent. */
   turnoverPct: number;
-  /** Spread and slippage paid, dollars and percent of starting cash. */
+  /** Spread, slippage and regulatory fees paid, dollars and percent of starting cash. */
   costsPaid: number;
   costsPct: number;
   /** Risk-engine rejections by rule, for example { sector: 2, max_positions: 1 }. */
   riskBlocks: Record<string, number>;
+  /** Regulatory fees alone, dollars (included in costsPaid). */
+  feesPaid?: number;
 }
 
 export interface SimRun {

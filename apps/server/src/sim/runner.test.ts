@@ -146,7 +146,7 @@ test("starts a bootstrap run without a start date", async () => {
     const run = await sim.start({ mode: "bootstrap", days: 5, seed: 7, startingCash: 1200, cyclesPerDay: 2 }, "user", { suiteId: "s1", variant: "A" });
     assert.equal(run.config.startDate, undefined);
     const done = await waitForDone(sim, run.id);
-    assert.equal(done.status, "done", done.error);
+    assert.equal(done.status, "done", done.error ?? "");
     assert.equal(done.aliases?.["MKT"], "SPY");
   } finally {
     await sim.close();

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Bar, OrderIntent, Position, SimExecution, SimFill } from "@rh/shared";
 import type { Broker, Clock, MarketCalendar } from "../ports.ts";
+import { equityFees } from "../fees.ts";
 import { etInstant, pathPrice, pathSegment, realisticPrice, realisticSegment, sessionFraction } from "./path.ts";
 import { avgDollarVolumeBefore, halfSpreadBps, returnVolatilityBefore, slippageBps } from "./execution.ts";
 
@@ -50,9 +51,10 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const { intent } = order;
     const held = holdings.get(intent.symbol) ?? { quantity: 0, cost: 0 };
     const notional = price * intent.quantity;
+    const fees = equityFees({ side: intent.side, quantity: intent.quantity, price, date: deps.calendar.etDate(at) }).total;
     if (intent.side === "buy") {
-      if (notional > settled + 1e-8) throw new Error("Insufficient settled cash");
-      settled -= notional;
+      if (notional + fees > settled + 1e-8) throw new Error("Insufficient settled cash");
+      settled -= notional + fees;
       holdings.set(intent.symbol, { quantity: held.quantity + intent.quantity, cost: held.cost + notional,
         ...(intent.sector === undefined ? {} : { sector: intent.sector }) });
     } else {
@@ -60,11 +62,11 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const quantity = Math.max(0, held.quantity - intent.quantity);
       if (quantity < 1e-8) holdings.delete(intent.symbol);
       else holdings.set(intent.symbol, { ...held, quantity, cost: held.cost * quantity / held.quantity });
-      proceeds.push({ date: deps.calendar.etDate(at), amount: notional });
+      proceeds.push({ date: deps.calendar.etDate(at), amount: notional - fees });
     }
     order.status = "filled";
     fills.push({ at, date: deps.calendar.etDate(at), symbol: intent.symbol, side: intent.side, quantity: intent.quantity, price,
-      orderId: order.id, mid, cost: Math.abs(price - mid) * intent.quantity });
+      orderId: order.id, mid, cost: Math.abs(price - mid) * intent.quantity, ...(fees > 0 ? { fees } : {}) });
   }
   async function quote(symbol: string) {
     const at = deps.clock.now();

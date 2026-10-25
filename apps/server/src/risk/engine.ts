@@ -9,6 +9,7 @@ import type {
   Settings,
 } from "@rh/shared";
 import { etDateForInstant } from "./calendar.ts";
+import { roundTripFeePct } from "../fees.ts";
 
 /**
  * Pure risk engine. `evaluate` runs every rule, appends one RiskCheck per
@@ -507,19 +508,23 @@ export function evaluate(input: RiskInput): RiskVerdict {
     push("ev_after_costs", false, `mid ${mid} is not positive; cannot check expected value`);
   } else {
     const spreadPct = ((quote.ask - quote.bid) / mid) * 100;
+    // Fees on the exit leg are priced at the target, the larger sale and so the larger SEC fee.
+    const feePct = roundTripFeePct(intent.quantity, mid, mid * (1 + intent.expectedGainPct / 100), todayEt);
+    const floorPct = spreadPct + feePct;
     const ev =
       intent.probabilityWin * intent.expectedGainPct -
       (1 - intent.probabilityWin) * intent.expectedLossPct -
       intent.estimatedCostPct;
     const required = risk.minEvToCost * intent.estimatedCostPct;
-    const ok = intent.estimatedCostPct >= spreadPct && ev > required;
+    const ok = intent.estimatedCostPct >= floorPct && ev > required;
     push(
       "ev_after_costs",
       ok,
       `EV ${ev.toFixed(2)}% = ${intent.probabilityWin}x${intent.expectedGainPct}% - ` +
         `${(1 - intent.probabilityWin).toFixed(2)}x${intent.expectedLossPct}% - ` +
         `${intent.estimatedCostPct}% costs vs required >${required.toFixed(2)}% ` +
-        `(${risk.minEvToCost}x costs); costs ${intent.estimatedCostPct}% vs spread ${spreadPct.toFixed(3)}%`,
+        `(${risk.minEvToCost}x costs); costs ${intent.estimatedCostPct}% vs spread ${spreadPct.toFixed(3)}% ` +
+        `+ round-trip fees ${feePct.toFixed(3)}% = floor ${floorPct.toFixed(3)}%`,
     );
   }
 

@@ -41,7 +41,7 @@ const PROTOCOL = [
   "7. Pre-mortem: assume the trade lost; name the two most likely reasons and check whether either is already visible in the data. If one is, pass.",
   "8. Invalidation (from structure, not from how much you are willing to lose) and a time stop date (by when it must have worked).",
   "9. Probability: start from the measured base rate, adjust for what is different this time by a stated amount, and keep the final number within 15 points of the base rate unless the evidence is exceptional. Overconfidence is the most common and most expensive error; your Brier score is reviewed.",
-  "10. Expected gain to target and loss to invalidation in percent, plus round-trip costs from the current spread and expected slippage.",
+  "10. Expected gain to target and loss to invalidation in percent, plus round-trip costs: the current spread, expected slippage, and trading fees on both legs (see Fees). estimatedCostPct must include all three; the risk engine rejects an entry whose stated costs are below the spread plus the round-trip fees.",
   "11. Expected value after costs: p(win) x gain - p(loss) x loss - costs, in percent of notional. Act only when it clears several multiples of costs; borderline is a hold.",
   "12. Size with size_position (risk budget over the distance to invalidation, capped by the engine's limits) and scale it by the regime's exposure budget. Never size from conviction.",
   "13. Portfolio check with portfolio_risk and the candidate: reject the trade if it pushes the highest pairwise correlation with a holding above 0.8 for the same thesis, breaches the sector cap, or takes portfolio beta above the regime's budget.",
@@ -86,6 +86,8 @@ const RISK = [
   "Risk rules the engine enforces; the live numbers are in the cycle header and in get_risk_state, which override anything remembered from earlier runs. Read both before sizing any trade.",
   "Plan every trade within them: per-trade risk to invalidation as a share of equity; a cap per name and per sector; a cap on open positions; a cap on new entries per day; quiet periods after the open and before the close; a daily loss halt and a monthly drawdown halt on new entries; a minimum hold except for stop exits; a cap on day trades in 5 business days; gates on limit distance from mid and on spread; an expected-value-after-costs gate; an earnings blackout; and a liquidity floor on average daily dollar volume.",
   "Check the spread on a fresh quote: a wide spread is a cost, and an illiquid name fails the EV gate on costs alone.",
+  "Fees: Robinhood charges no commission but passes on regulatory fees. On sells, the SEC fee is $20.60 per $1M sold, rounded up to the cent, waived for sales of $500 or less; the FINRA trading activity fee is $0.000195 per share, capped at $9.79, waived for 50 shares or fewer, and paused by FINRA from Oct 1 to Dec 31, 2026. The CAT fee of $0.000003 per share applies to buys and sells but rounds to zero under a cent. ADRs (TSM, ASML, ARM and similar) also carry custody fees of about $0.01 to $0.03 per share a year, deducted periodically; count them for multi-month holds.",
+  "Profit always means net of every cost: spread, slippage and fees. Expected value, targets, R multiples you report, trade reviews, and lessons all use net figures; harness trade P&L in reports and simulations is already net of fees. A trade whose gross edge only covers its costs is a losing trade.",
   "Avoid entries just ahead of an earnings report and in thin names: the engine cannot see earnings dates, so that judgment is yours. When in doubt about liquidity or an upcoming event, hold.",
 ].join("\n");
 
@@ -132,7 +134,7 @@ const SMALL = [
   "Small account: this account compounds from a small base (about $1,200 at the time of writing; read current equity from the cycle header, never from this sentence).",
   "Concentration is forced: at most 4 names, so every position must earn its slot and its risk. Size with fractional shares to hit the computed dollar risk exactly instead of rounding to whole shares.",
   "Default to liquid ETFs and mega caps as the universe; small caps and thin names lose to spread and slippage at this size.",
-  "Hold multi-day swings, not intraday trades: that keeps clear of day-trade counts and of good-faith violations in a cash account, where only settled cash may be used. There are no commissions, so spread and slippage are the costs that matter.",
+  "Hold multi-day swings, not intraday trades: that keeps clear of day-trade counts and of good-faith violations in a cash account, where only settled cash may be used. There are no commissions, and at this size most sales stay under the fee waivers, so spread and slippage are usually the costs that matter; sales over $500 or 50 shares add regulatory fees.",
   "Never average down, and prefer patience over frequency: fewer, better trades compound, while churn at this size only buys costs. A setup that needs more buying power than the limits allow is a pass, not a reason to stretch.",
 ].join("\n");
 
