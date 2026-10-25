@@ -1,11 +1,11 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
-  import { PRIMARY_NAV, SECONDARY_NAV } from "$lib/nav";
+  import { DESKTOP_NAV } from "$lib/nav";
   import { harness } from "$lib/store.svelte";
   import { ui } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
 
-  const items = [...PRIMARY_NAV, SECONDARY_NAV.find((i) => i.value === "lab")!];
+  const items = DESKTOP_NAV;
 </script>
 
 <nav aria-label="Sections" class="flex items-center gap-0.5">

@@ -3,6 +3,7 @@ import type {
   JournalEntry,
   NoteFile,
   OrderRecord,
+  ReportSummary,
   ServerEvent,
   StatusResponse,
   SubagentRun,
@@ -38,6 +39,8 @@ export interface FeedState {
   transcripts: Record<string, Transcript>;
   notes: NoteFile[];
   outbox: OutboxItem[];
+  /** Published reports, newest first. */
+  reports: ReportSummary[];
 }
 
 export const emptyTranscript = (): Transcript => ({ messages: [], draft: "", calls: [] });
@@ -53,6 +56,7 @@ export const emptyState = (): FeedState => ({
   transcripts: {},
   notes: [],
   outbox: [],
+  reports: [],
 });
 
 /** Insert or replace by id, keeping `key` ascending (messages) or descending (journal, orders). */
@@ -77,6 +81,9 @@ export const upsertOrder = (l: readonly OrderRecord[], o: OrderRecord) =>
   upsert(l, o, (x) => x.createdAt, "desc");
 export const upsertRun = (l: readonly SubagentRun[], r: SubagentRun) =>
   upsert(l, r, (x) => x.startedAt, "desc");
+
+export const upsertReport = (l: readonly ReportSummary[], r: ReportSummary) =>
+  upsert(l, r, (x) => x.at, "desc");
 
 export function upsertNote(list: readonly NoteFile[], note: NoteFile): NoteFile[] {
   return [...list.filter((n) => n.path !== note.path), note].sort((a, b) => a.path.localeCompare(b.path));
@@ -169,6 +176,8 @@ export function applyEvent(state: FeedState, event: ServerEvent): FeedState {
       return { ...state, journal: upsertJournal(state.journal, event.entry) };
     case "order":
       return { ...state, orders: upsertOrder(state.orders, event.order) };
+    case "report":
+      return { ...state, reports: upsertReport(state.reports, event.report) };
     default:
       return state;
   }

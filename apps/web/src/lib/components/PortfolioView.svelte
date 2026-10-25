@@ -7,6 +7,7 @@
   import Panel from "./viz/Panel.svelte";
   import Stat from "./viz/Stat.svelte";
   import Empty from "./Empty.svelte";
+  import LatestReport from "./LatestReport.svelte";
   import Positions from "./Positions.svelte";
   import Ticker from "./Ticker.svelte";
   import { equityReading, equityRows, heatCapPct, REPLAY_LABEL, REPLAY_NOTE, replayReading, replayRows } from "$lib/analytics";
@@ -29,6 +30,7 @@
     if (!harness.loaded) return;
     void harness.loadEquity(range);
     void harness.loadPerformance();
+    void harness.loadReports();
   });
 
   const account = $derived(harness.status?.account);
@@ -204,6 +206,7 @@
 {/snippet}
 
 <div class={cn("flex flex-col gap-3", compact ? "" : "mx-auto w-full max-w-[1400px]")}>
+  <LatestReport />
   {@render kpis()}
   {#if compact}
     {@render equityPanel()}

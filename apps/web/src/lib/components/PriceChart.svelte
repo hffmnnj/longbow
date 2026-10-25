@@ -9,10 +9,14 @@
     LineSeries,
     LineStyle,
     createChart,
+    createSeriesMarkers,
     type IChartApi,
     type IPriceLine,
     type ISeriesApi,
+    type ISeriesMarkersPluginApi,
     type MouseEventParams,
+    type SeriesMarker,
+    type Time,
   } from "lightweight-charts";
   import type { Bar } from "@rh/shared";
   import { sma } from "$lib/chart";
@@ -26,12 +30,23 @@
     tone: "loss" | "primary";
   }
 
-  let { bars, mini = false, lines = [], class: className = "" }: {
+  export interface PriceMarker {
+    /** Bar date the marker sits on, YYYY-MM-DD. */
+    time: string;
+    label: string;
+    kind: "entry" | "exit" | "timestop";
+    /** Exit markers follow the trade outcome; entry and time-stop stay neutral. */
+    tone?: "gain" | "loss";
+  }
+
+  let { bars, mini = false, lines = [], markers = [], class: className = "", ariaLabel }: {
     bars: Bar[];
     /** Compact line chart with no axes chrome, for order cards. */
     mini?: boolean;
     lines?: PriceLine[];
+    markers?: PriceMarker[];
     class?: string;
+    ariaLabel?: string;
   } = $props();
 
   let el = $state<HTMLDivElement | null>(null);
@@ -43,6 +58,7 @@
   let sma50: ISeriesApi<"Line"> | null = null;
   let sma200: ISeriesApi<"Line"> | null = null;
   let hover = $state<Bar | null>(null);
+  let markerApi: ISeriesMarkersPluginApi<Time> | null = null;
   const byDate = $derived(new Map(bars.map((b) => [b.date, b])));
   const shown = $derived(hover ?? bars[bars.length - 1] ?? null);
 
@@ -127,6 +143,29 @@
     hover = typeof p.time === "string" ? (byDate.get(p.time) ?? null) : null;
   }
 
+  function setMarkers() {
+    if (!markerApi) return;
+    const c = palette();
+    markerApi.setMarkers(
+      markers.map(
+        (m): SeriesMarker<Time> => ({
+          time: m.time as Time,
+          position: m.kind === "entry" ? "belowBar" : "aboveBar",
+          color:
+            m.kind === "entry"
+              ? c.primary
+              : m.kind === "exit"
+                ? (m.tone ?? "gain") === "gain"
+                  ? c.up
+                  : c.down
+                : c.text,
+          shape: m.kind === "timestop" ? "circle" : m.kind === "entry" ? "arrowUp" : "arrowDown",
+          text: m.label,
+        }),
+      ),
+    );
+  }
+
   $effect(() => {
     if (!el) return;
     const node = el;
@@ -153,17 +192,26 @@
       theme();
       data();
       priceLines();
+      if (!mini && candle) {
+        markerApi = createSeriesMarkers(candle, []);
+        setMarkers();
+      }
     });
     return () => {
       handles = [];
+      markerApi?.detach();
       chart?.remove();
-      chart = candle = closeLine = volume = sma20 = sma50 = sma200 = null;
+      chart = candle = closeLine = volume = sma20 = sma50 = sma200 = markerApi = null;
     };
   });
 
   $effect(() => {
     bars;
-    untrack(data);
+    markers;
+    untrack(() => {
+      data();
+      setMarkers();
+    });
   });
   $effect(() => {
     lines;
@@ -177,7 +225,7 @@
 </script>
 
 <div class={cn("relative", className)}>
-  <div bind:this={el} class="size-full" role="img" aria-label={mini ? "Three month price chart" : "Price chart"}></div>
+  <div bind:this={el} class="size-full" role="img" aria-label={ariaLabel ?? (mini ? "Three month price chart" : "Price chart")}></div>
   {#if !mini && shown}
     <div class="num text-muted-foreground pointer-events-none absolute top-1.5 right-16 left-2 flex flex-col gap-1 text-[11px]">
       <div class="flex flex-wrap items-center gap-x-3">

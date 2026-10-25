@@ -13,6 +13,8 @@ export {
   CodeIcon,
   CommandIcon,
   File01Icon,
+  News01Icon,
+  PrinterIcon,
   KeyboardIcon,
   Search01Icon,
   SearchingIcon,

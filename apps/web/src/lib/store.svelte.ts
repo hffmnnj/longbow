@@ -4,6 +4,8 @@ import type {
   HistoryRange,
   MarketOverview,
   PerformanceSummary,
+  Report,
+  ReportSummary,
   SymbolDetail,
   NoteFile,
   PriceHistory,
@@ -13,7 +15,9 @@ import type {
 import { toast } from "svelte-sonner";
 import { ApiError, apiMeta, loadApi, type Api } from "./api.ts";
 import { etDayKey } from "./format.ts";
+import { reportToast } from "./reports.ts";
 import { sim } from "./sim.svelte.ts";
+import { openReport } from "./ui.svelte.ts";
 import {
   addOutbox,
   applyEvent,
@@ -55,6 +59,8 @@ class Harness {
   docs = $state<Record<string, Loadable<string>>>({});
   equity = $state<Record<string, Loadable<EquityHistory>>>({});
   performance = $state<Loadable<PerformanceSummary>>({ state: "loading" });
+  reports = $state<Loadable<ReportSummary[]>>({ state: "loading" });
+  reportDetail = $state<Record<string, Loadable<Report>>>({});
   market = $state<Loadable<MarketOverview>>({ state: "loading" });
   symbolDetail = $state<Record<string, Loadable<SymbolDetail>>>({});
   #outSeq = 0;
@@ -74,6 +80,8 @@ class Harness {
       this.feed.orders.filter((o) => o.status === "failed" && etDayKey(o.createdAt) === etDayKey(Date.now())).length,
   );
   pending = $derived(this.feed.orders.filter((o) => o.status === "pending_approval"));
+  /** Newest published report, for the Portfolio card and the list. */
+  latestReport = $derived(this.reports.data?.[0] as ReportSummary | undefined);
   positions = $derived(this.feed.status?.account?.positions ?? []);
   running = $derived(this.feed.status?.agent.state === "running");
   /** Tickers worth making clickable: held, watched, or seen in orders and the journal. */
@@ -106,6 +114,7 @@ class Harness {
         }
         this.feed = applyEvent(this.feed, e);
         if (e.type === "note") this.#noteChanged(e.note);
+        if (e.type === "report") this.#reportArrived(e.report);
       },
       onOpen: () => {
         const wasOffline = this.connection === "offline";
@@ -170,6 +179,15 @@ class Harness {
     void this.loadDoc("note", note.path, true);
   }
 
+  /** A published report slides to the top of the list; the toast opens it. */
+  #reportArrived(report: ReportSummary): void {
+    const { title, body } = reportToast(report);
+    toast.success(title, {
+      description: body,
+      action: { label: "Open", onClick: () => openReport(report.id) },
+    });
+  }
+
   async loadHistory(symbol: string, range: HistoryRange): Promise<void> {
     const api = this.#api;
     const key = `${symbol}:${range}`;
@@ -208,6 +226,19 @@ class Harness {
 
   loadPerformance(force = false): Promise<void> {
     return this.#load(() => this.performance, (v) => (this.performance = v), (a) => a.performance(), force);
+  }
+
+  loadReports(force = false): Promise<void> {
+    return this.#load(() => this.reports, (v) => (this.reports = v), (a) => a.reports(), force);
+  }
+
+  loadReport(id: string, force = false): Promise<void> {
+    return this.#load(
+      () => this.reportDetail[id],
+      (v) => (this.reportDetail[id] = v),
+      (a) => a.report(id),
+      force,
+    );
   }
 
   loadMarket(force = false): Promise<void> {

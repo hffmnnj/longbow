@@ -6,6 +6,7 @@ import {
   FlaskConicalIcon,
   Globe02Icon,
   Message01Icon,
+  News01Icon,
   Notebook01Icon,
 } from "./icons";
 import type { Section } from "./ui.svelte";
@@ -27,7 +28,16 @@ export const PRIMARY_NAV: NavItem[] = [
 
 export const SECONDARY_NAV: NavItem[] = [
   { value: "history", label: "Journal and orders", icon: Notebook01Icon },
+  { value: "reports", label: "Reports", icon: News01Icon },
   { value: "lab", label: "Lab", icon: FlaskConicalIcon },
+];
+
+/** Desktop bar order: Reports sits after Performance; the phone keeps its five bottom tabs and finds Reports in the menu. */
+export const DESKTOP_NAV: NavItem[] = [
+  ...PRIMARY_NAV.filter((i) => i.value !== "agent"),
+  SECONDARY_NAV.find((i) => i.value === "reports")!,
+  PRIMARY_NAV.find((i) => i.value === "agent")!,
+  SECONDARY_NAV.find((i) => i.value === "lab")!,
 ];
 
 /** `?view=` values from shortcuts and old links. Every nav value opens its section; `live` is the old feed shortcut. */

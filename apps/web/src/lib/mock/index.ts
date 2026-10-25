@@ -1,4 +1,15 @@
-import type { ChatMessage, HaltReason, ServerEvent, Settings, SettingsPatch, StatusResponse, SubagentRun } from "@rh/shared";
+import type {
+  ChatMessage,
+  HaltReason,
+  Report,
+  ReportKind,
+  ReportSummary,
+  ServerEvent,
+  Settings,
+  SettingsPatch,
+  StatusResponse,
+  SubagentRun,
+} from "@rh/shared";
 import type { Api, EventHandlers } from "../api.ts";
 import {
   STREAM_REPLY,
@@ -9,6 +20,7 @@ import {
   fixtureSubagents,
   type Scenario,
 } from "./fixtures.ts";
+import { buildLiveDaily, mockReport, mockReportSummaries } from "./reports.ts";
 import { ROLE_TEXT, mockHistory, mockNote, mockNotes, mockSkill, mockSkills } from "./data.ts";
 import { runWork } from "./work.ts";
 import { createMockSim } from "./sim.ts";
@@ -29,6 +41,8 @@ export function createMockApi(): Api {
   const runs = new Map<string, SubagentRun>(
     (scenario === "default" || scenario === "running" ? fixtureSubagents() : []).map((r) => [r.id, r]),
   );
+  /** Reports published live after load; newest first. The three standing fixtures never move. */
+  const liveReports: Report[] = [];
   const transcripts = new Map<string, ChatMessage[]>();
   const listeners = new Set<EventHandlers>();
   let seq = 100;
@@ -147,6 +161,17 @@ export function createMockApi(): Api {
       delay({ symbol, bars: mockHistory(symbol, range), source: "mock", asOf: Date.now() }, 250),
     equity: (range) => delay(mockEquity(range, scenario === "empty"), 220),
     performance: () => delay(mockPerformance(scenario === "empty"), 260),
+    reports: (kind?: ReportKind, limit?: number) => {
+      const live: ReportSummary[] = liveReports.map(({ narrative: _n, facts: _f, cycleId: _c, ...s }) => s);
+      const all = [...live, ...mockReportSummaries()].filter((r) => !kind || r.kind === kind);
+      return delay(limit !== undefined ? all.slice(0, limit) : all, 220);
+    },
+    report: async (id: string) => {
+      const live = liveReports.find((r) => r.id === id);
+      const found = live ?? mockReport(id);
+      if (!found) throw new (await import("../api.ts")).ApiError(404, "report not found");
+      return delay(found, 200);
+    },
     marketOverview: () => delay(mockMarket(), 300),
     symbolDetail: (symbol) =>
       delay(mockSymbolDetail(symbol, { positions: status.account?.positions ?? [], orders, journal }), 260),
@@ -177,6 +202,14 @@ export function createMockApi(): Api {
         if (ignited) return;
         ignited = true;
         mockSim.ignite();
+        // A fresh daily report lands live, so the toast and the list update can be seen.
+        if (scenario === "default") {
+          setTimeout(() => {
+            const { summary, report } = buildLiveDaily();
+            liveReports.unshift(report);
+            emit({ type: "report", report: summary });
+          }, 8000);
+        }
       };
       setTimeout(ignite, 1200);
       if (scenario === "running") setTimeout(() => void work({ pace: 0.25, hold: true }), 300);

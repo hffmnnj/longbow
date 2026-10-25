@@ -133,7 +133,7 @@
   <Sheet.Content side="bottom" class="pb-safe max-h-[85dvh] gap-0 overflow-y-auto rounded-t-xl">
     <Sheet.Header class="pb-2">
       <Sheet.Title>Menu</Sheet.Title>
-      <Sheet.Description class="sr-only">Mode, broker, agent, journal, lab and settings</Sheet.Description>
+      <Sheet.Description class="sr-only">Mode, broker, agent, journal, reports, lab and settings</Sheet.Description>
     </Sheet.Header>
     <div class="flex flex-col gap-4 px-4 pb-4">
       <LiveLock class="h-11 justify-center text-[13px]" />
