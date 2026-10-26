@@ -1,4 +1,3 @@
-const TZ = "America/New_York";
 const MINUS = "\u2212";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
@@ -13,22 +12,36 @@ const pctFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-const hm = new Intl.DateTimeFormat("en-US", {
-  timeZone: TZ,
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: false,
-});
-const hms = new Intl.DateTimeFormat("en-US", {
-  timeZone: TZ,
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-const md = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
-const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: TZ });
-const weekday = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" });
+/**
+ * Timestamp formatters run in the viewer's own time zone (the device clock) unless an
+ * explicit `timeZone` is passed. Formatters are cached per zone; tests pass "America/New_York".
+ */
+type StampFormatters = {
+  hm: Intl.DateTimeFormat;
+  hms: Intl.DateTimeFormat;
+  md: Intl.DateTimeFormat;
+  dayKey: Intl.DateTimeFormat;
+  weekday: Intl.DateTimeFormat;
+};
+
+const formatterCache = new Map<string, StampFormatters>();
+
+function stampFormatters(timeZone?: string): StampFormatters {
+  const key = timeZone ?? "";
+  let cached = formatterCache.get(key);
+  if (!cached) {
+    const zone = timeZone ? { timeZone } : {};
+    cached = {
+      hm: new Intl.DateTimeFormat("en-US", { ...zone, hour: "numeric", minute: "2-digit", hour12: false, timeZoneName: "short" }),
+      hms: new Intl.DateTimeFormat("en-US", { ...zone, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZoneName: "short" }),
+      md: new Intl.DateTimeFormat("en-US", { ...zone, month: "short", day: "numeric" }),
+      dayKey: new Intl.DateTimeFormat("en-CA", { ...zone }),
+      weekday: new Intl.DateTimeFormat("en-US", { ...zone, weekday: "short" }),
+    };
+    formatterCache.set(key, cached);
+  }
+  return cached;
+}
 
 /** $1,234.50 (always two decimals). Negative values use a true minus sign. */
 export function usd(value: number): string {
@@ -62,24 +75,26 @@ export function tone(value: number): Tone {
   return value > 0 ? "gain" : "loss";
 }
 
-/** 14:05 ET */
-export function etTime(ms: number): string {
-  return `${normalizeHour(hm.format(ms))} ET`;
+/** 14:05 MST (the viewer's zone, or `timeZone` when given) */
+export function etTime(ms: number, timeZone?: string): string {
+  return normalizeHour(stampFormatters(timeZone).hm.format(ms));
 }
 
-/** 14:05:09 ET */
-export function etClock(ms: number): string {
-  return `${normalizeHour(hms.format(ms))} ET`;
+/** 14:05:09 MST */
+export function etClock(ms: number, timeZone?: string): string {
+  return normalizeHour(stampFormatters(timeZone).hms.format(ms));
 }
 
-/** "Today 14:05 ET", "Oct 23 14:05 ET" */
-export function etStamp(ms: number, now = Date.now()): string {
-  const same = dayKey.format(ms) === dayKey.format(now);
-  return same ? etTime(ms) : `${md.format(ms)} ${etTime(ms)}`;
+/** "Today 14:05 MST", "Oct 23 14:05 MST" */
+export function etStamp(ms: number, now = Date.now(), timeZone?: string): string {
+  const f = stampFormatters(timeZone);
+  const same = f.dayKey.format(ms) === f.dayKey.format(now);
+  return same ? etTime(ms, timeZone) : `${f.md.format(ms)} ${etTime(ms, timeZone)}`;
 }
 
-export function etDay(ms: number): string {
-  return `${weekday.format(ms)} ${md.format(ms)}`;
+export function etDay(ms: number, timeZone?: string): string {
+  const f = stampFormatters(timeZone);
+  return `${f.weekday.format(ms)} ${f.md.format(ms)}`;
 }
 
 /** Some runtimes emit "24:05" for midnight with hour12:false. */
@@ -106,7 +121,7 @@ export function ago(ms: number, now = Date.now()): string {
   if (diff < 45_000) return "just now";
   if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${md.format(ms)}`;
+  return stampFormatters().md.format(ms);
 }
 
 /** 412ms, 1.8s, 12s, 1m 05s. */
@@ -118,8 +133,8 @@ export function durationShort(ms: number): string {
   return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s`;
 }
 
-/** ET calendar day as YYYY-MM-DD, for "today" comparisons. */
-export const etDayKey = (ms: number): string => dayKey.format(ms);
+/** Calendar day as YYYY-MM-DD in the viewer's zone, for "today" comparisons. */
+export const etDayKey = (ms: number): string => stampFormatters().dayKey.format(ms);
 
 const isoShortFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
 /** "2026-10-05" -> "Oct 5". Falls back to the input when it is not a date. */
