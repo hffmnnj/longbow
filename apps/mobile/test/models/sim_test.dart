@@ -22,6 +22,25 @@ void main() {
     expect(runs.first.metrics, isNotNull);
   });
 
+  test('sim_oldStoredRunWithoutCostMetricsStillParses', () {
+    // Runs saved before costs, turnover and risk blocks were tracked omit those metrics.
+    final json =
+        jsonDecode(File('test/fixtures/sim_run.json').readAsStringSync())
+            as Map<String, dynamic>;
+    final metrics = Map<String, dynamic>.of(json['metrics'] as Map<String, dynamic>)
+      ..remove('roundTrips')
+      ..remove('turnoverPct')
+      ..remove('costsPaid')
+      ..remove('costsPct')
+      ..remove('riskBlocks');
+    final run = SimRun.fromJson({...json, 'metrics': metrics});
+
+    expect(run.metrics!.roundTrips, 0);
+    expect(run.metrics!.costsPaid, 0);
+    expect(run.metrics!.riskBlocks, isEmpty);
+    expect(run.metrics!.trades, json['metrics']['trades']);
+  });
+
   test('sim_parsesFullRun', () {
     final json =
         jsonDecode(File('test/fixtures/sim_run.json').readAsStringSync())

@@ -143,15 +143,19 @@ SimMetrics _$SimMetricsFromJson(Map<String, dynamic> json) => SimMetrics(
   volatilityPct: (json['volatilityPct'] as num?)?.toDouble(),
   beta: (json['beta'] as num?)?.toDouble(),
   alphaPct: (json['alphaPct'] as num?)?.toDouble(),
-  roundTrips: (json['roundTrips'] as num).toInt(),
+  roundTrips: (json['roundTrips'] as num?)?.toInt() ?? 0,
   profitFactor: (json['profitFactor'] as num?)?.toDouble(),
   expectancy: (json['expectancy'] as num?)?.toDouble(),
   avgHoldingDays: (json['avgHoldingDays'] as num?)?.toDouble(),
   maxConsecutiveLosses: (json['maxConsecutiveLosses'] as num?)?.toInt(),
-  turnoverPct: (json['turnoverPct'] as num).toDouble(),
-  costsPaid: (json['costsPaid'] as num).toDouble(),
-  costsPct: (json['costsPct'] as num).toDouble(),
-  riskBlocks: Map<String, int>.from(json['riskBlocks'] as Map),
+  turnoverPct: (json['turnoverPct'] as num?)?.toDouble() ?? 0,
+  costsPaid: (json['costsPaid'] as num?)?.toDouble() ?? 0,
+  costsPct: (json['costsPct'] as num?)?.toDouble() ?? 0,
+  riskBlocks:
+      (json['riskBlocks'] as Map<String, dynamic>?)?.map(
+        (k, e) => MapEntry(k, (e as num).toInt()),
+      ) ??
+      {},
   feesPaid: (json['feesPaid'] as num?)?.toDouble(),
 );
 

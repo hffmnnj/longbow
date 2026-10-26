@@ -363,8 +363,12 @@ final simFeedProvider = Provider.family<FeedState, String>(
     (ref, id) => ref.watch(simProvider.select((s) => s.feeds))[id] ?? emptyState());
 
 /// One run by id, or null.
-final simRunProvider = Provider.family<SimRun?, String>(
-    (ref, id) => ref.watch(simProvider.notifier).run(id));
+final simRunProvider = Provider.family<SimRun?, String>((ref, id) {
+  for (final run in ref.watch(simProvider.select((s) => s.runs))) {
+    if (run.id == id) return run;
+  }
+  return null;
+});
 
 /// Run ids ticked for the compare view.
 class CompareSelection extends Notifier<Set<String>> {
