@@ -24,3 +24,4 @@ export 'stale_banner.dart';
 export 'status_chip.dart';
 export 'toast.dart';
 export 'tone.dart';
+export 'lb_tab_body.dart';
