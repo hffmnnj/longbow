@@ -36,6 +36,7 @@
 | 30 | Native Flutter Android app replacing the WebView shell: models, data layer, design system, all screens | frontend + frontend-minions + minions + coordinator | done |
 | 31 | System One (Jev) decision layer: typed client, agent tools, entry second opinion, prompt and skill, settings and status chip, on web and Android | minions + frontend-minion + coordinator | done (PR #3); agent seen calling jev_* live |
 | 32 | Native Codex remote compaction, gated to openai-codex/gpt-6.1-sol; Muse and subagents keep text compaction | engineer + coordinator | in progress |
+| 33 | Crypto sleeve: capped BTC/ETH skill, gate rules, prompt and docs | minions + coordinator | in progress |
 
 ## Follow-ups
 

@@ -48,3 +48,5 @@ Once a week, post-close: recompute heat per `portfolio-heat`, check realized cos
 - Concentration in one theme: two "different" tech names are one bet; the sector cap and the 0.8 correlation rule in `portfolio-heat` decide, not the tickers.
 - Chasing: entering above the planned limit because the name is running converts edge into slippage; the missed trade costs nothing and the chased one pays spread.
 - Borrowing conviction from size: no averaging down, ever; a position against its stop is smaller next time, not bigger this time.
+
+Crypto is not a fifth slot: crypto pairs live in the separate capped sleeve, so load `crypto-sleeve` before sizing any crypto order.
