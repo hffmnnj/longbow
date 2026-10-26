@@ -1,0 +1,21 @@
+[Unit]
+Description=Longbow trading harness (Pi Durable agent + UI on :4520)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/robinhood-harness/apps/server
+# Machine-specific settings live outside the repo in ~/.config/robinhood-harness/env, for example:
+#   HARNESS_TAILNET_HOST=100.x.y.z
+#   HARNESS_ORIGINS=https://<host>.<tailnet>.ts.net:8443
+#   HARNESS_BIND=0.0.0.0
+#   HARNESS_LIVE_TRADING=1   # the only switch that lets real orders reach Robinhood
+#   SEC_CONTACT=Your Name you@example.com
+EnvironmentFile=-%h/.config/robinhood-harness/env
+ExecStart=/usr/bin/env node src/main.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

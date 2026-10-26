@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   AccountSnapshot,
   AgentStatus,
@@ -5,15 +6,25 @@ import type {
   ChatMessage,
   CycleKind,
   HaltReason,
+  HistoryRange,
   JournalEntry,
+  NoteContent,
+  NoteFile,
+  PriceHistory,
+  Skill,
+  SkillSummary,
   MarketClock,
   OrderIntent,
   OrderRecord,
   Quote,
+  Report,
+  ReportKind,
+  ReportSummary,
   ServerEvent,
   Settings,
   SettingsPatch,
 } from "@rh/shared";
+import type { OpenStopOrder, PnlTrade } from "./robinhood/mapping.ts";
 
 /**
  * Server-internal contract. Each slice implements one port and consumes the
@@ -21,16 +32,34 @@ import type {
  * internals. Composition happens in `main.ts`.
  */
 
+/** A model and its thinking level, parsed from "provider/model#thinking". */
+export interface ModelSpec {
+  provider: string;
+  modelId: string;
+  thinkingLevel: ThinkingLevel;
+}
+
 export interface Config {
   /** HTTP port, default 4520. */
   PORT: number;
   /** Listen addresses, default ["127.0.0.1"] plus the Tailnet address when HARNESS_TAILNET_HOST is set. */
   HOSTS: string[];
+  /** "0.0.0.0" listens on every interface (peers still limited to loopback and the tailnet); unset listens on HOSTS. */
+  BIND_HOST?: "0.0.0.0";
   /** Origin the browser uses, for the OAuth redirect URI and Origin checks, default http://127.0.0.1:4520. */
   PUBLIC_URL: string;
+  /** Extra browser origins allowed on mutating requests, such as the Tailscale HTTPS URL (HARNESS_ORIGINS, comma separated). */
+  ALLOWED_ORIGINS: string[];
   /** State directory (mode 0700), default ~/.local/share/robinhood-harness. */
   DATA_DIR: string;
-  MUSE_MODEL: string;
+  /** Real orders and cancels reach Robinhood only when HARNESS_LIVE_TRADING=1; otherwise the broker is read-only. */
+  LIVE_TRADING: boolean;
+  /** Main agent model, MAIN_MODEL as "provider/model#thinking", default openai-codex/gpt-6.1-sol#xhigh. */
+  MAIN_MODEL: ModelSpec;
+  /** Subagent fleet model, SUBAGENT_MODEL, default meta/muse-spark-1.3-contributor#xhigh; also the main fallback. */
+  SUBAGENT_MODEL: ModelSpec;
+  /** Max concurrent simulation runs, SIM_CONCURRENCY, integer 1 to 4, default 2. */
+  SIM_CONCURRENCY: number;
   /** Muse CLI auth file to seed the Meta credential from, default ~/.config/muse/auth.json. */
   MUSE_AUTH_FILE: string;
   /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */
@@ -86,6 +115,15 @@ export interface Store {
   markEquity(at: number, etDate: string, equity: number): void;
   /** Starting equity of an ET day and peak equity of its month (YYYY-MM), when observed. */
   equityMarks(etDate: string): { dayStart?: number; monthPeak?: number };
+  /** Every recorded ET day oldest first: the day's starting and peak observed equity. */
+  /** One row per ET day; dayLast is the latest observed equity, the closest thing to a close. */
+  equitySeries(): { etDate: string; dayStart: number; dayHigh: number; dayLast: number }[];
+
+  /** Stores a report, replacing any report with the same id (ids are deterministic per period). */
+  saveReport(report: Report): void;
+  report(id: string): Report | undefined;
+  /** Report summaries, newest first. */
+  reports(query: { kind?: ReportKind; limit: number }): ReportSummary[];
 }
 
 /**
@@ -107,6 +145,10 @@ export interface Broker {
   reviewOrder(intent: OrderIntent): Promise<string>;
   /** Places the order and returns the broker order id. */
   placeOrder(intent: OrderIntent): Promise<{ brokerOrderId: string; raw: string }>;
+  /** Closed trades from the broker's trade history, oldest first. Absent when the broker cannot serve them. */
+  tradeHistory?(): Promise<PnlTrade[]>;
+  /** Open sell stop orders resting at the broker. Absent when the broker cannot serve them. */
+  openStopOrders?(): Promise<OpenStopOrder[]>;
   /** Called whenever status or the tool list changes. */
   onChange(listener: () => void): () => void;
 }
@@ -120,11 +162,36 @@ export interface OrderGate {
   halts(): Promise<HaltReason[]>;
 }
 
+/** Free public market data (Nasdaq daily bars and earnings calendar), cached under `${DATA_DIR}/cache`. */
+export interface MarketData {
+  history(symbol: string, range: HistoryRange): Promise<PriceHistory>;
+  /** Next scheduled earnings date (ET, YYYY-MM-DD) within the next 30 days, or undefined when none is found. */
+  nextEarnings(symbol: string): Promise<string | undefined>;
+  /** Average daily dollar volume (close times volume) over the last `days` sessions. */
+  avgDollarVolume(symbol: string, days: number): Promise<number | undefined>;
+}
+
+/** Trading skills and resources shipped in `apps/server/skills/<name>/SKILL.md`. Read-only. */
+export interface SkillLibrary {
+  list(): SkillSummary[];
+  get(name: string): Skill | undefined;
+  /** A file inside a skill folder; rejects paths that escape it. */
+  readFile(name: string, path: string): Promise<string>;
+}
+
+/** The agent's writable notes workspace in `${DATA_DIR}/workspace`, markdown files only. */
+export interface Notes {
+  list(): Promise<NoteFile[]>;
+  read(path: string): Promise<NoteContent | undefined>;
+  write(path: string, content: string): Promise<NoteFile>;
+}
+
 export interface AgentControl {
   status(): AgentStatus;
   /** User chat message into the trading agent's conversation. */
   sendMessage(text: string): Promise<void>;
   /** Starts a cycle now; idempotent per cycle id. */
   runCycle(kind: CycleKind): Promise<void>;
-  listMessages(limit: number): Promise<ChatMessage[]>;
+  /** The lead agent's transcript, or a subagent's when `conversationId` is given. */
+  listMessages(limit: number, conversationId?: string): Promise<ChatMessage[]>;
 }
