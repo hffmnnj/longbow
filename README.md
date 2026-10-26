@@ -10,6 +10,12 @@ It was built for a small cash account trading fractional shares of liquid ETFs a
 
 > **Warning.** This software can place real orders with real money. Nothing here is financial advice, and an autonomous agent can lose money quickly. Live trading is off until you turn it on, start in `approve` mode, read the risk limits, and use it at your own risk. No warranty of any kind.
 
+<p align="center">
+  <img src="docs/assets/screens/web-portfolio.webp" alt="The Longbow web app on the Portfolio screen: equity, day P&L, an account-versus-SPY chart, portfolio heat, and exposure by name and sector" width="100%" />
+  <br />
+  <sub>Screenshots in this README use fictional demo data, not a real account.</sub>
+</p>
+
 ## What it does
 
 - **An agent that works the whole day.** One durable lead agent runs scheduled cycles (pre-open, every 30 minutes while the market is open, post-close, and every 4 hours overnight) and answers your chat messages mid-cycle. It reads the news and filings, pulls market data, and keeps a journal, a notes workspace, and a set of playbooks ("skills") it loads on demand.
@@ -19,9 +25,32 @@ It was built for a small cash account trading fractional shares of liquid ETFs a
 - **A simulation lab.** Replay past trading days at accelerated speed against a paper broker with realistic spreads, slippage, fees, and gap-through stops. Run blind (aliased tickers, fictional calendar) or bootstrap markets so the model's memory of real events cannot help, then compare strategy variants on identical markets with a confidence interval.
 - **Reports with honest numbers.** Daily, weekly, and per-trade briefs. The agent writes the narrative and a grade for decision quality, but every figure is computed by the server, never by the model.
 - **A quant toolkit.** Screening, backtesting, portfolio risk, and position sizing tools the agent can call.
+- **A fast second opinion.** System One (TypeSafe's Jev decision model) screens news for planted instructions, triages candidates, and checks a thesis against its evidence. It advises, or in `block` mode can tighten the gate on a high-confidence concern. It never sizes, places, or cancels orders. See [`docs/SYSTEM-ONE.md`](docs/SYSTEM-ONE.md).
 - **Push notifications** for fills, failures, halts, sign-in problems, the daily review, and finished simulations.
 
+<p align="center">
+  <img src="docs/assets/screens/web-agent.webp" alt="The Agent screen: the Off, Approve and Auto mode control, the System One status with its Off, Advise and Block gate, and what the agent can do right now" width="100%" />
+</p>
+
+The Agent screen is the control room: the mode, the kill switch, System One, and a plain list of what the agent is allowed to do right now.
+
+<p align="center">
+  <img src="docs/assets/screens/web-performance.webp" alt="The Performance screen: realized P&L, win rate, average R, expectancy, profit factor, P&L per trade, calibration of predicted versus realized win rates, order outcomes, and closed trades" width="100%" />
+</p>
+
+Performance tracks how the agent actually trades, including whether its stated win probabilities hold up (the calibration chart and Brier score).
+
+<p align="center">
+  <img src="docs/assets/screens/web-phone.webp" alt="The web app on a phone showing Portfolio, Markets, and the Agent control room" width="100%" />
+</p>
+
 ### The risk engine
+
+In `approve` mode, every entry that clears the engine waits for your tap, with the thesis, the invalidation price, the time stop, and the risk checks in front of you:
+
+<p align="center">
+  <img src="docs/assets/screens/web-approval.webp" alt="A pending MSFT buy: thesis, limit and invalidation lines on a price chart, time stop, expected value, twelve passed risk checks, and Approve and Reject buttons" width="520" />
+</p>
 
 Every entry is checked against limits you can edit in the app. Defaults:
 
@@ -90,7 +119,7 @@ To run it as a service, copy `ops/robinhood-harness.service` to `~/.config/syste
 
 ### Models
 
-The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning through its own ChatGPT sign-in (`node apps/server/scripts/codex-login.ts`), and subagents default to `meta/muse-spark-1.3-contributor` through a Muse CLI login. Both are overridable with `MAIN_MODEL` and `SUBAGENT_MODEL` in `provider/model#thinking` form. Without a ChatGPT login the lead falls back to the subagent model.
+The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning through its own ChatGPT sign-in (`node apps/server/scripts/codex-login.ts`), and subagents default to `meta/muse-spark-1.3-contributor` through a Muse CLI login. Both are overridable with `MAIN_MODEL` and `SUBAGENT_MODEL` in `provider/model#thinking` form. Without a ChatGPT login the lead falls back to the subagent model. On `gpt-6.1-sol`, long conversations compact natively through Codex's own compaction item; every other model, including Muse, uses regular text summaries.
 
 ### Configuration
 
@@ -106,6 +135,10 @@ The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning throu
 | `SIM_CONCURRENCY` | Parallel simulations, 1 to 4 (default 2) |
 
 ## Android app
+
+<p align="center">
+  <img src="docs/assets/screens/android-phones.webp" alt="The native Android app on four screens: the live feed with a pending approval, Portfolio with the equity chart against SPY, Performance with realized P&L and per-trade results, and the Agent control room with mode and System One controls" width="100%" />
+</p>
 
 `apps/mobile` is a fully native Flutter app (no WebView) with every screen of the web app: the live feed with tool traces and approvals, portfolio, symbol charts, markets, performance, agent control room, reports with share and PDF print, journal and orders, notes and skills, the simulation lab, and settings. It finds your server on your tailnet by itself, streams updates live, and keeps a foreground service open for trade alerts.
 
