@@ -41,7 +41,7 @@
     <span class="bg-border h-px flex-1"></span>
   </div>
   <Collapsible.Content>
-    <div class="mx-auto max-w-prose pt-2">
+    <div class="pt-2">
       <Trace>
         <TraceCollapsible>
           <TraceCollapsibleTrigger aria-label={`Cycle input, ${bodyLines} lines`}>
