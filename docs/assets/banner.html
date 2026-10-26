@@ -1,0 +1,133 @@
+<!doctype html>
+<!--
+  README header, designed in code. Render with:
+    chromium --headless --disable-gpu --allow-file-access-from-files --force-device-scale-factor=2 \
+      --window-size=1600,520 --virtual-time-budget=4000 --screenshot=docs/assets/banner.png docs/assets/banner.html
+  Fonts come from apps/web/node_modules (run `bun install` first). The chart is a seeded fake equity curve, not real data.
+-->
+<meta charset="utf-8" />
+<style>
+  @font-face {
+    font-family: "Plex Sans";
+    src: url("../../apps/web/node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2") format("woff2");
+    font-weight: 100 700;
+  }
+  @font-face {
+    font-family: "Plex Mono";
+    src: url("../../apps/web/node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+    font-weight: 500;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 520px; background: #0d0e11; overflow: hidden; }
+  .stage {
+    position: relative; width: 1600px; height: 520px; color: #e5e8ec; font-family: "Plex Sans", sans-serif;
+    background:
+      radial-gradient(900px 520px at 88% 8%, rgba(109, 187, 232, 0.16), transparent 70%),
+      radial-gradient(700px 400px at 0% 100%, rgba(109, 187, 232, 0.06), transparent 70%),
+      #0d0e11;
+  }
+  canvas { position: absolute; right: 0; top: 0; width: 860px; height: 520px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 34%); mask-image: linear-gradient(90deg, transparent 0, #000 34%); }
+  .copy { position: absolute; left: 96px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; width: 780px; }
+  .brand { display: flex; align-items: center; gap: 28px; }
+  .brand img { width: 112px; height: 112px; border-radius: 26px; box-shadow: 0 0 0 1px #2b2e32, 0 18px 50px rgba(0, 0, 0, 0.55); }
+  h1 { font-size: 104px; line-height: 1; font-weight: 600; letter-spacing: -3.4px; }
+  .tag { margin-top: 34px; font-size: 31px; line-height: 1.32; font-weight: 400; color: #b4bac1; max-width: 690px; letter-spacing: -0.2px; }
+  .tag b { color: #e5e8ec; font-weight: 500; }
+  .chips { margin-top: 38px; display: flex; gap: 12px; font-family: "Plex Mono", monospace; font-weight: 500; font-size: 15.5px; letter-spacing: 0.9px; text-transform: uppercase; }
+  .chips span { padding: 9px 14px; border: 1px solid #2b2e32; border-radius: 8px; color: #999fa6; background: rgba(20, 22, 25, 0.7); }
+  .chips span:first-child { color: #6dbbe8; border-color: rgba(109, 187, 232, 0.4); }
+</style>
+<div class="stage">
+  <canvas id="c" width="1720" height="1040"></canvas>
+  <div class="copy">
+    <div class="brand">
+      <img src="../../apps/web/static/brand/longbow-mark.svg" alt="" />
+      <h1>Longbow</h1>
+    </div>
+    <p class="tag">An autonomous trading agent for a Robinhood account, with a <b>risk engine it cannot override</b> and a kill switch you can.</p>
+    <div class="chips"><span>Live</span><span>Risk gate</span><span>Simulation lab</span><span>Web + Android</span></div>
+  </div>
+</div>
+<script>
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const S = 2, W = canvas.width, H = canvas.height;
+  ctx.scale(1, 1);
+
+  // Seeded RNG so the render is reproducible.
+  let seed = 20261026;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+  const N = 120;
+  const eq = [], bench = [];
+  let e = 100, b = 100;
+  for (let i = 0; i < N; i++) {
+    e *= 1 + 0.0075 + (rnd() - 0.5) * 0.02 - (i > 52 && i < 63 ? 0.008 : 0);
+    b *= 1 + 0.0028 + (rnd() - 0.5) * 0.014;
+    eq.push(e); bench.push(b);
+  }
+  const lo = Math.min(...eq, ...bench) * 0.94, hi = Math.max(...eq, ...bench) * 1.02;
+  const padL = 40, padR = 70, yTop = 90, bottom = H - 70;
+  const x = (i) => padL + (i / (N - 1)) * (W - padL - padR);
+  const y = (v) => bottom - ((v - lo) / (hi - lo)) * (bottom - yTop);
+
+  // Grid and axis labels.
+  ctx.font = '500 21px "Plex Mono"';
+  ctx.textAlign = "right";
+  for (let k = 0; k <= 3; k++) {
+    const v = lo + ((hi - lo) * k) / 3, yy = y(v);
+    ctx.strokeStyle = "rgba(153,159,166,0.14)"; ctx.lineWidth = 2; ctx.setLineDash([2, 10]);
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke();
+    ctx.fillStyle = "rgba(153,159,166,0.75)";
+    ctx.fillText(v.toFixed(0), W - 14, yy + 7);
+  }
+  ctx.setLineDash([]);
+
+  // Ordered (Bayer 8x8) dither under the equity line, fading toward the baseline.
+  const bayer = [
+    [0, 32, 8, 40, 2, 34, 10, 42], [48, 16, 56, 24, 50, 18, 58, 26], [12, 44, 4, 36, 14, 46, 6, 38], [60, 28, 52, 20, 62, 30, 54, 22],
+    [3, 35, 11, 43, 1, 33, 9, 41], [51, 19, 59, 27, 49, 17, 57, 25], [15, 47, 7, 39, 13, 45, 5, 37], [63, 31, 55, 23, 61, 29, 53, 21],
+  ];
+  const cell = 6;
+  const lineAt = (px) => {
+    const f = ((px - padL) / (W - padL - padR)) * (N - 1);
+    const i = Math.max(0, Math.min(N - 2, Math.floor(f)));
+    return y(eq[i] + (eq[i + 1] - eq[i]) * (f - i));
+  };
+  ctx.fillStyle = "#6dbbe8";
+  for (let px = padL; px < W - padR; px += cell) {
+    const yl = lineAt(px);
+    for (let py = Math.floor(yl / cell) * cell; py < bottom; py += cell) {
+      if (py < yl) continue;
+      const t = (py - yl) / (bottom - yl + 1);
+      const level = 0.62 * Math.pow(1 - t, 1.5) * 64;
+      if (bayer[(py / cell) & 7][(px / cell) & 7] < level) ctx.fillRect(px, py, cell - 2, cell - 2);
+    }
+  }
+
+  const stroke = (arr, color, width, dash) => {
+    ctx.beginPath(); ctx.setLineDash(dash || []); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = "round";
+    arr.forEach((v, i) => (i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))));
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  stroke(bench, "rgba(153,159,166,0.7)", 3, [10, 9]);
+  stroke(eq, "#6dbbe8", 5);
+
+  // Buy / sell markers on the line.
+  const marks = [[14, "b"], [31, "b"], [47, "s"], [66, "b"], [88, "s"], [103, "b"]];
+  for (const [i, kind] of marks) {
+    const cx = x(i), cy = y(eq[i]);
+    ctx.fillStyle = kind === "b" ? "#5fd37f" : "#fd736d";
+    ctx.beginPath();
+    if (kind === "b") { ctx.moveTo(cx, cy + 12); ctx.lineTo(cx - 10, cy + 30); ctx.lineTo(cx + 10, cy + 30); }
+    else { ctx.moveTo(cx, cy - 12); ctx.lineTo(cx - 10, cy - 30); ctx.lineTo(cx + 10, cy - 30); }
+    ctx.closePath(); ctx.fill();
+  }
+
+  // Last-value dot with a halo.
+  const lx = x(N - 1), ly = y(eq[N - 1]);
+  ctx.fillStyle = "rgba(109,187,232,0.22)"; ctx.beginPath(); ctx.arc(lx, ly, 22, 0, 7); ctx.fill();
+  ctx.fillStyle = "#0d0e11"; ctx.beginPath(); ctx.arc(lx, ly, 11, 0, 7); ctx.fill();
+  ctx.strokeStyle = "#6dbbe8"; ctx.lineWidth = 4; ctx.stroke();
+</script>
