@@ -1,6 +1,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { HistoryRange } from "@rh/shared";
+import { isCryptoSymbol } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
 import { etDate, MarketCache } from "./cache.ts";
 import {
@@ -61,8 +62,14 @@ export interface MarketExtensionDeps {
 
 const SYMBOL_PATTERN = "^[A-Z.]{1,10}$";
 
+/** Tickers plus crypto pairs like BTC-USD; only the price tools accept pairs. */
+const CRYPTO_OR_TICKER_PATTERN = "^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$";
+
 const symbolField = (description: string) =>
   Type.String({ description, pattern: SYMBOL_PATTERN, minLength: 1, maxLength: 10 });
+
+const cryptoSymbolField = (description: string) =>
+  Type.String({ description, pattern: CRYPTO_OR_TICKER_PATTERN, minLength: 1, maxLength: 14 });
 
 const HISTORY_RANGES = ["1m", "3m", "6m", "1y", "2y", "5y"] as const satisfies readonly HistoryRange[];
 
@@ -307,6 +314,16 @@ const VOL_WINDOW: Record<HistoryRange, number> = {
   "5y": Number.MAX_SAFE_INTEGER,
 };
 
+/** Calendar-day count-back per range for crypto series, which trade every day. */
+const CRYPTO_VOL_WINDOW: Record<HistoryRange, number> = {
+  "1m": 30,
+  "3m": 90,
+  "6m": 180,
+  "1y": 365,
+  "2y": 730,
+  "5y": Number.MAX_SAFE_INTEGER,
+};
+
 export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   const { market, clock, log, asOf } = deps;
   const store = new MarketStore({ dataDir: deps.dataDir, log, clock, asOf, fetchImpl: deps.fetchImpl });
@@ -324,7 +341,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
    */
   async function scenarioExtended(symbol: string, range: HistoryRange): Promise<ExtendedHistory> {
     const full = (await pit.history(symbol, "5y")).bars;
-    const window = full.length > VOL_WINDOW[range] ? full.slice(full.length - VOL_WINDOW[range]) : full;
+    const want = isCryptoSymbol(symbol) ? CRYPTO_VOL_WINDOW[range] : VOL_WINDOW[range];
+    const window = full.length > want ? full.slice(full.length - want) : full;
     return { window, full };
   }
 
@@ -343,9 +361,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     name: "market_price_history",
     description:
       "Daily price history for a US stock or ETF from Nasdaq (free, 1m/3m/6m/1y/2y/5y, oldest first). " +
+      "Crypto pairs like BTC-USD use daily Coinbase candles in UTC days (including the current partial day as the last bar) and trade 24/7, so equity session counts like 252 do not apply. " +
       "Use the structured output for math; the text is only a summary.",
     parameters: Type.Object({
-      symbol: symbolField("Uppercase ticker, e.g. AAPL or SPY."),
+      symbol: cryptoSymbolField("Uppercase ticker or crypto pair, e.g. AAPL, SPY or BTC-USD."),
       range: rangeUnion("History window."),
     }),
     structuredOutputSchema: priceHistorySchema,
@@ -387,9 +406,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     description:
       "Deterministic technical indicators for one ticker over daily bars: moving averages, RSI, ATR, MACD, " +
       "Bollinger, Donchian, period returns, realized volatility, drawdown, dollar volume, and trend. " +
+      "Crypto pairs like BTC-USD use daily Coinbase candles in UTC days (including the current partial day as the last bar) and trade 24/7: their ret1m/ret3m/ret6m/ret1y span 30/90/180/365 bars, 52-week extremes use the last 365 bars, and volatility annualizes with sqrt(365), so 252 does not apply. " +
       "Absent values are null when history is too short. Use the structured output for math.",
     parameters: Type.Object({
-      symbol: symbolField("Uppercase ticker, e.g. NVDA."),
+      symbol: cryptoSymbolField("Uppercase ticker or crypto pair, e.g. NVDA or BTC-USD."),
       range: rangeField("History window for the computation; defaults to 1y."),
     }),
     structuredOutputSchema: indicatorsSchema,
@@ -403,6 +423,11 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           : await store.extended(args.symbol, range);
         const last = window[window.length - 1] ?? full[full.length - 1];
         if (!last) return fail(`No price history found for ${args.symbol} (${range}).`);
+        const crypto = isCryptoSymbol(args.symbol);
+        // Crypto trades every day, so return windows count calendar days
+        // (30/90/180/365) instead of equity sessions (21/63/126/252).
+        const retWindows = crypto ? [30, 90, 180, 365] : [21, 63, 126, 252];
+        const yearBars = crypto ? 365 : 252;
         const c = closes(full);
         const sma20 = sma(c, 20);
         const sma50 = sma(c, 50);
@@ -413,7 +438,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         const macdV = macd(c);
         const bb = bollinger(c, 20, 2);
         const dc = donchian(full, 20);
-        const year = full.slice(Math.max(0, full.length - 252));
+        const year = full.slice(Math.max(0, full.length - yearBars));
         const yc = closes(year);
         const highs = year.map((b) => b.high);
         const lows = year.map((b) => b.low);
@@ -433,11 +458,11 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           donchian20: dc === undefined ? null : { ...dc },
           high52w: highs.length === 0 ? null : Math.max(...highs),
           low52w: lows.length === 0 ? null : Math.min(...lows),
-          ret1m: nullIfUndef(periodReturn(c, 21)),
-          ret3m: nullIfUndef(periodReturn(c, 63)),
-          ret6m: nullIfUndef(periodReturn(c, 126)),
-          ret1y: nullIfUndef(periodReturn(c, 252)),
-          realizedVol20: nullIfUndef(realizedVol(c, 20)),
+          ret1m: nullIfUndef(periodReturn(c, retWindows[0] ?? 21)),
+          ret3m: nullIfUndef(periodReturn(c, retWindows[1] ?? 63)),
+          ret6m: nullIfUndef(periodReturn(c, retWindows[2] ?? 126)),
+          ret1y: nullIfUndef(periodReturn(c, retWindows[3] ?? 252)),
+          realizedVol20: nullIfUndef(realizedVol(c, 20, crypto ? 365 : 252)),
           maxDrawdown1y: nullIfUndef(maxDrawdown(yc)),
           avgDollarVolume20: nullIfUndef(avgDollarVolume(full, 20)),
           trend: classifyTrend(last.close, sma50, sma200),
@@ -459,9 +484,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     description:
       "Compare up to 12 tickers over one window against a benchmark (default SPY): window return, " +
       "annualized volatility, beta, correlation, return minus benchmark, and the pairwise correlation matrix. " +
+      "Crypto pairs like BTC-USD use daily Coinbase candles in UTC days and trade 24/7; mixed calendars are aligned by date so only common days count. " +
       "Use the structured output for math; the text is only a summary.",
     parameters: Type.Object({
-      symbols: Type.Array(symbolField("Uppercase ticker."), {
+      symbols: Type.Array(cryptoSymbolField("Uppercase ticker or crypto pair."), {
         description: "Up to 12 tickers to compare.",
         minItems: 1,
         maxItems: 12,
@@ -469,10 +495,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
       range: rangeField("History window; defaults to 6m."),
       benchmark: Type.Optional(
         Type.String({
-          description: "Benchmark ticker; defaults to SPY.",
-          pattern: SYMBOL_PATTERN,
+          description: "Benchmark ticker or crypto pair; defaults to SPY.",
+          pattern: CRYPTO_OR_TICKER_PATTERN,
           minLength: 1,
-          maxLength: 10,
+          maxLength: 14,
         }),
       ),
     }),
@@ -500,7 +526,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           }
           const cl = closes(hist.bars);
           const ret = periodReturn(cl, cl.length - 1);
-          const vol = realizedVol(cl, cl.length - 1);
+          const vol = realizedVol(cl, cl.length - 1, isCryptoSymbol(symbol) ? 365 : 252);
           const { beta, correlation: corr } = betaAndCorrelation(hist.bars, bench.bars);
           rows.push({
             symbol,

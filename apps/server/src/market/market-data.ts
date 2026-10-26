@@ -1,4 +1,5 @@
 import type { Bar, HistoryRange, PriceHistory } from "@rh/shared";
+import { isCryptoSymbol } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
 import { etDate, isRegularSession, MarketCache, TTL } from "./cache.ts";
 import {
@@ -7,6 +8,7 @@ import {
   findUpcomingEarnings,
   type NasdaqAsset,
 } from "./sources/nasdaq.ts";
+import { fetchCoinbaseHistory } from "./sources/coinbase.ts";
 import { avgDollarVolume } from "./indicators.ts";
 
 /**
@@ -35,6 +37,19 @@ const RANGE_SESSIONS: Record<HistoryRange, number> = {
   "6m": 126,
   "1y": 252,
   "2y": 504,
+  "5y": Number.MAX_SAFE_INTEGER,
+};
+
+/**
+ * Calendar days counted back from the cutoff per range for crypto pairs,
+ * which trade every day (about 365 bars per year, 30 per month).
+ */
+const RANGE_CALENDAR_DAYS: Record<HistoryRange, number> = {
+  "1m": 30,
+  "3m": 90,
+  "6m": 180,
+  "1y": 365,
+  "2y": 730,
   "5y": Number.MAX_SAFE_INTEGER,
 };
 
@@ -129,6 +144,9 @@ export class MarketStore {
   }
 
   private async historyWithFallback(symbol: string, from: string, to: string, ttlMs: number): Promise<Bar[]> {
+    if (isCryptoSymbol(symbol)) {
+      return fetchCoinbaseHistory(this.cache, symbol, from, to, ttlMs);
+    }
     const preferred = this.assetMemory.get(symbol);
     const order: NasdaqAsset[] = preferred === "etf" ? ["etf", "stocks"] : ["stocks", "etf"];
     let last: Bar[] = [];
@@ -163,7 +181,7 @@ export class MarketStore {
     return {
       symbol,
       bars: window,
-      source: "nasdaq",
+      source: isCryptoSymbol(symbol) ? "coinbase" : "nasdaq",
       asOf: cutoff === undefined ? this.deps.clock.now() : endOfEtDateMs(cutoff),
     };
   }
@@ -228,7 +246,7 @@ export function createPointInTimeMarketData(base: MarketData, asOf: () => string
       const cutoff = asOf();
       const underlying = await base.history(symbol, "5y");
       const bars = underlying.bars.filter((b) => b.date <= cutoff);
-      const want = RANGE_SESSIONS[range];
+      const want = isCryptoSymbol(symbol) ? RANGE_CALENDAR_DAYS[range] : RANGE_SESSIONS[range];
       const window = bars.length > want ? bars.slice(bars.length - want) : bars;
       return { symbol, bars: window, source: underlying.source, asOf: endOfEtDateMs(cutoff) };
     },
