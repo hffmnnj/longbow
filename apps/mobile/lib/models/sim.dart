@@ -289,7 +289,8 @@ class SimMetrics {
   /// Return minus beta times the benchmark's return over the run, percent.
   final double? alphaPct;
 
-  /// Closed round trips.
+  /// Closed round trips. Runs stored before this metric existed omit it, so it defaults to 0.
+  @JsonKey(defaultValue: 0)
   final int roundTrips;
 
   /// Gross profit over gross loss on closed round trips.
@@ -301,13 +302,17 @@ class SimMetrics {
   final int? maxConsecutiveLosses;
 
   /// Traded notional over average equity, percent.
+  @JsonKey(defaultValue: 0)
   final double turnoverPct;
 
   /// Spread, slippage and regulatory fees paid, dollars and percent of starting cash.
+  @JsonKey(defaultValue: 0)
   final double costsPaid;
+  @JsonKey(defaultValue: 0)
   final double costsPct;
 
   /// Risk-engine rejections by rule, for example { sector: 2, max_positions: 1 }.
+  @JsonKey(defaultValue: <String, int>{})
   final Map<String, int> riskBlocks;
 
   /// Regulatory fees alone, dollars (included in costsPaid).
