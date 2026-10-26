@@ -20,6 +20,7 @@ import { CODEMODE_TOOL_NAME, createCodemodeExtension, type CodemodeNamespace } f
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import type { AgentStatus, ChatMessage, CycleKind, StatusResponse, ToolCallSummary } from "@rh/shared";
 import type { AgentControl, Clock, Config, EventBus, Logger, ModelSpec } from "../ports.ts";
+import { nativeCompactionExtension, withCompactionReplay } from "../compaction/index.ts";
 import { HELPER_REPORT_ENTRY_KIND } from "./background-subagents.ts";
 import {
   credentialFilePath,
@@ -221,11 +222,12 @@ export class TradingAgent implements AgentControl {
     const storage = await openNodeSqliteStorage(join(config.DATA_DIR, "durable.sqlite"));
     const credentials = new FileCredentialStore(this.deps.credentialFile ?? credentialFilePath(config.DATA_DIR));
     const models = createModels({ credentials });
-    models.setProvider(metaProvider());
-    models.setProvider(openaiCodexProvider());
+    models.setProvider(withCompactionReplay(metaProvider()));
+    models.setProvider(withCompactionReplay(openaiCodexProvider()));
     const main = await this.resolveMainModel(credentials);
     this.activeModel = main;
     const registry = createRegistry();
+    registry.install(nativeCompactionExtension(log));
     for (const extension of this.deps.extensions) registry.install(extension);
     this.deps.onRegistry?.(registry);
     // Code Mode is the model's only tool: every other tool is called from its scripts.
