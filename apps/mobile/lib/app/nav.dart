@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import '../features/feed/order_sheet.dart';
 import '../features/feed/transcript_page.dart';
 import '../features/history/doc_page.dart';
+import '../features/history/history_screen.dart';
+import '../features/lab/lab_screen.dart';
 import '../features/lab/run_page.dart';
 import '../features/lab/suite_page.dart';
 import '../features/reports/report_page.dart';
+import '../features/reports/reports_screen.dart';
 import '../features/settings/settings_sheet.dart';
 import '../features/symbol/symbol_page.dart';
 
@@ -41,4 +44,12 @@ abstract final class AppNav {
       _push(context, SuitePage(suiteId: suiteId));
 
   static Future<void> settings(BuildContext context) => showSettingsSheet(context);
+
+  /// Pushed pages reached from the More menu, search and deep links. Each
+  /// draws its own app bar.
+  static Future<void> reports(BuildContext context) => _push(context, const ReportsScreen());
+
+  static Future<void> history(BuildContext context) => _push(context, const HistoryScreen());
+
+  static Future<void> lab(BuildContext context) => _push(context, const LabScreen());
 }
