@@ -360,6 +360,58 @@ void main() {
       expect(find.textContaining('Latest'), findsNothing);
     });
 
+    testWidgets('slowDragsUp_throughMixedHeightRows_keepReachingOlderMessages', (tester) async {
+      final h = await startHarness(tester);
+      final long = List.filled(40, 'a long reply that wraps over many lines').join(' ');
+      await pumpView(
+        tester,
+        h,
+        FeedState(messages: [
+          for (var i = 0; i < 120; i++)
+            i % 3 == 0 ? assistantMsg('m$i', '$long $i', at: 1000 + i) : userMsg('m$i', 'q$i', at: 1000 + i),
+        ]),
+        size: const Size(360, 640),
+      );
+      final position = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      var last = position.pixels;
+
+      for (var i = 0; i < 40; i++) {
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, 40));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(position.pixels, lessThan(last), reason: 'drag $i must move toward older messages, not snap back');
+        last = position.pixels;
+      }
+
+      await tester.fling(find.byType(CustomScrollView), const Offset(0, 500), 2000);
+      await tester.pumpAndSettle();
+      expect(position.pixels, lessThan(last), reason: 'a fling keeps scrolling older');
+    });
+
+    testWidgets('hugeLastUserMessage_startsCollapsedSoOlderHistoryIsOneSwipeAway', (tester) async {
+      final h = await startHarness(tester);
+      final summary = List.filled(400, 'compacted summary sentence that keeps going').join(' ');
+      await pumpView(
+        tester,
+        h,
+        FeedState(messages: [
+          for (var i = 0; i < 20; i++) assistantMsg('m$i', 'answer $i', at: 1000 + i),
+          userMsg('summary', summary, at: 5000),
+        ]),
+        size: const Size(360, 640),
+      );
+      final position = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+
+      expect(find.text('Show more'), findsOneWidget);
+      expect(position.maxScrollExtent, lessThan(3000), reason: 'a collapsed bubble is a few lines, not a wall of text');
+
+      await tester.fling(find.byType(CustomScrollView), const Offset(0, 500), 2000);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('answer 19', findRichText: true), findsOneWidget, reason: 'one swipe reaches older messages');
+
+      await tester.tap(find.text('Show more'), warnIfMissed: false);
+      await tester.pump();
+    });
+
     testWidgets('longHistory_300Messages_buildsAndOpensAtTheEnd', (tester) async {
       final h = await startHarness(tester);
       await pumpView(tester, h, history(300), size: const Size(360, 640));
