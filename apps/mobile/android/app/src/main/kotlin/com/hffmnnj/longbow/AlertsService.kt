@@ -28,7 +28,8 @@ import org.json.JSONObject
  * get, so the app and the browser notify identically.
  *
  * A repeated tag replaces the earlier notification, as web push does. Tapping
- * one opens the app and loads `<base><url>` in the WebView. The service's own
+ * one opens the app and forwards `<url>` to Dart, which routes it to the
+ * matching native screen. The service's own
  * persistent notification sits on a low-importance "Connection" channel with
  * no actions.
  */
@@ -37,6 +38,8 @@ class AlertsService : Service() {
         private const val PREFS = "longbow"
         private const val KEY_ENABLED = "notifications_enabled"
         private const val KEY_BASE_URL = "notifications_base_url"
+
+        private const val ACTION_RECONNECT = "com.hffmnnj.longbow.RECONNECT"
 
         private const val CHANNEL_ALERTS = "trade-alerts"
         private const val CHANNEL_STATUS = "connection"
@@ -65,6 +68,24 @@ class AlertsService : Service() {
             if (enabled) start(context) else stop(context)
         }
 
+        /**
+         * Points the alert stream at a newly discovered server address. When
+         * notifications are off this only persists; when the service runs it
+         * is nudged to drop the current stream and reconnect immediately with
+         * the backoff reset.
+         */
+        fun updateBaseUrl(context: Context, baseUrl: String) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_BASE_URL, baseUrl).apply()
+            if (!isEnabled(context)) return
+            val intent = Intent(context, AlertsService::class.java).setAction(ACTION_RECONNECT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
         /** "on" when the toggle is on, "blocked" when the user denied notifications, else "off". */
         fun status(context: Context): String {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -91,6 +112,7 @@ class AlertsService : Service() {
     }
 
     @Volatile private var running = false
+    @Volatile private var reconnect = false
     private var worker: Thread? = null
     private var connection: HttpURLConnection? = null
     private val wake = Any()
@@ -111,6 +133,16 @@ class AlertsService : Service() {
         } else {
             @Suppress("DEPRECATION")
             startForeground(STATUS_ID, status)
+        }
+        if (intent?.action == ACTION_RECONNECT) {
+            // Drop the stream on the old server (or wake the backoff sleep)
+            // so the loop below reconnects to the new base URL at once.
+            reconnect = true
+            try {
+                connection?.disconnect()
+            } catch (_: Exception) {
+            }
+            synchronized(wake) { (wake as java.lang.Object).notifyAll() }
         }
         if (worker?.isAlive != true) {
             running = true
@@ -189,6 +221,10 @@ class AlertsService : Service() {
     private fun streamLoop() {
         var backoff = MIN_BACKOFF_MS
         while (running) {
+            if (reconnect) {
+                reconnect = false
+                backoff = MIN_BACKOFF_MS
+            }
             val base = baseUrl(this)
             if (base.isNullOrEmpty()) {
                 // Enabled without a base (should not happen); wait for the
@@ -205,6 +241,8 @@ class AlertsService : Service() {
                 // Dropped stream or refused connection: back off and retry.
             }
             if (!running) return
+            // A base-URL change reconnects immediately instead of waiting out the backoff.
+            if (reconnect) continue
             sleepInterruptible(backoff)
             backoff = minOf(backoff * 2, MAX_BACKOFF_MS)
         }
