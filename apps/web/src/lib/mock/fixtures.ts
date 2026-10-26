@@ -67,6 +67,13 @@ export function fixtureStatus(scenario: Scenario, now = Date.now()): StatusRespo
         ? { at: now, equity: 10_000, cash: 10_000, buyingPower: 10_000, positions: [] }
         : null,
     halts: halted ? ["kill_switch", "drawdown"] : connected ? [] : ["broker_disconnected"],
+    systemOne: {
+      state: "ok",
+      model: "jev-latest",
+      calls24h: 42,
+      medianLatencyMs: 150,
+      inputTokens24h: 18000,
+    },
     dayPnl: connected && scenario !== "empty" ? (halted ? -612.4 : 218.64) : undefined,
     liveTrading: false,
     models: { main: "openai/gpt-5.5#high", subagents: "anthropic/claude-sonnet-5-5#medium" },
@@ -151,7 +158,14 @@ export const fixtureOrders = (): OrderRecord[] => {
     },
   });
   return [
-    fixtureOrder("ord-1", "pending_approval"),
+    fixtureOrder("ord-1", "pending_approval", {
+      verdict: {
+        approved: true,
+        isExit: false,
+        checks: [...passing, { rule: "system_one", ok: true, detail: "clear: thesis supported 0.91, chasing 0.12" }],
+        maxQuantity: 3,
+      },
+    }),
     failed,
     fixtureOrder("ord-0", "submitted", {
       createdAt: now - 3 * HOUR,
