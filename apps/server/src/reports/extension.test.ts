@@ -16,6 +16,7 @@ function serviceDeps(): ReportServiceDeps & { events: ServerEvent[]; reports: Ma
       ...structuredClone(DEFAULT_SETTINGS),
       ...patch,
       risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...patch.risk },
+      systemOne: { ...DEFAULT_SETTINGS.systemOne, ...patch.systemOne },
     }),
     addJournal: (entry: Parameters<Store["addJournal"]>[0]) => ({ ...entry, id: "j1" }),
     listJournal: () => [],

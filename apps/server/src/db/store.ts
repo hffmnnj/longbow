@@ -72,10 +72,13 @@ export function openStore(path: string, _clock: Clock): Store {
     // Merge new default fields over the stored row so upgrades add keys cheaply.
     const stored = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
     const storedRisk = typeof stored["risk"] === "object" && stored["risk"] !== null ? (stored["risk"] as Record<string, unknown>) : {};
+    const storedSystemOne =
+      typeof stored["systemOne"] === "object" && stored["systemOne"] !== null ? (stored["systemOne"] as Record<string, unknown>) : {};
     const merged = {
       ...structuredClone(DEFAULT_SETTINGS),
       ...stored,
       risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...storedRisk },
+      systemOne: { ...structuredClone(DEFAULT_SETTINGS.systemOne), ...storedSystemOne },
     };
     return SettingsSchema.parse(merged);
   };
@@ -86,6 +89,7 @@ export function openStore(path: string, _clock: Clock): Store {
       ...current,
       ...patch,
       risk: { ...current.risk, ...(patch.risk ?? {}) },
+      systemOne: { ...current.systemOne, ...(patch.systemOne ?? {}) },
     });
     db.prepare("INSERT INTO kv (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
       JSON.stringify(next),

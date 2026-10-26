@@ -8,6 +8,7 @@ import 'package:longbow/domain/roles.dart';
 import 'package:longbow/features/control/agent_icons.dart';
 import 'package:longbow/features/control/kill_switch.dart';
 import 'package:longbow/features/control/mode_control.dart';
+import 'package:longbow/features/control/system_one_control.dart';
 import 'package:longbow/features/feed/decision_card.dart';
 import 'package:longbow/features/history/history_screen.dart';
 import 'package:longbow/features/shared/shared.dart';
@@ -227,6 +228,10 @@ class _AuthorityCard extends StatelessWidget {
           const SectionLabel('Mode'),
           const SizedBox(height: 4),
           const ModeControl(),
+          const SizedBox(height: LbSpace.gap),
+          const SectionLabel('System One'),
+          const SizedBox(height: 4),
+          const SystemOneControl(),
           const SizedBox(height: LbSpace.gap),
           const SectionLabel('What it can do right now'),
           const SizedBox(height: 4),

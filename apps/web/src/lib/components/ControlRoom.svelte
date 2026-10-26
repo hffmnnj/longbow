@@ -6,6 +6,7 @@
   import Icon from "./Icon.svelte";
   import KillSwitch from "./KillSwitch.svelte";
   import ModeControl from "./ModeControl.svelte";
+  import SystemOneControl from "./SystemOneControl.svelte";
   import { AiBrain01Icon, Cancel01Icon, Chip02Icon, Clock01Icon, Loading03Icon, LockIcon, PlayIcon, PowerIcon, Tick02Icon } from "$lib/icons";
   import { clock } from "$lib/clock.svelte";
   import { controlState, parseModelSpec, type Capability } from "$lib/control";
@@ -75,6 +76,8 @@
         <h3 class="label-caps">Mode</h3>
         <ModeControl block class="sm:max-w-sm" />
       </div>
+
+      <SystemOneControl />
 
       <div>
         <h3 class="label-caps mb-1.5">What it can do right now</h3>

@@ -4,7 +4,9 @@ import {
   type HaltReason,
   type OrderIntent,
   type OrderRecord,
+  type RiskCheck,
   type RiskVerdict,
+  type SystemOneGate,
 } from "@rh/shared";
 import { etDayEndEpoch } from "./calendar.ts";
 import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
@@ -30,6 +32,12 @@ export interface OrderGateDeps {
   market?: MarketData;
   /** Sectors for symbols the broker reports without one, so the sector cap sees real exposure. */
   sectors?: SectorDirectory;
+  /**
+   * System One review of an approved entry. Returns the `system_one` check to append, or undefined to skip.
+   * It must fail open (an outage returns a passing check or undefined) and only fails the check when
+   * `gate` is "block" and the model reports a high-confidence concern.
+   */
+  entryReview?: (intent: OrderIntent, gate: SystemOneGate) => Promise<RiskCheck | undefined>;
 }
 
 function shortError(error: unknown, max = 200): string {
@@ -304,7 +312,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .sort()[0];
       const account = snapshot;
       await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)]);
-      const verdict = evaluate({
+      const engineVerdict = evaluate({
         intent: valid,
         settings,
         account,
@@ -325,7 +333,25 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now,
       });
-      persistDrawdownTrip(settings, verdict, calendar.etDate(now).slice(0, 7));
+      persistDrawdownTrip(settings, engineVerdict, calendar.etDate(now).slice(0, 7));
+
+      // System One second opinion: entries the engine already approved only, never exits or protective
+      // stops. It adds one `system_one` check; only gate "block" lets a concern reject, and an outage passes.
+      let verdict = engineVerdict;
+      if (
+        engineVerdict.approved &&
+        !engineVerdict.isExit &&
+        valid.side === "buy" &&
+        deps.entryReview !== undefined &&
+        settings.systemOne.enabled &&
+        settings.systemOne.gate !== "off"
+      ) {
+        const check = await deps.entryReview(valid, settings.systemOne.gate).catch((error: unknown) => {
+          log.warn("system one entry review failed", { error: shortError(error) });
+          return undefined;
+        });
+        if (check !== undefined) verdict = { ...engineVerdict, approved: check.ok, checks: [...engineVerdict.checks, check] };
+      }
 
       if (!verdict.approved) {
         const order = store.addOrder({

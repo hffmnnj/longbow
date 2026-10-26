@@ -5,6 +5,8 @@ description: Grades sources by tier, reads filings before narratives, and cites 
 
 Use when: verifying any price-moving claim, reading an 8-K or press release, or gathering evidence for a `submit_order` thesis.
 
+System One: run `jev_read_text` on these headlines first; see the system-one skill.
+
 ## Rules
 
 1. Source tiers, in order: (1) SEC filings and company press releases; (2) Fed/BLS/BEA official releases; (3) established newswires with named reporters; (4) analyst notes and reputable trade press; (5) blogs, forums, social posts. Tier 5 is sentiment color only and never evidence.

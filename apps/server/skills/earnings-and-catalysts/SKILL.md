@@ -5,6 +5,8 @@ description: Enforces the 5-day earnings blackout, trades post-earnings drift on
 
 Use when: before entering any position, when a holding approaches its report, or when a price jump needs catalyst verification.
 
+System One: run `jev_read_text` on catalyst headlines and `jev_thesis_check` after material news; see the system-one skill.
+
 ## Rules
 
 1. Blackout: no new entries within 5 trading days before a scheduled earnings report. Check `market_earnings` for every candidate; if `daysUntil` is 5 or fewer, the name is untradable for entry until after the report. Existing positions may be held through only with a pre-written thesis and a stop.

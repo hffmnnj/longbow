@@ -5,6 +5,8 @@ description: Classifies the market trend and volatility regime from SPY, QQQ, VI
 
 Use when: at the start of every trading cycle, before scanning for setups or sizing anything.
 
+System One: take a `jev_regime` second read beside this classification and keep the more cautious; see the system-one skill.
+
 ## Rules
 
 1. Pull `market_indicators` for SPY and QQQ, plus `market_volatility` and `market_yields`. These four calls are the regime input. Nothing else overrides them.

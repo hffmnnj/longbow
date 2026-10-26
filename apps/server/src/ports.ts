@@ -64,6 +64,12 @@ export interface Config {
   MUSE_AUTH_FILE: string;
   /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */
   WEBSEARCH_CONFIG_FILE: string;
+  /** System One endpoint, SYSTEMONE_URL, default TypeSafe's https://api.typesafe.ai/v1/systemone. For development use OpenCode's https://opencode.ai/inference/systemone/v1/systemone with model jev-1.13-free. */
+  SYSTEMONE_URL: string;
+  /** Model id sent to System One, SYSTEMONE_MODEL, default jev-latest. */
+  SYSTEMONE_MODEL: string;
+  /** File holding the System One key as a bare line or KEY=value, SYSTEMONE_KEY_FILE; SYSTEMONE_API_KEY overrides it. */
+  SYSTEMONE_KEY_FILE: string;
   ROBINHOOD_MCP_URL: string;
   /** Built SvelteKit app to serve, default apps/web/build. */
   WEB_DIR: string;

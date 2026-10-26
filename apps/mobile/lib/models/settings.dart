@@ -12,6 +12,35 @@ enum TradingMode {
   auto,
 }
 
+// Unknown gates parse as advise: review without blocking.
+enum SystemOneGate {
+  @JsonValue('off')
+  off,
+  @JsonValue('advise')
+  advise,
+  @JsonValue('block')
+  block,
+}
+
+/// System One (decision model) gate settings. Mirrors TS SystemOneSettings.
+@JsonSerializable(createToJson: false)
+class SystemOneSettings {
+  const SystemOneSettings({required this.enabled, required this.gate});
+
+  factory SystemOneSettings.fromJson(Map<String, dynamic> json) =>
+      _$SystemOneSettingsFromJson(json);
+
+  final bool enabled;
+  @JsonKey(unknownEnumValue: SystemOneGate.advise)
+  final SystemOneGate gate;
+}
+
+/// Older servers omit `systemOne`; the default reviews without blocking.
+const defaultSystemOne = SystemOneSettings(
+  enabled: true,
+  gate: SystemOneGate.advise,
+);
+
 @JsonSerializable(createToJson: false)
 class RiskConfig {
   const RiskConfig({
@@ -92,6 +121,7 @@ class Settings {
     required this.cycleMinutesClosed,
     required this.watchlist,
     required this.risk,
+    this.systemOne = defaultSystemOne,
   });
 
   factory Settings.fromJson(Map<String, dynamic> json) =>
@@ -107,6 +137,9 @@ class Settings {
   final List<String> watchlist;
   final RiskConfig risk;
 
+  /// Absent on servers older than System One; defaults to advise.
+  final SystemOneSettings systemOne;
+
   Settings copyWith({
     TradingMode? mode,
     bool? killSwitch,
@@ -116,6 +149,7 @@ class Settings {
     int? cycleMinutesClosed,
     List<String>? watchlist,
     RiskConfig? risk,
+    SystemOneSettings? systemOne,
   }) {
     return Settings(
       mode: mode ?? this.mode,
@@ -126,6 +160,7 @@ class Settings {
       cycleMinutesClosed: cycleMinutesClosed ?? this.cycleMinutesClosed,
       watchlist: watchlist ?? this.watchlist,
       risk: risk ?? this.risk,
+      systemOne: systemOne ?? this.systemOne,
     );
   }
 }
@@ -154,6 +189,22 @@ const defaultSettings = Settings(
   ],
   risk: defaultRisk,
 );
+
+/// Field-by-field merge patch for SystemOneSettings. Either field alone is
+/// allowed; the server merges what is present.
+@JsonSerializable(includeIfNull: false, explicitToJson: true)
+class SystemOneSettingsPatch {
+  const SystemOneSettingsPatch({this.enabled, this.gate});
+
+  factory SystemOneSettingsPatch.fromJson(Map<String, dynamic> json) =>
+      _$SystemOneSettingsPatchFromJson(json);
+
+  Map<String, dynamic> toJson() => _$SystemOneSettingsPatchToJson(this);
+
+  final bool? enabled;
+  @JsonKey(unknownEnumValue: SystemOneGate.advise)
+  final SystemOneGate? gate;
+}
 
 /// Field-by-field merge patch for RiskConfig. All fields are nullable so the
 /// app only sends what changed.
@@ -218,6 +269,7 @@ class SettingsPatch {
     this.cycleMinutesClosed,
     this.watchlist,
     this.risk,
+    this.systemOne,
   });
 
   factory SettingsPatch.fromJson(Map<String, dynamic> json) =>
@@ -235,4 +287,5 @@ class SettingsPatch {
   final int? cycleMinutesClosed;
   final List<String>? watchlist;
   final RiskConfigPatch? risk;
+  final SystemOneSettingsPatch? systemOne;
 }

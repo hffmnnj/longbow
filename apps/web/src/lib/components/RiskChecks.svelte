@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { RiskVerdict } from "@rh/shared";
+  import type { RiskCheck, RiskVerdict } from "@rh/shared";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import Icon from "./Icon.svelte";
   import { riskCheckKey } from "$lib/analytics";
-  import { ArrowRight01Icon, Cancel01Icon, Tick02Icon } from "$lib/icons";
+  import { ArrowRight01Icon, Cancel01Icon, FlashIcon, Tick02Icon } from "$lib/icons";
   import { ruleName } from "$lib/orders";
   import { cn } from "$lib/utils.js";
 
@@ -12,6 +12,9 @@
 
   const failed = $derived(verdict.checks.filter((c) => !c.ok));
   const passed = $derived(verdict.checks.length - failed.length);
+
+  const checkIcon = (c: RiskCheck) => (c.rule === "system_one" ? FlashIcon : c.ok ? Tick02Icon : Cancel01Icon);
+  const checkLabel = (rule: string) => (rule === "system_one" ? "System One" : ruleName(rule));
 </script>
 
 <Collapsible.Root bind:open>
@@ -29,8 +32,8 @@
     <ul class="mt-1 flex flex-col gap-1">
       {#each failed as c, i (riskCheckKey(c, i))}
         <li class="text-destructive flex items-start gap-1.5 text-[12.5px]">
-          <Icon icon={Cancel01Icon} class="mt-0.5 size-3.5 shrink-0" strokeWidth={2.2} />
-          <span><span class="font-medium">{ruleName(c.rule)}.</span> {c.detail}</span>
+          <Icon icon={checkIcon(c)} class="mt-0.5 size-3.5 shrink-0" strokeWidth={2.2} />
+          <span><span class="font-medium">{checkLabel(c.rule)}.</span> {c.detail}</span>
         </li>
       {/each}
     </ul>
@@ -40,8 +43,8 @@
     <ul class="mt-1 flex flex-col gap-1">
       {#each verdict.checks as c, i (riskCheckKey(c, i))}
         <li class={cn("flex items-start gap-1.5 text-[12.5px]", c.ok ? "text-muted-foreground" : "text-destructive")}>
-          <Icon icon={c.ok ? Tick02Icon : Cancel01Icon} class="mt-0.5 size-3.5 shrink-0" strokeWidth={2.2} />
-          <span><span class={cn("font-medium", c.ok && "text-foreground")}>{ruleName(c.rule)}.</span> {c.detail}</span>
+          <Icon icon={checkIcon(c)} class="mt-0.5 size-3.5 shrink-0" strokeWidth={2.2} />
+          <span><span class={cn("font-medium", c.ok && "text-foreground")}>{checkLabel(c.rule)}.</span> {c.detail}</span>
         </li>
       {/each}
     </ul>
