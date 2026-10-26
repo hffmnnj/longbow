@@ -9,6 +9,7 @@
 - The harness has its own ChatGPT login (`apps/server/scripts/codex-login.ts`); never copy OpenCode's OpenAI tokens, refresh tokens are single use.
 - Simulation events carry `simRunId`; the live UI reducer, journal, and push notifier must ignore them.
 - Report figures come only from `apps/server/src/reports/facts.ts`; the model supplies narrative through `publish_report`, never numbers.
+- Every user-facing change ships to both clients in the same PR: the web app (`apps/web`) and the native Android app (`apps/mobile`, Flutter). A server wire change updates both parsers (`packages/shared` and `apps/mobile/lib/models`). Owner's standing instruction.
 
 ## Commands
 - `bun run typecheck && bun run test` in the repo root; the web tests run separately with `bun run test` in `apps/web` (vitest, Node environment, no DOM).
@@ -20,9 +21,11 @@
 - The Playwright MCP browser cannot reach this machine's 127.0.0.1 or the tailnet; for local screenshots use Agent Browser (`web-visual-qa`) or headless `/usr/bin/chromium`.
 - Robinhood positions carry no sector; the sector cap and charts get sectors from `apps/server/src/market/sectors.ts` (SEC SIC codes plus overrides). Add overrides there for misfiled names.
 - For scratch checks, snapshot the live DB with `VACUUM INTO` on a read-only open of `~/.local/share/robinhood-harness/app.sqlite`; a plain `cp` misses the WAL and yields a malformed copy.
+- bits-ui sets `data-state`, not `data-checked`, so shadcn classes written as `data-checked:` never apply; style with `data-[state=checked]:` (the Switch was invisible until fixed).
 - Bottom sheets need `max-h-[…dvh]`, not `h-[…]`: bits-ui's `data-[side=bottom]:h-auto` outranks a plain height class and the sheet grows past the screen.
 - The PWA's tailnet origin is `https://<host>.<tailnet>.ts.net:8443` (`tailscale serve`); the public Funnel on :443 belongs to another project and must stay untouched.
 
 ## Read when
 - Operating or rolling back the service → `docs/RUNBOOK.md`.
 - Scope and open work → `docs/SPEC.md`, `docs/ROADMAP.md`.
+- System One (Jev) tools, gate review, keys and endpoints → `docs/SYSTEM-ONE.md`; check it live with `node scripts/jev-probe.ts` in `apps/server`.
