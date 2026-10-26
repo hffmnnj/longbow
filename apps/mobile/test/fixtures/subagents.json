@@ -1,0 +1,12 @@
+[
+  {
+    "id": "child-handbuilt-001",
+    "role": "bear",
+    "startedAt": 1792978600000,
+    "status": "done",
+    "symbol": "SPY",
+    "task": "Argue against a SPY entry: list the top three near-term risks with data.",
+    "endedAt": 1792978660000,
+    "answer": "Sample counterpoints for fixture tests: (1) VIX above its weekly average, (2) upcoming earnings from large index weights, (3) weak breadth with few names above the 50-day average."
+  }
+]
