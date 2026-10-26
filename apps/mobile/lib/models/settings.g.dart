@@ -6,6 +6,22 @@ part of 'settings.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+SystemOneSettings _$SystemOneSettingsFromJson(Map<String, dynamic> json) =>
+    SystemOneSettings(
+      enabled: json['enabled'] as bool,
+      gate: $enumDecode(
+        _$SystemOneGateEnumMap,
+        json['gate'],
+        unknownValue: SystemOneGate.advise,
+      ),
+    );
+
+const _$SystemOneGateEnumMap = {
+  SystemOneGate.off: 'off',
+  SystemOneGate.advise: 'advise',
+  SystemOneGate.block: 'block',
+};
+
 RiskConfig _$RiskConfigFromJson(Map<String, dynamic> json) => RiskConfig(
   maxRiskPerTradePct: (json['maxRiskPerTradePct'] as num).toDouble(),
   maxPositionPct: (json['maxPositionPct'] as num).toDouble(),
@@ -42,12 +58,33 @@ Settings _$SettingsFromJson(Map<String, dynamic> json) => Settings(
       .map((e) => e as String)
       .toList(),
   risk: RiskConfig.fromJson(json['risk'] as Map<String, dynamic>),
+  systemOne: json['systemOne'] == null
+      ? defaultSystemOne
+      : SystemOneSettings.fromJson(json['systemOne'] as Map<String, dynamic>),
 );
 
 const _$TradingModeEnumMap = {
   TradingMode.off: 'off',
   TradingMode.approve: 'approve',
   TradingMode.auto: 'auto',
+};
+
+SystemOneSettingsPatch _$SystemOneSettingsPatchFromJson(
+  Map<String, dynamic> json,
+) => SystemOneSettingsPatch(
+  enabled: json['enabled'] as bool?,
+  gate: $enumDecodeNullable(
+    _$SystemOneGateEnumMap,
+    json['gate'],
+    unknownValue: SystemOneGate.advise,
+  ),
+);
+
+Map<String, dynamic> _$SystemOneSettingsPatchToJson(
+  SystemOneSettingsPatch instance,
+) => <String, dynamic>{
+  'enabled': ?instance.enabled,
+  'gate': ?_$SystemOneGateEnumMap[instance.gate],
 };
 
 RiskConfigPatch _$RiskConfigPatchFromJson(
@@ -113,6 +150,11 @@ SettingsPatch _$SettingsPatchFromJson(Map<String, dynamic> json) =>
       risk: json['risk'] == null
           ? null
           : RiskConfigPatch.fromJson(json['risk'] as Map<String, dynamic>),
+      systemOne: json['systemOne'] == null
+          ? null
+          : SystemOneSettingsPatch.fromJson(
+              json['systemOne'] as Map<String, dynamic>,
+            ),
     );
 
 Map<String, dynamic> _$SettingsPatchToJson(SettingsPatch instance) =>
@@ -125,4 +167,5 @@ Map<String, dynamic> _$SettingsPatchToJson(SettingsPatch instance) =>
       'cycleMinutesClosed': ?instance.cycleMinutesClosed,
       'watchlist': ?instance.watchlist,
       'risk': ?instance.risk?.toJson(),
+      'systemOne': ?instance.systemOne?.toJson(),
     };
