@@ -1,57 +1,125 @@
-# Longbow Android shell — design notes
+---
+name: Longbow Android
+description: Native Flutter client for the Longbow trading harness. Graphite terminal, one steel-blue accent, green and red reserved for money.
+colors:
+  dark:
+    background: "#0D0E11"
+    foreground: "#E5E8EC"
+    card: "#141619"
+    popover: "#1C1E22"
+    bar: "#121417"
+    secondary: "#1F2225"
+    muted: "#1B1D20"
+    mutedForeground: "#999FA6"
+    accent: "#26292E"
+    border: "#2B2E32"
+    input: "#52565B"
+    primary: "#6DBBE8"
+    primaryForeground: "#0D1014"
+    destructive: "#F66D67"
+    gain: "#5FD37F"
+    loss: "#FD736D"
+    warn: "#E9B452"
+    warnBg: "#362607"
+    live: "#6DBBE8"
+    lab: "#C2A7F4"
+    labBg: "#1C1625"
+  light:
+    background: "#F6F7F8"
+    foreground: "#171B20"
+    card: "#FFFFFF"
+    popover: "#FFFFFF"
+    bar: "#FFFFFF"
+    secondary: "#EDF0F2"
+    muted: "#EDF0F2"
+    mutedForeground: "#555B63"
+    accent: "#E7EAED"
+    border: "#DBDEE1"
+    input: "#BABEC3"
+    primary: "#005C96"
+    primaryForeground: "#FAFAFA"
+    destructive: "#BB0916"
+    gain: "#006E30"
+    loss: "#BE2323"
+    warn: "#975800"
+    warnBg: "#FEEDC9"
+    live: "#1777B8"
+    lab: "#68449C"
+    labBg: "#F2EDFC"
+typography:
+  sans: IBM Plex Sans
+  mono: IBM Plex Mono
+  scale:
+    display: { size: 34, weight: 600, tracking: -0.6, face: mono-tabular }
+    title: { size: 20, weight: 600, tracking: -0.2, face: sans }
+    body: { size: 15, weight: 400, face: sans }
+    label: { size: 13, weight: 500, face: sans }
+    caption: { size: 11.5, weight: 500, face: sans }
+    number: { size: 14, weight: 500, face: mono-tabular }
+rounded:
+  sm: 6
+  md: 10
+  lg: 14
+  xl: 20
+spacing:
+  unit: 4
+  screen: 16
+  card: 14
+  gap: 12
+motion:
+  fast: 120ms
+  base: 200ms
+  sheet: 300ms
+  curve: easeOutCubic
+---
 
-Native Flutter shell around the served Longbow web app (full-screen WebView).
-The web app owns every feature; native code owns only chrome around it.
+# Longbow Android design
 
-## Tokens
+Native Flutter app that replaces the WebView shell. It speaks to the same server as the web app and shows the same product, built with Material 3 widgets under a custom Longbow theme. Brand coherence with the web app comes from the shared token values above (converted from the web CSS `oklch` variables); everything else is native.
 
-- `background`: `#16191d` — shared everywhere (web `theme-color`, Android
-  status/nav bars, native splash, loading overlay, error screen, Scaffold).
-- Mark: `assets/longbow-mark.png` (copied from `apps/web/static/brand/`).
-- Type/components: Material 3 dark (`ColorScheme.fromSeed`, dark), FilledButton
-  with 48dp min height on the error screen, headline/body from the M3 text theme.
-- No animations: loading and error are static screens; no motion to reduce.
+## Overview
+
+A trading terminal that fits in a hand. Graphite surfaces, one steel-blue accent, IBM Plex type with tabular figures so every number lines up. Green and red appear only on money and on buy/sell. Amber marks warnings and halts. Violet marks the simulation lab so paper money never reads as real money. Charts are dithered: a line over an ordered-dither area fill, the same signature as the web app, drawn with `CustomPainter`.
+
+The first screen is a verdict, not a menu: equity, day P&L, whether the agent is working, whether anything needs a human. Detail is one tap or one drag away.
+
+## Colors
+
+Tokens are exposed as a `LongbowColors` `ThemeExtension` (gain, loss, warn, warnBg, live, lab, labBg, bar, mutedForeground, border, input) beside the Material `ColorScheme` built from the same values. Call sites read `context.lb.gain`, never a literal. Dark is the default; light follows the system when the user picks System in settings. No dynamic wallpaper color: the brand wins.
+
+Color is never the only signal. Gain and loss carry a sign and a minus glyph (U+2212); status chips carry an icon or word.
+
+## Typography
+
+IBM Plex Sans for text, IBM Plex Mono for numbers, both bundled as assets (no runtime fetching). Numbers always use tabular figures and right-align in columns. Never clamp the text scale; layouts flow at the largest accessibility size.
+
+## Layout
+
+Compact phone first, 16dp screen margins, 12dp gaps, 14dp card padding. At 600dp and wider the Feed becomes two panes (transcript and approvals plus portfolio) and lists become grids; content reflows below that. Safe areas come from `MediaQuery`/`SafeArea`; the app draws edge to edge with transparent system bars.
+
+Navigation: a bottom `NavigationBar` with Feed, Portfolio, Markets, Performance, Agent. A "More" action in the top bar opens a menu sheet with Reports, Journal and orders, Lab, and Settings. Symbol, report, run, suite, transcript, note and skill details push full-screen routes; order detail, settings, and the new-simulation forms open as modal bottom sheets with a grabber.
+
+## Components
+
+Material 3 widgets (NavigationBar, FilledButton, SegmentedButton, Switch.adaptive, ModalBottomSheet, SnackBar) themed through tokens. Longbow-specific pieces live in `lib/core/widgets`: Money and percent text, Pnl, StatusChip, ActionBadge, GradeChip, SideBadge, Section card, Empty, ErrorState, SkeletonBlock, KeyValue rows, Disclosure. Charts live in `lib/core/charts`: DitherAreaChart, Sparkline, EquityChart with benchmark, CandleChart-free price line with scrub, bar and calibration strips. Markdown renders through one themed widget.
 
 ## Behaviors
 
-- First paint is the Android splash (mark on `#16191d`); the loading overlay
-  keeps the identical look until `onPageFinished`, so there is never a white flash.
-- Error screen copy is fixed: "Can't reach Longbow" /
-  "Check that Tailscale is connected." / Retry. Nothing else.
-- Same-origin links stay in the WebView; any other origin opens externally.
-- Back dispatches a synthetic Escape into the page first: an open sheet,
-  dialog, or menu consumes it and stays put; otherwise back walks WebView
-  history, else leaves the app.
-- Both fold displays work: `SafeArea` + Scaffold background, no fixed sizes
-  except the centred mark artwork; `configChanges` already covers unfold resizes.
-- The WebView crossfades in over ~200ms once the first page finishes
-  (skipped under reduced motion); pinch zoom is off.
+- Auto connection: on launch the app probes the known tailnet addresses in parallel (MagicDNS HTTPS on 8443, MagicDNS HTTP on 4520, the tailnet IP on 4520), takes the first that answers `GET /api/status`, remembers it, and re-probes on failure and on network change. If nothing answers it shows one screen: "Can't reach Longbow", a Retry, an Open Tailscale button, and an Advanced field to type a host. The app retries by itself every 10 seconds and when it returns to the foreground.
+- Live data: one `GET /api/events` stream (SSE) with backoff reconnect; REST refresh on every (re)connect. Offline shows the last known account with its age.
+- Pull to refresh on scrolling data screens. Skeletons reserve the loaded geometry; stale data stays visible while a refresh runs.
+- Haptics at commit moments only: approve and reject, kill switch, mode change, sending a message, tab change (selection). Never on scroll. The visual always stands alone.
+- Notifications: the existing Kotlin foreground service keeps the trade-alert stream; tapping a notification routes `/?order=`, `?report=`, `?view=` and `?action=kill` to the matching native screen.
+- Back unwinds sheets, then routes, then leaves the app; predictive back is on.
+- Motion: tab content cross-fades (about 200ms), sheets use the platform spring, the equity number rolls to new values, new feed items ease in. All of it is skipped when `MediaQuery.disableAnimationsOf` is true.
 
-## Native bridge
+## Surfaces
 
-- The web (`apps/web/src/lib/native.ts`) posts `{ id, method, args }` to the
-  `LongbowBridge` JavaScript channel; native answers with
-  `window.__longbowReply(<id>, <json>)`. Methods: `haptic`
-  (selection/light/medium/heavy/success/warning/error via HapticFeedback),
-  `print` (Android PrintManager over the native WebView adapter, found by
-  `AndroidWebViewController.webViewIdentifier` over the `longbow/native`
-  method channel), `copy` (Clipboard + light haptic), `badge` (no-op;
-  launchers show dots from the alert notifications), and
-  `notifications.status/enable/disable` (runtime permission, persisted
-  toggle, foreground service).
-- Pure Dart parsing, reply encoding, and notification-URL routing live in
-  `lib/bridge.dart` with device-free unit tests.
+Feed (live transcript with decision cards and tool traces, composer, approvals, halt banner), Portfolio (equity hero, positions, orders, latest report), Markets (regime, indices, sectors, VIX, yields, breadth, calendar, earnings), Performance (equity vs SPY, trades, calibration, exposure, sectors), Agent control room (fleet, models, cycle controls, subagents, notes, skills), Reports (list and brief), Journal and orders, Lab (runs, suites, compare, new run), Settings (mode, kill switch, risk limits, cycle cadence, watchlist, Robinhood connection, notifications, theme, server address).
 
-## Trade-alerts service
+## Decisions
 
-- `AlertsService` (Kotlin, `specialUse` foreground service, "Live trading
-  alerts") holds `GET <base>/api/push/native-stream` open, reconnecting with
-  2s→60s backoff and waking on connectivity return. Each payload posts on the
-  high-importance "Trade alerts" channel; the notification id comes from the
-  tag so repeats replace, as web push does. Tapping one opens the app and
-  loads `<base><url>` in the WebView, including when already running.
-- Its own persistent notification sits on the low-importance "Connection"
-  channel: "Longbow" / "Watching for trades", no actions. Small icon is the
-  monochrome mark in `res/drawable/ic_alert.xml`. Boot completes restarts it
-  when enabled. Permissions: POST_NOTIFICATIONS, FOREGROUND_SERVICE (+
-  SPECIAL_USE), RECEIVE_BOOT_COMPLETED, VIBRATE, INTERNET.
+- 2026-10-26: Replace the WebView shell with a fully native Flutter app; the web app stays as the browser and PWA client. Why: the owner wants native feel, gestures, and performance.
+- Material 3 base with a custom ThemeExtension instead of a third-party kit, because Material is mature on Android and the brand lives in tokens.
+- Riverpod for state, `http` for REST and SSE, `json_serializable` for models, custom painters for charts. No chart package so the dithered signature matches the web.
+- The app talks to the server with the `x-harness: 1` header and no `Origin`, which the server already accepts.
