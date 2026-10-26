@@ -1,0 +1,74 @@
+[
+  {
+    "name": "code-mode-recipes",
+    "description": "Provides tested JavaScript patterns for the sandbox: parallel fetches, custom indicators, backtests, watchlist scans, and compact summaries; load before writing any trading script."
+  },
+  {
+    "name": "debate-and-review",
+    "description": "Runs bull, bear, and risk_reviewer subagents in parallel before entries and records the verdict; load before every new entry."
+  },
+  {
+    "name": "earnings-and-catalysts",
+    "description": "Enforces the 5-day earnings blackout, trades post-earnings drift only on held gaps, and structures catalyst research; load before any entry and around reports."
+  },
+  {
+    "name": "etf-mean-reversion",
+    "description": "Buys short-term washed-out dips in broad index ETFs trading above their 200-day with strict time stops; load only for oversold index ETFs, never single stocks."
+  },
+  {
+    "name": "fundamentals-check",
+    "description": "Runs a 5-minute quality and trend veto from sec_company facts and recent filings; load to reject bad businesses before any entry, never to value them."
+  },
+  {
+    "name": "macro-calendar",
+    "description": "Keeps FOMC, CPI, payrolls, and PCE event risk out of new entries by checking the calendar reference before trading; load each morning and before any entry."
+  },
+  {
+    "name": "market-reference",
+    "description": "Covers settlement, trading rules, the NYSE calendar, data limits, and published LLM-trading findings; load when a rule, date, or tool limit is unclear."
+  },
+  {
+    "name": "market-regime",
+    "description": "Classifies the market trend and volatility regime from SPY, QQQ, VIX, and yields; load at the start of every cycle to set exposure and allowed setups."
+  },
+  {
+    "name": "news-research",
+    "description": "Grades sources by tier, reads filings before narratives, and cites evidence in journal format; load whenever a catalyst, headline, or Bull thesis needs verification."
+  },
+  {
+    "name": "portfolio-heat",
+    "description": "Measures total open risk, correlation clusters, and sector exposure and forces reductions before limits bind; load when considering entries and during position reviews."
+  },
+  {
+    "name": "position-sizing-and-exits",
+    "description": "Sizes positions from dollar risk and ATR stops and manages exits by R-multiples, trailing, and time stops; load for every order and every open position review."
+  },
+  {
+    "name": "pullback-in-uptrend",
+    "description": "Buys pullbacks to the 20-day EMA or 50-day SMA in confirmed uptrends with RSI and depth filters; load when a leader has sold off toward support."
+  },
+  {
+    "name": "quant-toolkit",
+    "description": "Evidence-first trading loop with the quant tools (screen, backtest, risk, size); load before picking entries, adding risk, or sizing orders."
+  },
+  {
+    "name": "relative-strength-rotation",
+    "description": "Ranks sectors and leaders by 3- and 6-month relative strength against SPY with market_compare; load for weekly rotation and to confirm leaders."
+  },
+  {
+    "name": "reports",
+    "description": "Publishes daily, weekly, and trade reports through publish_report after the close; load at each post-close review."
+  },
+  {
+    "name": "small-account",
+    "description": "Sizes positions and plans the day for a small limited-margin account with fractional shares, swing holds, and buying-power discipline; load before sizing any trade or planning the day."
+  },
+  {
+    "name": "trade-review-and-calibration",
+    "description": "Reviews closed trades on R-multiples, MFE/MAE, and Brier scores and writes lessons back to memory; load at each post-close review."
+  },
+  {
+    "name": "trend-breakout",
+    "description": "Trades 20-day and 52-week high breakouts in leading stocks with volume confirmation and ATR stops; load when the regime allows breakouts."
+  }
+]

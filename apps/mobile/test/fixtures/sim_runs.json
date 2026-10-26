@@ -1,0 +1,214 @@
+[
+  {
+    "id": "20261025040601021-b2732a",
+    "createdAt": 1792901161021,
+    "startedBy": "agent",
+    "config": {
+      "name": "ETF five-day-low branch filter pilot · B RSI-only filter · steady-bull-2021",
+      "scenario": "steady-bull-2021",
+      "mode": "blind",
+      "execution": "realistic",
+      "seed": 1093733106,
+      "model": "subagent",
+      "startDate": "2021-03-01",
+      "days": 60,
+      "startingCash": 1200,
+      "cyclesPerDay": 2,
+      "watchlist": [
+        "SPY",
+        "QQQ",
+        "IWM"
+      ],
+      "strategy": "Synthetic variant B for fixture tests: alternate paper-trading filter on broad index ETFs. No real orders; fixed sample rules, fixed costs, and illustrative results only."
+    },
+    "seed": 1093733106,
+    "suiteId": "20261025040559417-c74d1b",
+    "variant": "B RSI-only filter",
+    "status": "done",
+    "progress": {
+      "day": 60,
+      "days": 60,
+      "cycle": 2,
+      "cyclesPerDay": 2
+    },
+    "equity": [
+      {
+        "date": "2031-03-26",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1212.4173344744418
+      },
+      {
+        "date": "2031-03-27",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1202.9565082082006
+      },
+      {
+        "date": "2031-03-28",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1187.0224850229517
+      },
+      {
+        "date": "2031-03-31",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1172.333307399051
+      },
+      {
+        "date": "2031-04-01",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1193.9002567493972
+      }
+    ],
+    "positions": [],
+    "fills": [],
+    "currentDate": "2031-06-17",
+    "metrics": {
+      "returnPct": 0,
+      "benchmarkReturnPct": 8.708732072927216,
+      "maxDrawdownPct": 0,
+      "trades": 0,
+      "exposurePct": 0,
+      "ordersSubmitted": 0,
+      "ordersRejected": 0,
+      "roundTrips": 0,
+      "turnoverPct": 0,
+      "costsPaid": 0,
+      "costsPct": 0,
+      "riskBlocks": {},
+      "sharpe": 0,
+      "volatilityPct": 0,
+      "beta": 0,
+      "alphaPct": 0
+    },
+    "aliases": {
+      "MKT": "SPY",
+      "STECH": "XLK",
+      "SFIN": "XLF",
+      "SENGY": "XLE",
+      "SHLTH": "XLV",
+      "SDISC": "XLY",
+      "SSTPL": "XLP",
+      "SINDU": "XLI",
+      "SMATL": "XLB",
+      "SUTIL": "XLU",
+      "SREAL": "XLRE",
+      "SCOMM": "XLC",
+      "ZPUZ": "QQQ",
+      "ZONI": "IWM"
+    },
+    "calendar": {
+      "firstDay": "2031-03-26",
+      "sourceStart": "2021-03-01",
+      "sourceEnd": "2021-05-24"
+    },
+    "finishedAt": 1792903434605
+  },
+  {
+    "id": "20261025040601021-bfeee1",
+    "createdAt": 1792901161021,
+    "startedBy": "agent",
+    "config": {
+      "name": "ETF five-day-low branch filter pilot · B RSI-only filter · bootstrap-1",
+      "mode": "bootstrap",
+      "execution": "realistic",
+      "seed": 1,
+      "model": "subagent",
+      "days": 10,
+      "startingCash": 1200,
+      "cyclesPerDay": 2,
+      "watchlist": [
+        "SPY",
+        "QQQ",
+        "IWM"
+      ],
+      "strategy": "Synthetic variant B for fixture tests: alternate paper-trading filter on broad index ETFs. No real orders; fixed sample rules, fixed costs, and illustrative results only."
+    },
+    "seed": 1,
+    "suiteId": "20261025040559417-c74d1b",
+    "variant": "B RSI-only filter",
+    "status": "done",
+    "progress": {
+      "day": 10,
+      "days": 10,
+      "cycle": 2,
+      "cyclesPerDay": 2
+    },
+    "equity": [
+      {
+        "date": "2031-09-30",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1201.971201971202
+      },
+      {
+        "date": "2031-10-01",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1201.4476014476015
+      },
+      {
+        "date": "2031-10-02",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1203.3880033880032
+      },
+      {
+        "date": "2031-10-03",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1209.332409332409
+      },
+      {
+        "date": "2031-10-06",
+        "equity": 1200,
+        "cash": 1200,
+        "benchmark": 1208.285208285208
+      }
+    ],
+    "positions": [],
+    "fills": [],
+    "currentDate": "2031-10-13",
+    "metrics": {
+      "returnPct": 0,
+      "benchmarkReturnPct": -3.317406899944819,
+      "maxDrawdownPct": 0,
+      "trades": 0,
+      "exposurePct": 0,
+      "ordersSubmitted": 0,
+      "ordersRejected": 0,
+      "roundTrips": 0,
+      "turnoverPct": 0,
+      "costsPaid": 0,
+      "costsPct": 0,
+      "riskBlocks": {},
+      "sharpe": 0,
+      "volatilityPct": 0,
+      "beta": 0,
+      "alphaPct": 0
+    },
+    "aliases": {
+      "MKT": "SPY",
+      "STECH": "XLK",
+      "SFIN": "XLF",
+      "SENGY": "XLE",
+      "SHLTH": "XLV",
+      "SDISC": "XLY",
+      "SSTPL": "XLP",
+      "SINDU": "XLI",
+      "SMATL": "XLB",
+      "SUTIL": "XLU",
+      "SREAL": "XLRE",
+      "SCOMM": "XLC",
+      "ZJXB": "QQQ",
+      "ZLGA": "IWM"
+    },
+    "calendar": {
+      "firstDay": "2031-09-30"
+    },
+    "finishedAt": 1792903528081
+  }
+]

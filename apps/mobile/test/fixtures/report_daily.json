@@ -1,0 +1,337 @@
+{
+  "id": "trade-VRT-1790602202000",
+  "kind": "trade",
+  "at": 1792888393244,
+  "symbol": "VRT",
+  "periodStart": "2026-09-28",
+  "periodEnd": "2026-09-28",
+  "headline": "Sample trade review: VRT position closed.",
+  "grade": "C",
+  "pnl": -53.84,
+  "narrative": {
+    "kind": "trade",
+    "symbol": "VRT",
+    "headline": "Sample trade review: VRT position closed.",
+    "summary": "This sample review covers a closed VRT trade in a synthetic fixture account. There is no live plan on record, so the process grade is provisional.",
+    "grade": "C",
+    "gradeReason": "Provisional C: the exit removed exposure, but a fixture record alone cannot support a stronger decision-quality grade.",
+    "sections": [
+      {
+        "title": "Execution",
+        "body": "Both sample orders were entered as market instructions and filled at the following open. The sale matched the acquired quantity."
+      }
+    ],
+    "lessons": [
+      "Grade the decision process separately from the realized outcome."
+    ],
+    "nextSteps": [
+      "Record the rationale for the next sample trade before its exit is evaluated."
+    ]
+  },
+  "facts": {
+    "periodStart": "2026-09-28",
+    "periodEnd": "2026-09-28",
+    "equityCurve": [],
+    "benchmarkPct": -0.7441498671160951,
+    "trades": [
+      {
+        "symbol": "VRT",
+        "closedAt": 1790602202000,
+        "quantity": 1.6828,
+        "exitPrice": 253.24579627191002,
+        "pnl": -53.84,
+        "source": "robinhood"
+      },
+      {
+        "symbol": "CEG",
+        "closedAt": 1790602203000,
+        "quantity": 1.5821,
+        "exitPrice": 261.88573913571133,
+        "pnl": -65.68,
+        "source": "robinhood"
+      }
+    ],
+    "realizedPnl": -119.52,
+    "winRatePct": 0,
+    "orders": {
+      "submitted": 0,
+      "filled": 0,
+      "rejected": 0,
+      "cancelled": 0,
+      "failed": 0
+    },
+    "positions": [
+      {
+        "symbol": "ADBE",
+        "weightPct": 5.292907198698872,
+        "unrealizedPnl": 40.7,
+        "sector": "Technology"
+      },
+      {
+        "symbol": "ASML",
+        "weightPct": 13.275449415615503,
+        "unrealizedPnl": -53.96,
+        "sector": "Technology"
+      },
+      {
+        "symbol": "NVDA",
+        "weightPct": 14.299950818323047,
+        "unrealizedPnl": -153.17,
+        "sector": "Technology"
+      },
+      {
+        "symbol": "XLV",
+        "weightPct": 7.259738234412208,
+        "unrealizedPnl": -5.82,
+        "sector": "Technology"
+      },
+      {
+        "symbol": "GOOGL",
+        "weightPct": 4.6699683588048115,
+        "unrealizedPnl": -20.57,
+        "sector": "Communication Services"
+      },
+      {
+        "symbol": "AAPL",
+        "weightPct": 8.910553373904266,
+        "unrealizedPnl": 76.61,
+        "sector": "Technology"
+      },
+      {
+        "symbol": "META",
+        "weightPct": 6.75928596212168,
+        "unrealizedPnl": 24.97,
+        "sector": "Communication Services"
+      },
+      {
+        "symbol": "CRM",
+        "weightPct": 5.546642280128556,
+        "unrealizedPnl": 65.67,
+        "sector": "Technology"
+      }
+    ],
+    "heatPct": 2.1398282447815498,
+    "decisions": [],
+    "pnl": -53.84,
+    "trade": {
+      "trade": {
+        "symbol": "VRT",
+        "closedAt": 1790602202000,
+        "quantity": 1.6828,
+        "exitPrice": 253.24579627191002,
+        "pnl": -53.84,
+        "source": "robinhood"
+      },
+      "bars": [
+        {
+          "date": "2026-08-28",
+          "open": 269.06,
+          "high": 270,
+          "low": 255.57,
+          "close": 257.08,
+          "volume": 3849764
+        },
+        {
+          "date": "2026-08-31",
+          "open": 258.24,
+          "high": 261.79,
+          "low": 254.9093,
+          "close": 258.72,
+          "volume": 4085717
+        },
+        {
+          "date": "2026-09-01",
+          "open": 255.22,
+          "high": 257.89,
+          "low": 248.75,
+          "close": 255.97,
+          "volume": 4283966
+        },
+        {
+          "date": "2026-09-02",
+          "open": 254.97,
+          "high": 260.05,
+          "low": 251.5,
+          "close": 256.7,
+          "volume": 3014437
+        },
+        {
+          "date": "2026-09-03",
+          "open": 256.49,
+          "high": 270.99,
+          "low": 254.5,
+          "close": 268.83,
+          "volume": 4245904
+        },
+        {
+          "date": "2026-09-04",
+          "open": 273.945,
+          "high": 280.99,
+          "low": 271.2,
+          "close": 280.53,
+          "volume": 3322736
+        },
+        {
+          "date": "2026-09-08",
+          "open": 285,
+          "high": 295.34,
+          "low": 282,
+          "close": 290.83,
+          "volume": 4755582
+        },
+        {
+          "date": "2026-09-09",
+          "open": 288.69,
+          "high": 290.23,
+          "low": 260,
+          "close": 262.89,
+          "volume": 9798806
+        },
+        {
+          "date": "2026-09-10",
+          "open": 259.1,
+          "high": 262,
+          "low": 244.77,
+          "close": 248.13,
+          "volume": 10055160
+        },
+        {
+          "date": "2026-09-11",
+          "open": 252.5,
+          "high": 258.7799,
+          "low": 251.84,
+          "close": 257.06,
+          "volume": 4774088
+        },
+        {
+          "date": "2026-09-14",
+          "open": 228,
+          "high": 241.3,
+          "low": 226.94,
+          "close": 237.39,
+          "volume": 10904960
+        },
+        {
+          "date": "2026-09-15",
+          "open": 243.02,
+          "high": 245.41,
+          "low": 233.9,
+          "close": 234.61,
+          "volume": 5737183
+        },
+        {
+          "date": "2026-09-16",
+          "open": 240,
+          "high": 244.76,
+          "low": 237.64,
+          "close": 239.41,
+          "volume": 5514636
+        },
+        {
+          "date": "2026-09-17",
+          "open": 249.75,
+          "high": 252.34,
+          "low": 241.25,
+          "close": 241.49,
+          "volume": 4967158
+        },
+        {
+          "date": "2026-09-18",
+          "open": 246.19,
+          "high": 250.15,
+          "low": 242.43,
+          "close": 249.39,
+          "volume": 7837060
+        },
+        {
+          "date": "2026-09-21",
+          "open": 254.67,
+          "high": 254.8757,
+          "low": 247.6055,
+          "close": 250.86,
+          "volume": 4867546
+        },
+        {
+          "date": "2026-09-22",
+          "open": 250.3,
+          "high": 255.4,
+          "low": 249.14,
+          "close": 253.46,
+          "volume": 3524594
+        },
+        {
+          "date": "2026-09-23",
+          "open": 253.675,
+          "high": 255.02,
+          "low": 248.505,
+          "close": 248.78,
+          "volume": 3556464
+        },
+        {
+          "date": "2026-09-24",
+          "open": 240.47,
+          "high": 246.9,
+          "low": 239.0001,
+          "close": 245.3,
+          "volume": 4128471
+        },
+        {
+          "date": "2026-09-25",
+          "open": 249.18,
+          "high": 254.5,
+          "low": 248,
+          "close": 253.28,
+          "volume": 4134525
+        },
+        {
+          "date": "2026-09-28",
+          "open": 253.23,
+          "high": 254.2,
+          "low": 242.52,
+          "close": 244.04,
+          "volume": 4284811
+        },
+        {
+          "date": "2026-09-29",
+          "open": 251.38,
+          "high": 254.13,
+          "low": 246.84,
+          "close": 248.34,
+          "volume": 3298848
+        },
+        {
+          "date": "2026-09-30",
+          "open": 249.48,
+          "high": 250.8204,
+          "low": 241.27,
+          "close": 241.31,
+          "volume": 4176499
+        },
+        {
+          "date": "2026-10-01",
+          "open": 242.92,
+          "high": 249.53,
+          "low": 238.3,
+          "close": 246.12,
+          "volume": 3474284
+        },
+        {
+          "date": "2026-10-02",
+          "open": 250.64,
+          "high": 254.8,
+          "low": 248.54,
+          "close": 252.18,
+          "volume": 3351257
+        },
+        {
+          "date": "2026-10-05",
+          "open": 254.34,
+          "high": 258.1,
+          "low": 250.06,
+          "close": 253.62,
+          "volume": 4352237
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "trade-VRT-1790602202000",
+    "kind": "trade",
+    "at": 1792888393244,
+    "symbol": "VRT",
+    "periodStart": "2026-09-28",
+    "periodEnd": "2026-09-28",
+    "headline": "Sample trade review: VRT position closed.",
+    "grade": "C",
+    "pnl": -53.84
+  }
+]

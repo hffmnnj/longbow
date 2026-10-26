@@ -1,0 +1,363 @@
+{
+  "asOf": 1792982763405,
+  "regime": "Sideways",
+  "indices": [
+    {
+      "symbol": "SPY",
+      "name": "S&P 500",
+      "last": 759.97,
+      "changePct1d": -0.5222786533326418,
+      "return1m": -0.9398055215203649,
+      "return3m": 2.825095725825011,
+      "aboveSma50": false,
+      "aboveSma200": true,
+      "rsi14": 42.09384620727128,
+      "spark": [
+        763.25,
+        766.48,
+        769.05,
+        773.09,
+        763.96,
+        759.97
+      ]
+    },
+    {
+      "symbol": "QQQ",
+      "name": "Nasdaq 100",
+      "last": 704.4,
+      "changePct1d": -0.009936548043221194,
+      "return1m": -4.952098232357316,
+      "return3m": 3.2662874567524813,
+      "aboveSma50": false,
+      "aboveSma200": true,
+      "rsi14": 36.509947407282425,
+      "spark": [
+        709.8,
+        718.36,
+        717.63,
+        725.2,
+        704.47,
+        704.4
+      ]
+    },
+    {
+      "symbol": "IWM",
+      "name": "Russell 2000",
+      "last": 275.75,
+      "changePct1d": -0.33252611414320565,
+      "return1m": -2.0982745153731552,
+      "return3m": -5.858454815472336,
+      "aboveSma50": false,
+      "aboveSma200": false,
+      "rsi14": 43.06646594239552,
+      "spark": [
+        270.44,
+        271.28,
+        275.78,
+        276.48,
+        276.67,
+        275.75
+      ]
+    },
+    {
+      "symbol": "DIA",
+      "name": "Dow Jones",
+      "last": 521.37,
+      "changePct1d": -1.2351057985565128,
+      "return1m": 1.6950144339549222,
+      "return3m": 0.021102712657783407,
+      "aboveSma50": false,
+      "aboveSma200": true,
+      "rsi14": 52.2264892210619,
+      "spark": [
+        519.1,
+        518.92,
+        524.36,
+        527.7,
+        527.89,
+        521.37
+      ]
+    }
+  ],
+  "sectors": [
+    {
+      "symbol": "XLK",
+      "name": "Technology",
+      "last": 183.23,
+      "changePct1d": 0.4880991554239156,
+      "return1m": -5.895947819834635,
+      "return3m": 5.123350545037275,
+      "aboveSma50": false,
+      "aboveSma200": true,
+      "rsi14": 38.10644842139137,
+      "spark": [
+        183.47,
+        185.96,
+        185.44,
+        188.54,
+        182.34,
+        183.23
+      ],
+      "relStrength3m": 2.2982548192122643
+    },
+    {
+      "symbol": "XLF",
+      "name": "Financials",
+      "last": 55.9,
+      "changePct1d": -1.3239187996469504,
+      "return1m": 2.5123785072437066,
+      "return3m": -1.7229254571026753,
+      "aboveSma50": false,
+      "aboveSma200": true,
+      "rsi14": 55.05379642917612,
+      "spark": [
+        55.52,
+        55.06,
+        55.72,
+        56.04,
+        56.65,
+        55.9
+      ],
+      "relStrength3m": -4.548021182927686
+    },
+    {
+      "symbol": "XLE",
+      "name": "Energy",
+      "last": 69.33,
+      "changePct1d": 2.604706230575715,
+      "return1m": 10.750798722044719,
+      "return3m": 18.797121315969846,
+      "aboveSma50": true,
+      "aboveSma200": true,
+      "rsi14": 69.39041570490016,
+      "spark": [
+        68.24,
+        67.8,
+        67.97,
+        68.16,
+        67.57,
+        69.33
+      ],
+      "relStrength3m": 15.972025590144835
+    },
+    {
+      "symbol": "XLV",
+      "name": "Health Care",
+      "last": 179.28,
+      "changePct1d": -1.1141753998896942,
+      "return1m": 5.539530228998646,
+      "return3m": 9.71848225214198,
+      "aboveSma50": true,
+      "aboveSma200": true,
+      "rsi14": 64.00570267333582,
+      "spark": [
+        176.71,
+        175.65,
+        179.82,
+        178.94,
+        181.3,
+        179.28
+      ],
+      "relStrength3m": 6.893386526316969
+    },
+    {
+      "symbol": "XLY",
+      "name": "Consumer Discretionary",
+      "last": 113.1,
+      "changePct1d": -1.6607251543344193,
+      "return1m": 2.519941986947072,
+      "return3m": 2.038975099242135,
+      "aboveSma50": false,
+      "aboveSma200": false,
+      "rsi14": 50.96262154482139,
+      "spark": [
+        112.46,
+        114.46,
+        115.5,
+        115.53,
+        115.01,
+        113.1
+      ],
+      "relStrength3m": -0.7861206265828757
+    },
+    {
+      "symbol": "XLP",
+      "name": "Consumer Staples",
+      "last": 88.26,
+      "changePct1d": -1.922435826202895,
+      "return1m": 8.029375764993873,
+      "return3m": 3.3973758200562365,
+      "aboveSma50": true,
+      "aboveSma200": true,
+      "rsi14": 63.884706508274455,
+      "spark": [
+        87.62,
+        87.21,
+        87.75,
+        87.11,
+        89.99,
+        88.26
+      ],
+      "relStrength3m": 0.5722800942312256
+    }
+  ],
+  "volatility": {
+    "vix": 19.45,
+    "vix9d": 18.7,
+    "vix3m": 20.48,
+    "percentile": 78.17460317460318,
+    "contango": true,
+    "history": [
+      {
+        "date": "2026-10-16",
+        "value": 19.99
+      },
+      {
+        "date": "2026-10-19",
+        "value": 18.44
+      },
+      {
+        "date": "2026-10-20",
+        "value": 17.31
+      },
+      {
+        "date": "2026-10-21",
+        "value": 16.68
+      },
+      {
+        "date": "2026-10-22",
+        "value": 19.03
+      },
+      {
+        "date": "2026-10-23",
+        "value": 19.45
+      }
+    ]
+  },
+  "yields": [
+    {
+      "tenor": "1M",
+      "yieldPct": 4.11
+    },
+    {
+      "tenor": "3M",
+      "yieldPct": 4.22
+    },
+    {
+      "tenor": "6M",
+      "yieldPct": 4.3
+    },
+    {
+      "tenor": "1Y",
+      "yieldPct": 4.44
+    },
+    {
+      "tenor": "2Y",
+      "yieldPct": 4.69
+    },
+    {
+      "tenor": "3Y",
+      "yieldPct": 4.75
+    }
+  ],
+  "tenYearHistory": [
+    {
+      "date": "2026-10-16",
+      "value": 5.09
+    },
+    {
+      "date": "2026-10-19",
+      "value": 5.15
+    },
+    {
+      "date": "2026-10-20",
+      "value": 5.12
+    },
+    {
+      "date": "2026-10-21",
+      "value": 5.13
+    },
+    {
+      "date": "2026-10-22",
+      "value": 4.96
+    },
+    {
+      "date": "2026-10-23",
+      "value": 5
+    }
+  ],
+  "breadth": {
+    "aboveSma50": 5,
+    "total": 11
+  },
+  "calendar": [
+    {
+      "date": "2026-10-28",
+      "time": "08:15",
+      "event": "ADP Employment Change Weekly",
+      "importance": "medium"
+    },
+    {
+      "date": "2026-10-28",
+      "time": "08:30",
+      "event": "Core Durable Goods Orders",
+      "importance": "medium"
+    },
+    {
+      "date": "2026-10-28",
+      "time": "08:30",
+      "event": "Durable Goods Orders",
+      "importance": "medium"
+    },
+    {
+      "date": "2026-10-28",
+      "time": "10:00",
+      "event": "CB Consumer Confidence",
+      "importance": "medium"
+    },
+    {
+      "date": "2026-10-28",
+      "time": "10:00",
+      "event": "New Home Sales",
+      "importance": "medium"
+    },
+    {
+      "date": "2026-10-29",
+      "time": "08:30",
+      "event": "Goods Trade Balance",
+      "importance": "medium"
+    }
+  ],
+  "earnings": [
+    {
+      "symbol": "ADBE",
+      "date": "2026-10-26",
+      "held": true
+    },
+    {
+      "symbol": "GOOGL",
+      "date": "2026-10-28",
+      "held": true
+    },
+    {
+      "symbol": "MSFT",
+      "date": "2026-10-28",
+      "held": false
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-10-29",
+      "held": false
+    },
+    {
+      "symbol": "AAPL",
+      "date": "2026-11-02",
+      "held": true
+    },
+    {
+      "symbol": "CRM",
+      "date": "2026-11-02",
+      "held": true
+    }
+  ]
+}
