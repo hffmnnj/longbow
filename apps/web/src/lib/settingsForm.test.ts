@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CRYPTO, DEFAULT_SETTINGS } from "@rh/shared";
-import { buildPatch, parseTickers, toForm, validate } from "./settingsForm.ts";
+import { DEFAULT_CRYPTO, DEFAULT_SETTINGS, RiskConfigSchema } from "@rh/shared";
+import { buildPatch, fieldError, isEmptyPatch, parseTickers, toForm, validate } from "./settingsForm.ts";
 
 describe("settings form", () => {
   it("sends nothing when untouched", () => {
@@ -31,6 +31,29 @@ describe("settings form", () => {
     expect(e["risk.maxSpreadBps"]).toBe("Required");
     expect(e.cycleMinutesOpen).toBe("Min 5");
     expect(validate(toForm(DEFAULT_SETTINGS))).toEqual({});
+  });
+
+  it("enables save after editing max positions to a valid value", () => {
+    const f = toForm(DEFAULT_SETTINGS);
+    f.risk.maxPositions = "10";
+    expect(validate(f)).toEqual({});
+    const patch = buildPatch(DEFAULT_SETTINGS, f);
+    expect(isEmptyPatch(patch)).toBe(false);
+    expect(patch).toEqual({ risk: { maxPositions: 10 } });
+  });
+
+  it("validates the number-or-null shapes Svelte number bindings deliver at runtime", () => {
+    // Svelte coerces bind:value on type=number to a number, or null when cleared.
+    const shape = RiskConfigSchema.shape.maxPositions;
+    expect(fieldError(shape, 10)).toBeNull();
+    expect(fieldError(shape, 2.5)).toBe("Whole number");
+    expect(fieldError(shape, 99)).toBe("Max 50");
+    expect(fieldError(shape, null)).toBe("Required");
+    expect(fieldError(shape, undefined)).toBe("Required");
+    const f = toForm(DEFAULT_SETTINGS);
+    f.risk.maxPositions = 10 as unknown as string;
+    expect(validate(f)).toEqual({});
+    expect(buildPatch(DEFAULT_SETTINGS, f)).toEqual({ risk: { maxPositions: 10 } });
   });
 
   it("parses typed tickers: uppercases, dedupes, rejects junk", () => {
