@@ -49,6 +49,21 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 - No bash or file access for the agent beyond its notes workspace.
 - No hosted deploy; it runs on one machine as a user service.
 
+## Native Android app (apps/mobile)
+
+Goal: a fully native Flutter app with every feature of the web app, a premium look, and automatic connection to the tailnet server. It replaces the WebView shell; the web app stays for browsers.
+
+Not doing: no iOS build, no Play Store release, no offline order entry, no new server endpoints beyond what the web uses, no custom charting package.
+
+Checks:
+1. `flutter analyze` and `flutter test` pass in `apps/mobile`.
+2. Models parse real server JSON for status, orders, journal, reports, market overview, symbol detail, sim runs and suites (fixtures captured from the live server).
+3. With Tailscale up, a cold start reaches the server with no typing, and the unreachable screen offers Retry, Open Tailscale and a manual host.
+4. Every web section has a native screen: Feed, Portfolio, Markets, Performance, Agent, Reports, Journal and orders, Lab, Settings, symbol detail.
+5. Approve, reject, kill switch, mode change, send message, run cycle, settings patch, and Robinhood connect work against the live server.
+6. `flutter build apk --release` succeeds and the APK installs and starts in an emulator.
+7. Design is recorded in `apps/mobile/DESIGN.md` and the screens use its tokens.
+
 ## Acceptance checks
 
 1. `bun run typecheck` and `bun run test` pass.
