@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { join } from "node:path";
 import { createSkillLibrary } from "./library.ts";
 
-const BASE = "/tmp/opencode";
+const BASE = "/tmp";
 let root = "";
 
 function skillMd(name: string, description: string | undefined, body: string): string {

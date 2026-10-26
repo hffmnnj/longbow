@@ -6,7 +6,7 @@ import type { ServerEvent } from "@rh/shared";
 import type { Clock, EventBus } from "../ports.ts";
 import { createNotes } from "./notes.ts";
 
-const BASE = "/tmp/opencode";
+const BASE = "/tmp";
 let dir = "";
 
 const events: ServerEvent[] = [];

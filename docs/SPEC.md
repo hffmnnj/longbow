@@ -29,7 +29,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
   cash broker, synthetic intraday path from daily bars, the real risk engine, and metrics against SPY
   buy-and-hold. Runs are isolated in `${DATA_DIR}/sim/<id>/`; the live agent can start one with `sim_start`
   to test a strategy hypothesis.
-- Installable PWA at https://longbow.example.ts.net:8443 (Tailscale serve, tailnet only) with web push for
+- Installable PWA at https://<host>.<tailnet>.ts.net:8443 (Tailscale serve, tailnet only) with web push for
   fills, failures, halts, sign-in problems, the daily review, and finished simulations.
 - Defaults tuned for a ~$1,200 cash account in full auto: fractional shares, 1.5% risk per trade, 30% per name,
   4 positions, $500 order cap, self-clearing drawdown halt.
@@ -47,7 +47,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 - No app login; the Tailnet plus the CSRF header is the boundary.
 - No FRED, Yahoo, or Stooq (blocked or rate-limited from this host); no paid data feeds.
 - No bash or file access for the agent beyond its notes workspace.
-- No hosted deploy; it runs on this laptop as a user service.
+- No hosted deploy; it runs on one machine as a user service.
 
 ## Acceptance checks
 
