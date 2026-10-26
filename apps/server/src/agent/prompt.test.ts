@@ -15,6 +15,7 @@ const settings: Settings = {
   cycleMinutesOpen: 30,
   cycleMinutesClosed: 240,
   watchlist: ["SPY", "QQQ"],
+  systemOne: { enabled: true, gate: "advise" },
   risk: {
     maxRiskPerTradePct: 1,
     maxPositionPct: 5,
