@@ -273,11 +273,14 @@ describe("system one extension", () => {
   });
 
   it("jev_thesis_check_returns_exit_review_review_and_hold", async () => {
-    const client = fakeClient([
-      { thesis_intact: noul(0.2), news_contradicts: noul(0.8), near_invalidation: noul(0.2) },
-      { thesis_intact: noul(0.6), news_contradicts: noul(0.6), near_invalidation: noul(0.2) },
-      { thesis_intact: noul(0.8), news_contradicts: noul(0.2), near_invalidation: noul(0.2) },
-    ]);
+    // The tool averages three fresh samples per check, so each canned read is served three times.
+    const client = fakeClient(
+      [
+        { thesis_intact: noul(0.2), news_contradicts: noul(0.8), near_invalidation: noul(0.2) },
+        { thesis_intact: noul(0.6), news_contradicts: noul(0.6), near_invalidation: noul(0.2) },
+        { thesis_intact: noul(0.8), news_contradicts: noul(0.2), near_invalidation: noul(0.2) },
+      ].flatMap((read) => [read, read, read]),
+    );
     const ext = createSystemOneExtension(deps({ client }));
     const thesis = tool(ext, "jev_thesis_check");
     const params = {

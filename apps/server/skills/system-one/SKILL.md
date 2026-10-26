@@ -77,6 +77,8 @@ Bad: state `{ rsi: 72.4, date: "2026-10-22", closes: [...] }`, instructions "Is 
 - Math: it cannot count, add, or compare reliably. Do the arithmetic in the script and pass the named result.
 - Dates: weak date comparison. Resolve recency and windows in code; pass labels like "this week".
 - Large state: accuracy falls with big noisy state. Send only the fields the question needs.
+- Not deterministic: identical calls can differ by about 0.07. Do not act on a read within 0.1 of a threshold; ask again or lean on `jev_thesis_check` and the gate review, which already average three samples.
+- Momentum bias: Jev leans on recent trend, so never read it as a price forecast.
 - Option order: `choice` answers are sensitive to option order. Keep a fixed order across calls and decide in code.
 
 ## Unavailable fallback

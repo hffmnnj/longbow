@@ -2,6 +2,7 @@ import type { OrderIntent, RiskCheck, SystemOneGate } from "@rh/shared";
 import type { Clock, Logger } from "../ports.ts";
 import { rewardToRiskBand } from "./buckets.ts";
 import type { SystemOneClient } from "./client.ts";
+import { askAveraged } from "./sampling.ts";
 import type { NoulAnswer, NoulQuestion } from "./types.ts";
 
 /**
@@ -128,7 +129,7 @@ export function createEntryReview(deps: EntryReviewDeps): EntryReview {
     const timeout = new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), timeoutMs);
     });
-    const asked = deps.client.ask({
+    const asked = askAveraged(deps.client, {
       label: "entry_review",
       state: entryState(intent, deps.clock.now()) as never,
       questions: ENTRY_QUESTIONS,
