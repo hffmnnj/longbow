@@ -69,7 +69,7 @@ flowchart LR
 
 - `apps/server`: Node 26 and Hono. The agent runs on `@earendil-works/pi-durable` with SQLite storage and a Code Mode tool: the model writes JavaScript that calls every other tool (`rh_*` read tools, `market_*`, `sec_company`, web search, skills, notes, risk, journal, `delegate`) in parallel.
 - `apps/web`: a SvelteKit static single-page app with shadcn-svelte, Tailwind 4, and dithered charts. Installable as a PWA.
-- `apps/mobile`: the Android app in Flutter (see below).
+- `apps/mobile`: the native Android app in Flutter (see below): models, a Riverpod data layer with tailnet auto-connect, a design system with dithered charts, and one folder per feature.
 - `packages/shared`: the wire contract (types and zod schemas) used by every client.
 - Market data comes from free sources: Nasdaq daily bars and earnings, CBOE VIX, US Treasury yields, and SEC EDGAR. Indicators are computed server-side.
 
@@ -107,7 +107,16 @@ The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning throu
 
 ## Android app
 
-`apps/mobile` is a native Flutter client that talks to the same server. It finds the server on your tailnet automatically, streams live updates, and keeps a foreground service open for trade alerts. Build with `flutter build apk --release` in `apps/mobile`; the server hosts the result at `/download/longbow.apk`. The app is under active development, so expect rough edges. Design notes live in [`apps/mobile/DESIGN.md`](apps/mobile/DESIGN.md).
+`apps/mobile` is a fully native Flutter app (no WebView) with every screen of the web app: the live feed with tool traces and approvals, portfolio, symbol charts, markets, performance, agent control room, reports with share and PDF print, journal and orders, notes and skills, the simulation lab, and settings. It finds your server on your tailnet by itself, streams updates live, and keeps a foreground service open for trade alerts.
+
+```sh
+cd apps/mobile
+cp hosts.example.json hosts.local.json     # set LONGBOW_HOSTS to your tailnet host(s); the file is gitignored
+flutter build apk --release --target-platform android-arm64 --dart-define-from-file=hosts.local.json
+scripts/publish.sh                          # same build, then copies it to where the server hosts /download/longbow.apk
+```
+
+Install Tailscale on the phone and sign in to the same tailnet; the app tries `https://<host>:8443` and `http://<host>:4520` for each host and remembers the one that answers. You can also type a host on the connect screen. Design tokens and behaviors are in [`apps/mobile/DESIGN.md`](apps/mobile/DESIGN.md).
 
 ## Develop
 
