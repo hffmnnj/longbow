@@ -1,0 +1,133 @@
+[
+  {
+    "id": "t-3721-call_418ccda2d9dc473dba2035fcea7b089c|ctc_0b2f1aa519ba90e0016adeaea9097481998978e114adb46d9c",
+    "at": 1792982748292,
+    "role": "tool",
+    "text": "codemode",
+    "toolName": "codemode",
+    "code": "// Synthetic fixture script: illustrates a status-check code block.\ntext(await tools.skills_load({name:\"code-mode-recipes\"}));\nconst risk=await tools.get_risk_state({});text({risk});\nconst paths=[\"plan.md\",\"edges.md\",\"watchlist.md\",...[\"ADBE\",\"ASML\",\"NVDA\",\"XLV\",\"GOOGL\",\"AAPL\",\"META\",\"CRM\"].map(s=>`theses/${s}.md`)];\ntext({paths});\n"
+  },
+  {
+    "id": "r-3757",
+    "at": 1792982748292,
+    "role": "tool",
+    "text": "Script completed\nWall time 0.3 seconds\nOutput:\n\n==> text 1/7 <==\n{\"name\":\"code-mode-recipes\",\"description\":\"Provides tested JavaScript patterns for the sandbox: parallel fetches, custom indicators, backtests, watchlist scans, and compact summaries; load before writing any trading script.\",\"body\":\"Use when: writing any Code Mode script that calls market tools, computes indicators, backtests a rule, or scans names.\\n\\n## Rules\\n\\n1. Fetch in parallel with `Promise.all`. Sequential symbol loops waste the model's waiting budget; batch independent calls and compute after.\\n2. Indicators the tools do not provide (RSI(2), true range series, swing highs, SMA slopes) are computed in-script from `market_price_history` bars. Never approximate them from the snapshot fields; download the bars.\\n3. Backtests are vectorized loops over bars with explicit costs: subtract 20 bps per round trip unless the spread check says otherwise. Report trade count, win rate, average return, and max drawdown of the equity curve. Fewer than 30 trades means the result is suggestive, not conclusive.\\n4. Summarize compactly. Return arrays of `{ symbol, setup, entry, stop, score }` and one-line reasons, not bar dumps. The model's context is the scarcest resource; spend it on decisions.\\n5. Discover exact Robinhood tool names at runtime with Code Mode's `searchTools()` before calling them; only the `market_*`, `get_risk_state`, `submit_order`, notes, and `delegate` names in the environment brief are stable.\\n\\n## Recipes\\n\\nParallel fetch plus RSI(2) scan:\\n\\n```js\\nconst syms = [\\\"AAPL\\\", \\\"MSFT\\\", \\\"NVDA\\\", \\\"AVGO\\\", \\\"META\\\"];\\nconst data = await Promise.all(syms.map(s => tools.market_price_history({ symbol: s, range: \\\"1y\\\" })));\\nfunction rsi2(closes) {\\n  let g = 0, l = 0;\\n  for (let i = closes.length - 2; i < closes.length; i++) {\\n    const d = closes[i] - closes[i - 1];\\n    if (d > 0) g += d; else l -= d;\\n  }\\n  if (l === 0) return 100;\\n  return 100 - 100 / (1 + (g / 2) / (l / 2));\\n}\\ncons…",
+    "toolName": "codemode",
+    "calls": [
+      {
+        "name": "skills_load",
+        "summary": "{\"name\":\"code-mode-recipes\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "get_risk_state",
+        "summary": "{}",
+        "durationMs": 1
+      },
+      {
+        "name": "skills_load",
+        "summary": "{\"name\":\"market-regime\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "skills_load",
+        "summary": "{\"name\":\"position-sizing-and-exits\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "skills_load",
+        "summary": "{\"name\":\"quant-toolkit\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"plan.md\"}",
+        "durationMs": 1
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"edges.md\"}",
+        "durationMs": 1
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"watchlist.md\"}",
+        "durationMs": 1
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/ADBE.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/ASML.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/NVDA.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/XLV.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/GOOGL.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/AAPL.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/META.md\"}",
+        "durationMs": 0
+      },
+      {
+        "name": "notes_read",
+        "summary": "{\"path\":\"theses/CRM.md\"}",
+        "durationMs": 0
+      }
+    ]
+  },
+  {
+    "id": "3758",
+    "at": 1792982748292,
+    "role": "user",
+    "text": "Quick check: reply with one short sentence on the current plan."
+  },
+  {
+    "id": "t-3760-call_604628150b994f5f81ad591f90b10667|ctc_0b2f1aa519ba90e0016adeaed726a8819982c48388e50918bc",
+    "at": 1792982748292,
+    "role": "tool",
+    "text": "codemode",
+    "toolName": "codemode",
+    "code": "text(await tools.record_decision({\n action:\"hold\",\n regime:\"not reassessed — existing plan retained\",\n summary:\"Quick status check: hold all positions, no new entries this cycle\",\n rationale:\"The regular session is closed, so this scheduled check records no order and no new trade decision. Existing position controls and cash plans are unchanged, and any new name still requires a free position slot.\",\n evidence:[\n \"get_risk_state, synthetic review: AUTO, market closed, no halt, no pending orders.\",\n \"notes_read plan.md, synthetic review: position controls unchanged; no entries authorized.\"\n ]\n}));\n"
+  },
+  {
+    "id": "r-3766",
+    "at": 1792982748292,
+    "role": "tool",
+    "text": "Script completed\nWall time 0.1 seconds\nOutput:\n\nRecorded journal entry 3dce37a1-e0c8-4c9d-96e5-fad5ed063880 (hold).",
+    "toolName": "codemode",
+    "calls": [
+      {
+        "name": "record_decision",
+        "summary": "{\"action\":\"hold\",\"regime\":\"not reassessed — existing plan retained\",\"summary\":\"Quick status check: retain protection, ADBE-first exits and flexible cash-reserve plan\",\"rationale\":\"The current risk-...",
+        "durationMs": 2
+      }
+    ]
+  },
+  {
+    "id": "a-3768",
+    "at": 1792982748292,
+    "role": "assistant",
+    "text": "Protect retained holdings and work planned exits with ADBE first; hold sample cash until a qualified setup and a free slot appear."
+  }
+]

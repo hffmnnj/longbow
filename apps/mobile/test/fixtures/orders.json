@@ -1,0 +1,44 @@
+[
+  {
+    "createdAt": 1792978500000,
+    "id": "ord-handbuilt-001",
+    "intent": {
+      "estimatedCostPct": 0.08,
+      "evidence": [
+        "Sample quote snapshot for fixture tests: SPY mid near 759.20 with a tight spread.",
+        "Sample indicator snapshot for fixture tests: RSI14 mid-range, above the major averages."
+      ],
+      "expectedGainPct": 4,
+      "expectedLossPct": 1.5,
+      "invalidationPrice": 747.8,
+      "limitPrice": 759.4,
+      "orderType": "limit",
+      "probabilityWin": 0.55,
+      "quantity": 0.65,
+      "side": "buy",
+      "symbol": "SPY",
+      "thesis": "Pullback to the 50-day average in an uptrend, with defined invalidation below the prior low.",
+      "timeInForce": "day",
+      "timeStopDate": "2026-11-25"
+    },
+    "status": "pending_approval",
+    "updatedAt": 1792978501000,
+    "verdict": {
+      "approved": true,
+      "checks": [
+        {
+          "detail": "Order notional about $494 is under the $500 fat-finger cap.",
+          "ok": true,
+          "rule": "notional_cap"
+        },
+        {
+          "detail": "SPY weight after the order would be about 28%, under the 30% cap.",
+          "ok": true,
+          "rule": "max_position"
+        }
+      ],
+      "isExit": false,
+      "maxQuantity": 0.7
+    }
+  }
+]

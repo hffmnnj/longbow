@@ -1,0 +1,26 @@
+[
+  {
+    "id": "volmageddon-2018",
+    "name": "Volatility shock, Feb 2018",
+    "description": "A calm melt-up that breaks into a sudden volatility spike and a sharp 10% drop.",
+    "startDate": "2018-01-16",
+    "days": 35,
+    "regime": "shock"
+  },
+  {
+    "id": "q4-selloff-2018",
+    "name": "Q4 2018 selloff",
+    "description": "A grinding 20% decline into a Christmas Eve low, then a fast rebound.",
+    "startDate": "2018-09-24",
+    "days": 75,
+    "regime": "bear"
+  },
+  {
+    "id": "covid-crash-2020",
+    "name": "COVID crash, 2020",
+    "description": "Record highs into the fastest 30% crash on record, with limit-down gaps.",
+    "startDate": "2020-02-03",
+    "days": 40,
+    "regime": "crash"
+  }
+]

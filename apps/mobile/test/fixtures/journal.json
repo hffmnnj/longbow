@@ -1,0 +1,52 @@
+[
+  {
+    "id": "3dce37a1-e0c8-4c9d-96e5-fad5ed063880",
+    "at": 1792978653047,
+    "cycleId": "manual-2026-10-25T21:36",
+    "action": "hold",
+    "summary": "Quick status check: hold all positions, no new entries this cycle",
+    "rationale": "The regular session is closed, so this scheduled check records no order and no new trade decision. Existing position controls and cash plans are unchanged, and any new name still requires a free position slot.",
+    "evidence": [
+      "get_risk_state, synthetic review: AUTO, market closed, no halt, no pending orders.",
+      "notes_read plan.md, synthetic review: position controls unchanged; no entries authorized."
+    ],
+    "regime": "not reassessed — existing plan retained"
+  },
+  {
+    "id": "7be8a813-b49e-4400-adfc-68155ccd206c",
+    "at": 1792975350723,
+    "action": "hold",
+    "summary": "Midday hold: standing aside from fresh risk, existing exits unchanged",
+    "rationale": "Cash and buying power are reserved against the sample holdings under the position cap, so none of it is treated as an opening buy budget. Index and volatility screens still favor standing aside, and all invalidation and expiry controls remain unchanged with no live entry case asserted.",
+    "confidence": 0.95,
+    "evidence": [
+      "rh_get_portfolio and rh_get_equity_positions, synthetic review: scaled sample cash and sample positions on record.",
+      "get_risk_state, synthetic review: AUTO, market closed, no halt, no pending orders; nothing submitted.",
+      "market_indicators, synthetic review: sideways indices with elevated volatility; no qualifying screen rows."
+    ],
+    "regime": "sideways / normal-elevated volatility"
+  },
+  {
+    "id": "936774b7-eab1-4aa8-bd2f-11b6ee950828",
+    "at": 1792973131317,
+    "cycleId": "overnight-2026-10-25T20:00",
+    "action": "hold",
+    "summary": "Evening research hold: marks reviewed, protection and exits unchanged",
+    "rationale": "Index and sector data still show sideways conditions with elevated volatility, and the sample portfolio carries no verified resting protection. All fixed invalidations and expiries stay unchanged; this closed-session cycle submitted no orders, and no new screened setup or calibrated entry case exists.",
+    "confidence": 0.95,
+    "evidence": [
+      "get_risk_state, synthetic review: AUTO with no halt, market closed, no pending orders.",
+      "rh_get_equity_positions, synthetic review: sample quantities unchanged; no active or queued orders.",
+      "market_screen, synthetic review: no qualifying rows; no new setup selected."
+    ],
+    "regime": "sideways / normal-elevated volatility"
+  },
+  {
+    "id": "a39d7f9a-af7d-4fc6-92d0-d2ea3a329695",
+    "at": 1792972010660,
+    "action": "none",
+    "summary": "Settings changed: mode approve → auto",
+    "rationale": "Changed from the app.",
+    "evidence": []
+  }
+]

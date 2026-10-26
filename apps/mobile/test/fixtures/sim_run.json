@@ -1,0 +1,108 @@
+{
+  "id": "20261025040601021-b2732a",
+  "createdAt": 1792901161021,
+  "startedBy": "agent",
+  "config": {
+    "name": "ETF five-day-low branch filter pilot · B RSI-only filter · steady-bull-2021",
+    "scenario": "steady-bull-2021",
+    "mode": "blind",
+    "execution": "realistic",
+    "seed": 1093733106,
+    "model": "subagent",
+    "startDate": "2021-03-01",
+    "days": 60,
+    "startingCash": 1200,
+    "cyclesPerDay": 2,
+    "watchlist": [
+      "SPY",
+      "QQQ",
+      "IWM"
+    ],
+    "strategy": "Synthetic variant B for fixture tests: alternate paper-trading filter on broad index ETFs. No real orders; fixed sample rules, fixed costs, and illustrative results only."
+  },
+  "seed": 1093733106,
+  "suiteId": "20261025040559417-c74d1b",
+  "variant": "B RSI-only filter",
+  "status": "done",
+  "progress": {
+    "day": 60,
+    "days": 60,
+    "cycle": 2,
+    "cyclesPerDay": 2
+  },
+  "equity": [
+    {
+      "date": "2031-06-11",
+      "equity": 1200,
+      "cash": 1200,
+      "benchmark": 1282.0042013537695
+    },
+    {
+      "date": "2031-06-12",
+      "equity": 1200,
+      "cash": 1200,
+      "benchmark": 1278.6431183381312
+    },
+    {
+      "date": "2031-06-13",
+      "equity": 1200,
+      "cash": 1200,
+      "benchmark": 1292.3986617910214
+    },
+    {
+      "date": "2031-06-16",
+      "equity": 1200,
+      "cash": 1200,
+      "benchmark": 1291.340543063876
+    },
+    {
+      "date": "2031-06-17",
+      "equity": 1200,
+      "cash": 1200,
+      "benchmark": 1304.5047848751267
+    }
+  ],
+  "positions": [],
+  "fills": [],
+  "currentDate": "2031-06-17",
+  "metrics": {
+    "returnPct": 0,
+    "benchmarkReturnPct": 8.708732072927216,
+    "maxDrawdownPct": 0,
+    "trades": 0,
+    "exposurePct": 0,
+    "ordersSubmitted": 0,
+    "ordersRejected": 0,
+    "roundTrips": 0,
+    "turnoverPct": 0,
+    "costsPaid": 0,
+    "costsPct": 0,
+    "riskBlocks": {},
+    "sharpe": 0,
+    "volatilityPct": 0,
+    "beta": 0,
+    "alphaPct": 0
+  },
+  "aliases": {
+    "MKT": "SPY",
+    "STECH": "XLK",
+    "SFIN": "XLF",
+    "SENGY": "XLE",
+    "SHLTH": "XLV",
+    "SDISC": "XLY",
+    "SSTPL": "XLP",
+    "SINDU": "XLI",
+    "SMATL": "XLB",
+    "SUTIL": "XLU",
+    "SREAL": "XLRE",
+    "SCOMM": "XLC",
+    "ZPUZ": "QQQ",
+    "ZONI": "IWM"
+  },
+  "calendar": {
+    "firstDay": "2031-03-26",
+    "sourceStart": "2021-03-01",
+    "sourceEnd": "2021-05-24"
+  },
+  "finishedAt": 1792903434605
+}

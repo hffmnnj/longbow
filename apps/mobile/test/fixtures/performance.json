@@ -1,0 +1,125 @@
+{
+  "trades": [
+    {
+      "symbol": "VRT",
+      "closedAt": 1790602202000,
+      "quantity": 1.6828,
+      "exitPrice": 253.24579627191002,
+      "pnl": -53.84,
+      "source": "robinhood"
+    },
+    {
+      "symbol": "CEG",
+      "closedAt": 1790602203000,
+      "quantity": 1.5821,
+      "exitPrice": 261.88573913571133,
+      "pnl": -65.68,
+      "source": "robinhood"
+    },
+    {
+      "symbol": "AVGO",
+      "closedAt": 1790952850000,
+      "quantity": 1.129,
+      "exitPrice": 354.28328491461775,
+      "pnl": -10.64,
+      "source": "robinhood"
+    },
+    {
+      "symbol": "MU",
+      "closedAt": 1791903356000,
+      "quantity": 1.1038,
+      "exitPrice": 936.0255694789711,
+      "pnl": -126.8,
+      "source": "robinhood"
+    },
+    {
+      "symbol": "ETN",
+      "closedAt": 1792515855000,
+      "quantity": 1.1329,
+      "exitPrice": 380.74793808609195,
+      "pnl": -48.64,
+      "source": "robinhood"
+    },
+    {
+      "symbol": "AVGO",
+      "closedAt": 1792680992000,
+      "quantity": 1.9549,
+      "exitPrice": 323.5430128868827,
+      "pnl": -76.88,
+      "source": "robinhood"
+    }
+  ],
+  "realizedPnl": -521.12,
+  "winRatePct": 0,
+  "expectancy": -65.14,
+  "profitFactor": 0,
+  "calibration": [],
+  "exposure": [
+    {
+      "symbol": "ADBE",
+      "sector": "Technology",
+      "marketValue": 520.23,
+      "weightPct": 5.289525244031007,
+      "unrealizedPnl": 40.23,
+      "stopPrice": 327.19,
+      "riskToStopPct": -0.1836722025851833
+    },
+    {
+      "symbol": "ASML",
+      "sector": "Technology",
+      "marketValue": 1305.43,
+      "weightPct": 13.273094068643939,
+      "unrealizedPnl": -54.56,
+      "stopPrice": 397.63,
+      "riskToStopPct": 0.6256452440216306
+    },
+    {
+      "symbol": "NVDA",
+      "sector": "Technology",
+      "marketValue": 1412.05,
+      "weightPct": 14.357175026645622,
+      "unrealizedPnl": -147.94,
+      "stopPrice": 200.63,
+      "riskToStopPct": 0.7635930276087595
+    },
+    {
+      "symbol": "XLV",
+      "sector": "Technology",
+      "marketValue": 720.8,
+      "weightPct": 7.32878207609611,
+      "unrealizedPnl": 0.77,
+      "stopPrice": 156.9301,
+      "riskToStopPct": -0.39316302985239454
+    },
+    {
+      "symbol": "GOOGL",
+      "sector": "Communication Services",
+      "marketValue": 459.56,
+      "weightPct": 4.672575128206076,
+      "unrealizedPnl": -20.44,
+      "stopPrice": 327.74,
+      "riskToStopPct": -0.09454531917986411
+    },
+    {
+      "symbol": "AAPL",
+      "sector": "Technology",
+      "marketValue": 869.78,
+      "weightPct": 8.843539855705261,
+      "unrealizedPnl": 69.78,
+      "stopPrice": 330.7,
+      "riskToStopPct": 0.36410051015081024
+    }
+  ],
+  "sectors": [
+    {
+      "sector": "Technology",
+      "weightPct": 54.610459659238444
+    },
+    {
+      "sector": "Communication Services",
+      "weightPct": 11.438912946338654
+    }
+  ],
+  "heatPct": 2.0883118081413827,
+  "ordersByStatus": {}
+}
