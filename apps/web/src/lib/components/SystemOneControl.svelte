@@ -47,7 +47,7 @@
 
 <div class="flex flex-col gap-1.5">
   <h3 class="label-caps">System One</h3>
-  <div class="flex min-h-11 items-center gap-2">
+  <div class="flex min-h-11 items-center gap-2 md:min-h-8">
     <span class={cn("size-1.5 shrink-0 rounded-full", dot[tone])} aria-hidden="true"></span>
     <span class="text-[13px] font-medium">{systemOneLabel(state)}</span>
     {#if info}
