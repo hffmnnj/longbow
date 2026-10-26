@@ -117,7 +117,13 @@ export function createMockApi(): Api {
         const { ApiError } = await import("../api.ts");
         throw new ApiError(400, "maxPositionPct must be 50 or lower on the mock server");
       }
-      const settings: Settings = { ...status.settings, ...patch, risk: { ...status.settings.risk, ...patch.risk }, systemOne: { ...status.settings.systemOne, ...patch.systemOne } };
+      const settings: Settings = {
+        ...status.settings,
+        ...patch,
+        risk: { ...status.settings.risk, ...patch.risk },
+        systemOne: { ...status.settings.systemOne, ...patch.systemOne },
+        crypto: { ...status.settings.crypto, ...patch.crypto },
+      };
       const halts: HaltReason[] = status.halts.filter((h) => h !== "kill_switch" && h !== "drawdown" && h !== "mode_off");
       if (settings.killSwitch) halts.push("kill_switch");
       if (settings.drawdownHalted) halts.push("drawdown");

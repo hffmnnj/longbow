@@ -49,7 +49,9 @@
   const patch = $derived(saved && form ? buildPatch(saved, form) : {});
   const dirty = $derived(!isEmptyPatch(patch));
   const changeCount = $derived(
-    Object.keys(patch).filter((k) => k !== "risk").length + Object.keys(patch.risk ?? {}).length,
+    Object.keys(patch).filter((k) => k !== "risk" && k !== "crypto").length +
+      Object.keys(patch.risk ?? {}).length +
+      Object.keys(patch.crypto ?? {}).length,
   );
   const canSave = $derived(dirty && Object.keys(clientErrors).length === 0 && !saving);
 
@@ -160,6 +162,36 @@
             </div>
           </section>
         {/each}
+
+        <section class="flex flex-col gap-3" aria-labelledby="s-crypto">
+          <h3 id="s-crypto" class="label-caps">Crypto</h3>
+          <div class="flex min-h-11 items-center gap-3">
+            <Label for="crypto-switch" class="flex min-h-11 flex-1 items-center text-[13px] font-medium">Crypto sleeve</Label>
+            <Switch
+              id="crypto-switch"
+              checked={form.crypto.enabled}
+              onCheckedChange={(v) => form && (form.crypto.enabled = v)}
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <NumberField
+              id="f-crypto-max"
+              label="Max crypto"
+              unit="% equity"
+              step="1"
+              bind:value={form.crypto.maxPortfolioPct}
+              error={errors["crypto.maxPortfolioPct"]}
+            />
+            <NumberField
+              id="f-crypto-notional"
+              label="Max crypto order"
+              unit="USD"
+              step="5"
+              bind:value={form.crypto.maxOrderNotionalUsd}
+              error={errors["crypto.maxOrderNotionalUsd"]}
+            />
+          </div>
+        </section>
 
         <section class="flex flex-col gap-3" aria-labelledby="s-notif">
           <h3 id="s-notif" class="label-caps">Notifications</h3>

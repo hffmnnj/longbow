@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HistoryRange, SymbolDetail } from "@rh/shared";
+  import { isCryptoSymbol } from "@rh/shared";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Sheet from "$lib/components/ui/sheet/index.js";
   import DecisionCard from "./DecisionCard.svelte";
@@ -12,7 +13,7 @@
   import { periodReturn } from "$lib/chart";
   import { rangePosition } from "$lib/analytics";
   import { clock } from "$lib/clock.svelte";
-  import { ago, isoDay, pct, qty, usd, usdCompact } from "$lib/format";
+  import { ago, isoDay, pct, priceFor, qtyFor, qtyUnit, usd, usdCompact } from "$lib/format";
   import { notional, STATUS_LABEL } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
   import { openNote, openOrder, ui } from "$lib/ui.svelte";
@@ -103,9 +104,12 @@
     <Sheet.Header class="border-border border-b pr-14">
       <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <Sheet.Title class="num text-[20px] font-semibold">{symbol}</Sheet.Title>
+        {#if isCryptoSymbol(symbol)}
+          <span class="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10.5px] font-medium">Crypto</span>
+        {/if}
         {#if detail?.name}<span class="text-muted-foreground text-[13px]">{detail.name}</span>{/if}
         {#if lastClose !== undefined}
-          <span class="num text-[17px]">{usd(lastClose)}</span>
+          <span class="num text-[17px]">{priceFor(symbol, lastClose)}</span>
         {/if}
         {#if ret !== undefined}
           <span class="flex items-baseline gap-1.5 text-[13px]">
@@ -178,8 +182,8 @@
           <section aria-label="Position" class="flex flex-col gap-2">
             <h3 class="label-caps">Position</h3>
             <dl class="num grid grid-cols-2 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-4">
-              <div><dt class="text-muted-foreground text-[11px]">Shares</dt><dd>{qty(position.quantity)}</dd></div>
-              <div><dt class="text-muted-foreground text-[11px]">Avg cost</dt><dd>{usd(position.averageCost)}</dd></div>
+              <div><dt class="text-muted-foreground text-[11px]">{qtyUnit(symbol) === "coins" ? "Coins" : "Shares"}</dt><dd>{qtyFor(symbol, position.quantity)}</dd></div>
+              <div><dt class="text-muted-foreground text-[11px]">Avg cost</dt><dd>{priceFor(symbol, position.averageCost)}</dd></div>
               <div><dt class="text-muted-foreground text-[11px]">Value</dt><dd>{usd(position.marketValue)}</dd></div>
               <div>
                 <dt class="text-muted-foreground text-[11px]">P&amp;L</dt>
@@ -217,7 +221,7 @@
                 <li>
                   <button class="hover:bg-muted/50 flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left" onclick={() => openOrder(o.id)}>
                     <SideBadge side={o.intent.side} />
-                    <span class="num min-w-0 flex-1 text-[13px]">{qty(o.intent.quantity)} @ {usd(o.intent.limitPrice)} <span class="text-muted-foreground">· {usd(notional(o.intent))}</span></span>
+                    <span class="num min-w-0 flex-1 text-[13px]">{qtyFor(o.intent.symbol, o.intent.quantity)} @ {usd(o.intent.limitPrice)} <span class="text-muted-foreground">· {usd(notional(o.intent))}</span></span>
                     <span class="text-muted-foreground shrink-0 text-[12px]">{STATUS_LABEL[o.status]} · {ago(o.createdAt, clock.now)}</span>
                   </button>
                 </li>
