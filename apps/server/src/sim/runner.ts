@@ -20,6 +20,9 @@ import { MarketCache } from "../market/cache.ts";
 import { createSectorDirectory, type SectorDirectory } from "../market/sectors.ts";
 import { createSubagentExtension } from "../agent/subagents.ts";
 import { createQuantExtension } from "../quant/extension.ts";
+import type { SystemOneClient } from "../systemone/client.ts";
+import { createEntryReview } from "../systemone/review.ts";
+import { createSystemOneExtension } from "../systemone/extension.ts";
 import { createPaperBroker, type PaperBroker } from "./broker.ts";
 import { createSimEventBus } from "./events.ts";
 import { calculateMetrics } from "./metrics.ts";
@@ -67,6 +70,8 @@ export interface SimServiceDeps {
   driver?: (run: SimRun, ctx: SimDriverContext) => Promise<void>;
   /** Test seam: real-symbol sectors without SEC lookups. */
   sectorSource?: SectorDirectory;
+  /** Shared System One client: the same entry review and jev_* tools the live agent has, on simulated state. */
+  systemOne?: SystemOneClient;
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -212,6 +217,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed });
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market,
+      ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
       ...(scenario === undefined ? {} : { sectors: createStaticSectorDirectory(Object.fromEntries(scenario.symbols.map((s) => [s, scenario!.sectorOf(s)]))) }) });
     let agent: TradingAgent | undefined;
     const currentCycleId = (): string | undefined => agent?.currentCycleId();
@@ -233,6 +239,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
       createMarketExtension({ market, dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf,
         ...(blindish ? { pricesOnly: true as const } : {}) }),
       quant,
+      ...(deps.systemOne === undefined ? [] : [createSystemOneExtension({ client: deps.systemOne, market, isEnabled: () => store.getSettings().systemOne.enabled,
+        benchmark: () => benchmark, log: deps.log, clock })]),
       createSubagentExtension({ log: deps.log, maxConcurrent: 4,
         excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate", "sim_cancel_order"],
         onRun(child) { children.add(child.id); bus.publish({ type: "subagent", run: child }); if (child.status === "running") void agent?.watchChild(child.id).catch((error: unknown) => deps.log.warn("simulation child watch failed", { error: String(error) })); } }),

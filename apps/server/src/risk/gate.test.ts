@@ -201,9 +201,16 @@ class FakeMarketData implements MarketData {
   }
 }
 
-function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null; sectors?: SectorDirectory }) {
+function setup(options?: {
+  mode?: Settings["mode"];
+  market?: MarketData | null;
+  sectors?: SectorDirectory;
+  systemOne?: Settings["systemOne"];
+  entryReview?: Parameters<typeof createOrderGate>[0]["entryReview"];
+}) {
   const store = new FakeStore();
   if (options?.mode !== undefined) store.settings = { ...store.settings, mode: options.mode };
+  if (options?.systemOne !== undefined) store.settings = { ...store.settings, systemOne: options.systemOne };
   const broker = new FakeBroker();
   const market = options?.market === undefined ? new FakeMarketData() : options.market;
   let now = NOW;
@@ -230,6 +237,7 @@ function setup(options?: { mode?: Settings["mode"]; market?: MarketData | null; 
     log,
     ...(market === null ? {} : { market }),
     ...(options?.sectors === undefined ? {} : { sectors: options.sectors }),
+    ...(options?.entryReview === undefined ? {} : { entryReview: options.entryReview }),
   });
   return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
 }
@@ -565,5 +573,60 @@ describe("identical-retry guard", () => {
     const changedQty = await gate.submit({ ...exit, quantity: 6 });
     assert.notEqual(changedQty.id, first.id);
     assert.equal(broker.snapshotCalls, snapshotCalls + 1);
+  });
+});
+
+describe("system one entry review", () => {
+  const concern = async () => ({ rule: "system_one", ok: false, detail: "concern: supported 0.10" });
+  const passing = async () => ({ rule: "system_one", ok: true, detail: "clear" });
+
+  it("appends a passing system_one check and still places the order", async () => {
+    const { gate, broker } = setup({ mode: "auto", entryReview: passing });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "submitted");
+    assert.equal(order.verdict.checks.at(-1)?.rule, "system_one");
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("rejects an engine-approved entry when the review fails its check, naming it", async () => {
+    const { gate, broker } = setup({ mode: "auto", systemOne: { enabled: true, gate: "block" }, entryReview: concern });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "rejected_risk");
+    assert.equal(order.verdict.approved, false);
+    assert.deepEqual(order.verdict.checks.filter((c) => !c.ok).map((c) => c.rule), ["system_one"]);
+    assert.equal(broker.placeCalls, 0);
+  });
+
+  it("skips the review when disabled or when the gate is off", async () => {
+    for (const systemOne of [{ enabled: false, gate: "block" as const }, { enabled: true, gate: "off" as const }]) {
+      let calls = 0;
+      const { gate } = setup({ mode: "auto", systemOne, entryReview: async () => { calls += 1; return concern(); } });
+      const order = await gate.submit(baseIntent());
+      assert.equal(order.status, "submitted");
+      assert.equal(calls, 0);
+    }
+  });
+
+  it("never reviews exits", async () => {
+    let calls = 0;
+    const { gate } = setup({ mode: "auto", systemOne: { enabled: true, gate: "block" }, entryReview: async () => { calls += 1; return concern(); } });
+    const sell = { ...baseIntent(), side: "sell" as const, quantity: 2, invalidationPrice: 160 };
+    const order = await gate.submit(sell);
+    assert.equal(calls, 0);
+    assert.ok(order.verdict.checks.every((c) => c.rule !== "system_one"));
+  });
+
+  it("fails open when the review throws", async () => {
+    const { gate } = setup({ mode: "auto", systemOne: { enabled: true, gate: "block" }, entryReview: async () => { throw new Error("boom"); } });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "submitted");
+  });
+
+  it("cannot approve an entry the engine rejected, and does not call the model for it", async () => {
+    let calls = 0;
+    const { gate } = setup({ mode: "auto", entryReview: async () => { calls += 1; return passing(); } });
+    const order = await gate.submit({ ...baseIntent(), quantity: 100_000 });
+    assert.equal(order.status, "rejected_risk");
+    assert.equal(calls, 0);
   });
 });

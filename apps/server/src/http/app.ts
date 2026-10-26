@@ -31,6 +31,7 @@ import type {
   Store,
 } from "../ports.ts";
 import type { CyclePoint } from "../scheduler/cycles.ts";
+import type { SystemOneClient } from "../systemone/client.ts";
 
 export interface AppDeps {
   config: Config;
@@ -49,6 +50,7 @@ export interface AppDeps {
   market?: MarketData;
   /** Newest first. */
   subagents?: () => SubagentRun[];
+  systemOne?: SystemOneClient;
 }
 
 const SYMBOL = /^[A-Z.]{1,10}$/;
@@ -86,6 +88,7 @@ export async function buildStatus(deps: AppDeps): Promise<StatusResponse> {
     broker: deps.broker.status(),
     market,
     settings,
+    ...(deps.systemOne === undefined ? {} : { systemOne: deps.systemOne.status() }),
     liveTrading: deps.config.LIVE_TRADING,
     models: { main: modelSpecText(deps.config.MAIN_MODEL), subagents: modelSpecText(deps.config.SUBAGENT_MODEL) },
     account,

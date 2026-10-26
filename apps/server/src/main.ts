@@ -42,6 +42,9 @@ import { isLastTradingDayOfWeek } from "./reports/ids.ts";
 import { ensureDailyReport } from "./reports/service.ts";
 import { mountReportRoutes } from "./http/report-routes.ts";
 import { credentialFilePath } from "./agent/credential-store.ts";
+import { createConfiguredSystemOne } from "./systemone/setup.ts";
+import { createEntryReview } from "./systemone/review.ts";
+import { createSystemOneExtension } from "./systemone/extension.ts";
 
 const MAX_SUBAGENT_RUNS = 50;
 
@@ -72,7 +75,18 @@ async function main(): Promise<void> {
   };
   const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
   const sectors = createSectorDirectory({ cache: new MarketCache(config.DATA_DIR, log.child("sectors"), clock), log: log.child("sectors") });
-  const gate = createOrderGate({ store, broker, calendar, clock, bus, log: log.child("risk"), market, sectors });
+  const systemOne = createConfiguredSystemOne(config, log.child("systemone"), clock);
+  const gate = createOrderGate({
+    store,
+    broker,
+    calendar,
+    clock,
+    bus,
+    log: log.child("risk"),
+    market,
+    sectors,
+    entryReview: createEntryReview({ client: systemOne, clock, log: log.child("systemone") }),
+  });
 
   // Late-bound: extensions and the scheduler need the agent's id before it exists.
   let agent: TradingAgent | undefined;
@@ -112,6 +126,7 @@ async function main(): Promise<void> {
     log: log.child("sim"),
     bus,
     market,
+    systemOne,
     skills,
     calendar,
     settings: () => store.getSettings(),
@@ -168,6 +183,14 @@ async function main(): Promise<void> {
       thinkingLevel: config.SUBAGENT_MODEL.thinkingLevel,
     }),
     createSimToolsExtension({ sim, suites }),
+    createSystemOneExtension({
+      client: systemOne,
+      market,
+      isEnabled: () => store.getSettings().systemOne.enabled,
+      benchmark: () => "SPY",
+      log: log.child("systemone"),
+      clock,
+    }),
     createQuantExtension({
       market,
       getAccount: async () => (broker.status().state === "connected" ? await broker.snapshot().catch(() => cachedAccount) : cachedAccount),
@@ -255,6 +278,7 @@ async function main(): Promise<void> {
     notes,
     market,
     subagents: (): SubagentRun[] => subagentRuns,
+    systemOne,
   };
   // Agent status events carry the live snapshot minus the agent field itself.
   tradingAgent.setStatusSnapshot(async (): Promise<Omit<StatusResponse, "agent">> => {
