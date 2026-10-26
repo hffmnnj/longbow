@@ -429,7 +429,9 @@ export class TradingAgent implements AgentControl {
     this.maybePublishStatus();
     try {
       const submission = await conversation.submit(
-        { type: "input", content: text, requestId: randomUUID() },
+        // Steer, not followUp: a message sent while a cycle runs joins it at the next tool boundary instead of
+        // waiting for the whole run to finish, so replies arrive in seconds rather than after an 80-minute cycle.
+        { type: "input", content: text, requestId: randomUUID(), whenBusy: "steer" },
         CTX,
       );
       void submission.wait(CTX).then(() => {
