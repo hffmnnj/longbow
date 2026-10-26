@@ -74,6 +74,8 @@ export interface AskRequest<M extends QuestionMap> {
   label: string;
   state: JsonValue;
   questions: M;
+  /** Skip the cache so a repeat is a fresh sample; Jev is not deterministic, so decisions average several. */
+  fresh?: boolean;
 }
 
 export type AskFailure =

@@ -158,7 +158,7 @@ export function createSystemOneClient(deps: SystemOneClientDeps): SystemOneClien
     if (Buffer.byteLength(body) > MAX_BODY_BYTES) return failure("invalid_request", "state and questions exceed the 96 KiB cap");
 
     const key = createHash("sha256").update(body).digest("hex");
-    const hit = cache.get(key);
+    const hit = request.fresh === true ? undefined : cache.get(key);
     if (hit !== undefined && now - hit.at < cacheTtlMs) {
       return { ok: true, answers: hit.answers as AnswersFor<M>, model: hit.model, latencyMs: 0, inputTokens: 0, cached: true };
     }
@@ -204,8 +204,10 @@ export function createSystemOneClient(deps: SystemOneClientDeps): SystemOneClien
           record({ at: deps.clock.now(), ok: true, latencyMs, inputTokens });
           consecutiveFailures = 0;
           lastOkAt = deps.clock.now();
-          if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
-          cache.set(key, { at: deps.clock.now(), answers, model: parsed.data.model, inputTokens });
+          if (request.fresh !== true) {
+            if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
+            cache.set(key, { at: deps.clock.now(), answers, model: parsed.data.model, inputTokens });
+          }
           return { ok: true, answers: answers as AnswersFor<M>, model: parsed.data.model, latencyMs, inputTokens, cached: false };
         }
 

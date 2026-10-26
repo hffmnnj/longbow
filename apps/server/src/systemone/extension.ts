@@ -7,6 +7,7 @@ import { candidateRubric, regimeRubric, textRubric, thesisRubric, type Candidate
 import { confidenceOf, triageCandidate, triageText, triageThesis } from "./policy.ts";
 import { returnBand, stopDistanceBand } from "./buckets.ts";
 import type { SystemOneClient } from "./client.ts";
+import { askAveraged } from "./sampling.ts";
 import type { Answer, JsonValue, QuestionMap } from "./types.ts";
 
 export interface SystemOneToolsDeps {
@@ -628,7 +629,7 @@ export function createSystemOneExtension(deps: SystemOneToolsDeps): Extension {
       });
       let result;
       try {
-        result = await deps.client.ask({ label: "thesis", state, questions });
+        result = await askAveraged(deps.client, { label: "thesis", state, questions });
       } catch (error) {
         return unavailable(errorText(error));
       }
