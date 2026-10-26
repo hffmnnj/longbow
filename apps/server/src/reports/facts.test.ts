@@ -114,7 +114,7 @@ interface FakeStoreState {
 function fakeStore(state: FakeStoreState): Store {
   return {
     getSettings: () => structuredClone(DEFAULT_SETTINGS),
-    patchSettings: (patch) => ({ ...structuredClone(DEFAULT_SETTINGS), ...patch, risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...patch.risk } }),
+    patchSettings: (patch) => ({ ...structuredClone(DEFAULT_SETTINGS), ...patch, risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...patch.risk }, systemOne: { ...DEFAULT_SETTINGS.systemOne, ...patch.systemOne } }),
     addJournal: (entry) => {
       const full = { ...entry, id: `j${state.journals.length + 1}` };
       state.journals.push(full);

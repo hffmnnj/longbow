@@ -41,6 +41,7 @@ function fakeStore(): Store & { settings: ReturnType<Store["getSettings"]> } {
         ...state.settings,
         ...patch,
         risk: { ...state.settings.risk, ...(patch.risk ?? {}) },
+        systemOne: { ...state.settings.systemOne, ...(patch.systemOne ?? {}) },
       };
       return structuredClone(state.settings);
     },

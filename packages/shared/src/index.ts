@@ -73,6 +73,23 @@ export const DEFAULT_RISK: RiskConfig = {
   minAvgDollarVolumeUsd: 20_000_000,
 };
 
+/**
+ * System One (Jev) second opinion on entries. `off` skips it, `advise` records it as a passing
+ * `system_one` risk check, `block` lets a high-confidence concern reject the entry. The gate fails
+ * open: an outage never blocks an order, and exits are never reviewed.
+ */
+export const SystemOneGateSchema = z.enum(["off", "advise", "block"]);
+export type SystemOneGate = z.infer<typeof SystemOneGateSchema>;
+
+export const SystemOneSettingsSchema = z.object({
+  /** Master switch for the System One tools and the entry review. */
+  enabled: z.boolean(),
+  gate: SystemOneGateSchema,
+});
+export type SystemOneSettings = z.infer<typeof SystemOneSettingsSchema>;
+
+export const DEFAULT_SYSTEM_ONE: SystemOneSettings = { enabled: true, gate: "advise" };
+
 export const SettingsSchema = z.object({
   mode: TradingModeSchema,
   /** When true no order of any kind is submitted and scheduled cycles still run as research only. */
@@ -85,6 +102,7 @@ export const SettingsSchema = z.object({
   cycleMinutesClosed: z.number().int().min(30).max(1440),
   watchlist: z.array(z.string().regex(/^[A-Z.]{1,10}$/)).max(50),
   risk: RiskConfigSchema,
+  systemOne: SystemOneSettingsSchema,
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -96,11 +114,13 @@ export const DEFAULT_SETTINGS: Settings = {
   cycleMinutesClosed: 240,
   watchlist: ["SPY", "QQQ", "IWM", "SMH", "XLK", "XLF", "XLE", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL"],
   risk: DEFAULT_RISK,
+  systemOne: DEFAULT_SYSTEM_ONE,
 };
 
-/** PATCH /api/settings body. `risk` merges field by field. */
-export const SettingsPatchSchema = SettingsSchema.omit({ risk: true }).partial().extend({
+/** PATCH /api/settings body. `risk` and `systemOne` merge field by field. */
+export const SettingsPatchSchema = SettingsSchema.omit({ risk: true, systemOne: true }).partial().extend({
   risk: RiskConfigSchema.partial().optional(),
+  systemOne: SystemOneSettingsSchema.partial().optional(),
 });
 export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
 
@@ -374,8 +394,30 @@ export type SendMessage = z.infer<typeof SendMessageSchema>;
 /** Why new entries are blocked right now, if they are. Exits may still be allowed. */
 export type HaltReason = "kill_switch" | "mode_off" | "daily_loss" | "drawdown" | "broker_disconnected";
 
+/**
+ * Health of the System One (decision model) connection. `rate_limited` and `payment` carry a
+ * `cooldownUntil`; calls skip the network until then and tools tell the agent to proceed without it.
+ */
+export type SystemOneState = "ok" | "degraded" | "rate_limited" | "payment" | "unconfigured";
+
+export interface SystemOneStatus {
+  state: SystemOneState;
+  /** Model id sent on the wire, such as jev-latest. */
+  model: string;
+  /** Calls answered in the last 24 hours, and the median latency of the last 200. */
+  calls24h: number;
+  medianLatencyMs?: number;
+  /** Input tokens billed in the last 24 hours. */
+  inputTokens24h: number;
+  cooldownUntil?: number;
+  lastError?: string;
+  lastOkAt?: number;
+}
+
 export interface StatusResponse {
   agent: AgentStatus;
+  /** System One connection health; absent only from servers older than this field. */
+  systemOne?: SystemOneStatus;
   broker: BrokerStatus;
   market: MarketClock;
   settings: Settings;

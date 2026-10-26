@@ -77,6 +77,7 @@ class FakeStore implements Store {
       ...this.settings,
       ...patch,
       risk: { ...this.settings.risk, ...patch.risk },
+      systemOne: { ...this.settings.systemOne, ...patch.systemOne },
     };
     return this.settings;
   }
