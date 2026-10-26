@@ -84,7 +84,7 @@ class _PositionRowState extends ConsumerState<PositionRow> {
     final hasStop = stop != null && dist != null;
     final label = [
       p.symbol,
-      '${qty(p.quantity)} shares',
+      '${qtyFor(p.symbol, p.quantity)} ${qtyUnit(p.symbol)}',
       'value ${usd(p.marketValue)}',
       '${p.unrealizedPnl >= 0 ? 'up' : 'down'} ${usd(p.unrealizedPnl.abs())}',
       if (r.weightPct != null) '${pct(r.weightPct!)} of equity',
@@ -113,8 +113,14 @@ class _PositionRowState extends ConsumerState<PositionRow> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          TickerLink(p.symbol),
-                          Text('${qty(p.quantity)} sh', style: LbText.number(context, size: 12, color: c.mutedForeground)),
+                          Row(
+                            children: [
+                              Expanded(child: TickerLink(p.symbol)),
+                              if (p.sector == 'Crypto')
+                                const StatusChip('Crypto', tone: StatusTone.neutral, showIcon: false),
+                            ],
+                          ),
+                          Text('${qtyFor(p.symbol, p.quantity)} ${isCryptoSymbol(p.symbol) ? 'coins' : 'sh'}', style: LbText.number(context, size: 12, color: c.mutedForeground)),
                           if (r.weightPct != null)
                             Text('${pct(r.weightPct!)} of equity', style: LbText.number(context, size: 12, color: c.mutedForeground)),
                         ],

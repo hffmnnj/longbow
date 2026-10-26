@@ -41,6 +41,24 @@ void main() {
       expect(qty(1234.56789), '1,234.5679');
       expect(qty(3), '3');
     });
+    test('detects crypto pairs', () {
+      expect(isCryptoSymbol('BTC-USD'), isTrue);
+      expect(isCryptoSymbol('ETH-USD'), isTrue);
+      expect(isCryptoSymbol('SPY'), isFalse);
+      expect(isCryptoSymbol('BRK.B'), isFalse);
+      expect(isCryptoSymbol('btc-usd'), isFalse);
+    });
+    test('qtyCoins keeps dust visible at eight decimals', () {
+      expect(qtyCoins(0.00058109), '0.00058109');
+      expect(qtyCoins(1.5), '1.5');
+      expect(qtyCoins(80062.48), '80,062.48');
+    });
+    test('qtyFor dispatches on the symbol and names its unit', () {
+      expect(qtyFor('BTC-USD', 0.00058109), '0.00058109');
+      expect(qtyFor('SPY', 0.00058109), '0.0006');
+      expect(qtyUnit('BTC-USD'), 'coins');
+      expect(qtyUnit('SPY'), 'shares');
+    });
     test('compact abbreviates thousands, millions, billions', () {
       expect(compact(1200), '1.2K');
       expect(compact(3400000), '3.4M');

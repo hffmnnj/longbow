@@ -40,6 +40,44 @@ void main() {
     expect(validateSettingsForm(toForm(defaultSettings)), isEmpty);
   });
 
+  test('settingsForm_cryptoRoundTripsThroughTheForm', () {
+    final f = toForm(defaultSettings);
+
+    expect(f.cryptoEnabled, isFalse);
+    expect(f.crypto[CryptoKey.maxPortfolioPct], '8');
+    expect(f.crypto[CryptoKey.maxOrderNotionalUsd], '40');
+    expect(validateSettingsForm(f), isEmpty);
+  });
+
+  test('settingsForm_cryptoPatchCarriesOnlyChangedFields', () {
+    final f = toForm(defaultSettings);
+    f.cryptoEnabled = true;
+    f.crypto[CryptoKey.maxPortfolioPct] = '10';
+
+    final patch = buildPatch(defaultSettings, f);
+
+    expect(patch.crypto?.enabled, isTrue);
+    expect(patch.crypto?.maxPortfolioPct, 10.0);
+    expect(patch.crypto?.maxOrderNotionalUsd, isNull);
+    expect(patch.crypto?.toJson().keys, ['enabled', 'maxPortfolioPct']);
+    expect(patch.risk, isNull);
+    expect(isEmptyPatch(patch), isFalse);
+  });
+
+  test('settingsForm_cryptoValidateEnforcesSleeveLimits', () {
+    final f = toForm(defaultSettings);
+    f.crypto[CryptoKey.maxPortfolioPct] = '30';
+    f.crypto[CryptoKey.maxOrderNotionalUsd] = '0';
+
+    final e = validateSettingsForm(f);
+
+    expect(e['crypto.maxPortfolioPct'], 'Max 25');
+    expect(e['crypto.maxOrderNotionalUsd'], 'Must be above 0');
+
+    f.crypto[CryptoKey.maxPortfolioPct] = '0.5';
+    expect(validateSettingsForm(f)['crypto.maxPortfolioPct'], 'Min 1');
+  });
+
   test('settingsForm_validateRejectsOversizedWatchlist', () {
     final f = toForm(defaultSettings);
     f.watchlist = List.generate(51, (i) => 'T$i');

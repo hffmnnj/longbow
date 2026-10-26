@@ -395,7 +395,7 @@ class _TradeRow extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${qty(t.quantity)} @ $entry → ${usd(t.exitPrice)}',
+                      '${qtyFor(t.symbol, t.quantity)} @ $entry → ${usd(t.exitPrice)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: LbText.number(
