@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { OrderStatus } from "@rh/shared";
+  import { isCryptoSymbol, type OrderStatus } from "@rh/shared";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import Empty from "./Empty.svelte";
   import RiskChecks from "./RiskChecks.svelte";
   import SideBadge from "./SideBadge.svelte";
   import Ticker from "./Ticker.svelte";
-  import { etStamp, qty, usd } from "$lib/format";
+  import { etStamp, qtyFor, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { STATUS_LABEL } from "$lib/orders";
   import { useScope } from "$lib/scope";
@@ -42,13 +42,13 @@
             <span class="min-w-0 flex-1">
               <span class="num flex flex-wrap items-baseline gap-x-2">
                 <Ticker symbol={o.intent.symbol} />
-                <span class="text-muted-foreground text-[12.5px]">{qty(o.intent.quantity)} @ {usd(o.intent.limitPrice)}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qty(o.filledQuantity)} of {qty(o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}{/if}</span>
+                <span class="text-muted-foreground text-[12.5px]">{qtyFor(o.intent.symbol, o.intent.quantity)} @ {usd(o.intent.limitPrice)}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qtyFor(o.intent.symbol, o.filledQuantity)} of {qtyFor(o.intent.symbol, o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}{/if}</span>
               </span>
               <span class="num text-muted-foreground text-[11.5px]">{etStamp(o.createdAt, clock.now)}</span>
             </span>
             <span
               class={cn("shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium", style(o.status))}
-              title={o.status === "held" ? "Watched by the harness every minute during market hours" : undefined}
+              title={o.status === "held" ? (isCryptoSymbol(o.intent.symbol) ? "Watched by the harness around the clock" : "Watched by the harness every minute during market hours") : undefined}
             >
               {STATUS_LABEL[o.status]}
             </span>

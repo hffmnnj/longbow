@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, countdown, durationShort, etClock, etTime, pct, pctSigned, tone, usd, usdSigned } from "./format.ts";
+import { ago, countdown, durationShort, etClock, etTime, pct, pctSigned, priceFor, qtyFor, qtyUnit, tone, usd, usdSigned } from "./format.ts";
 
 describe("currency", () => {
   it("formats two decimals with thousands separators", () => {
@@ -68,5 +68,25 @@ describe("countdown and ago", () => {
 describe("durationShort", () => {
   it("scales units", () => {
     expect([412, 1840, 12_400, 65_000].map(durationShort)).toEqual(["412ms", "1.8s", "12s", "1m 05s"]);
+  });
+});
+
+describe("crypto quantities and prices", () => {
+  it("keeps shares exactly as today", () => {
+    expect(qtyFor("AAPL", 8.5)).toBe("8.5");
+    expect(qtyFor("NVDA", 12)).toBe("12");
+    expect(qtyUnit("AAPL")).toBe("shares");
+  });
+  it("shows coin fractions with up to 8 decimals, trimmed", () => {
+    expect(qtyFor("BTC-USD", 0.00058109)).toBe("0.00058109");
+    expect(qtyFor("BTC-USD", 1.5)).toBe("1.5");
+    expect(qtyFor("ETH-USD", 0.1)).toBe("0.1");
+    expect(qtyFor("BTC-USD", 0)).toBe("0");
+    expect(qtyUnit("BTC-USD")).toBe("coins");
+  });
+  it("groups large crypto prices and keeps sub-dollar precision", () => {
+    expect(priceFor("BTC-USD", 80062.48)).toBe("$80,062.48");
+    expect(priceFor("BTC-USD", 0.2134)).toBe("$0.2134");
+    expect(priceFor("AAPL", 413.2)).toBe("$413.20");
   });
 });

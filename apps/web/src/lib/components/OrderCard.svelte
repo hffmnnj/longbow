@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { OrderRecord } from "@rh/shared";
+  import { isCryptoSymbol, type OrderRecord } from "@rh/shared";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import RiskChecks from "./RiskChecks.svelte";
   import MiniChart from "./MiniChart.svelte";
   import SideBadge from "./SideBadge.svelte";
   import Ticker from "./Ticker.svelte";
-  import { ago, pctSigned, qty, usd } from "$lib/format";
+  import { ago, pctSigned, priceFor, qtyFor, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { expectedValuePct, notional } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
@@ -24,9 +24,9 @@
   <header class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
     <SideBadge side={i.side} />
     <Ticker symbol={i.symbol} class="text-[15px]" />
-    <span class="num text-muted-foreground">{qty(i.quantity)} @ {usd(i.limitPrice)}</span>
+    <span class="num text-muted-foreground">{qtyFor(i.symbol, i.quantity)} @ {priceFor(i.symbol, i.limitPrice)}</span>
     {#if i.orderType === "stop_limit" && i.stopPrice}
-      <span class="num text-muted-foreground text-[12px]">stop {usd(i.stopPrice)}</span>
+      <span class="num text-muted-foreground text-[12px]">stop {priceFor(i.symbol, i.stopPrice)}</span>
     {/if}
     <span class="num ml-auto text-[13px] font-medium">{usd(notional(i))}</span>
   </header>
@@ -45,7 +45,7 @@
   <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-[12.5px]">
     <div>
       <dt class="label-caps">Invalidation</dt>
-      <dd class="num mt-0.5">{usd(i.invalidationPrice)}</dd>
+      <dd class="num mt-0.5">{priceFor(i.symbol, i.invalidationPrice)}</dd>
     </div>
     <div>
       <dt class="label-caps">Time stop</dt>
