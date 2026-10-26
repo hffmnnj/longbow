@@ -34,14 +34,18 @@ describe("tone", () => {
   });
 });
 
-describe("Eastern time", () => {
-  it("renders in America/New_York across DST", () => {
+describe("time zone formatting", () => {
+  it("renders in the requested zone across DST", () => {
     // 2026-07-01T14:05:09Z is 10:05:09 EDT; 2026-01-15T14:05:09Z is 09:05:09 EST.
-    expect(etClock(Date.UTC(2026, 6, 1, 14, 5, 9))).toBe("10:05:09 ET");
-    expect(etTime(Date.UTC(2026, 0, 15, 14, 5, 9))).toBe("09:05 ET");
+    expect(etClock(Date.UTC(2026, 6, 1, 14, 5, 9), "America/New_York")).toBe("10:05:09 EDT");
+    expect(etTime(Date.UTC(2026, 0, 15, 14, 5, 9), "America/New_York")).toBe("09:05 EST");
   });
   it("renders midnight as 00, not 24", () => {
-    expect(etTime(Date.UTC(2026, 0, 15, 5, 0, 0))).toBe("00:00 ET");
+    expect(etTime(Date.UTC(2026, 0, 15, 5, 0, 0), "America/New_York")).toBe("00:00 EST");
+  });
+  it("defaults to the host zone", () => {
+    // The formatter's zone name is whatever the runtime resolves; only the shape is fixed.
+    expect(etTime(Date.UTC(2026, 0, 15, 14, 5, 9))).toMatch(/^\d{2}:\d{2} \S+$/);
   });
 });
 
