@@ -498,3 +498,97 @@ describe("risk engine", () => {
     assert.deepEqual(failedRules(input), ["earnings_blackout", "liquidity"]);
   });
 });
+
+describe("crypto sleeve", () => {
+  const SUNDAY = Date.UTC(2026, 10, 1, 15, 0, 0);
+
+  /** A BTC entry on a Sunday, wide spread like Robinhood's, that passes every rule. */
+  function btcInput(): RiskInput {
+    const input = passingInput();
+    input.now = SUNDAY;
+    input.market = { ...input.market, now: SUNDAY, session: "closed", isOpen: false };
+    input.account = { ...input.account, at: SUNDAY, equity: 1235, cryptoBuyingPower: 665, positions: [] };
+    input.quote = { symbol: "BTC-USD", bid: 79_300, ask: 80_800, last: 80_050, at: SUNDAY };
+    input.intent = {
+      ...input.intent,
+      symbol: "BTC-USD",
+      quantity: 0.0005,
+      limitPrice: 79_500,
+      invalidationPrice: 74_500,
+      expectedGainPct: 15,
+      expectedLossPct: 6,
+      estimatedCostPct: 2,
+      probabilityWin: 0.6,
+      timeStopDate: "2026-11-20",
+    };
+    return input;
+  }
+
+  it("lets a patient BTC buy through on a weekend despite the wide spread", () => {
+    const verdict = evaluate(btcInput());
+    assert.deepEqual(verdict.checks.filter((c) => !c.ok), []);
+    assert.equal(verdict.approved, true);
+  });
+
+  it("allows any pair by default, a restricted list when set, and nothing when the sleeve is off", () => {
+    const sol = btcInput();
+    sol.intent = { ...sol.intent, symbol: "SOL-USD" };
+    sol.quote = { ...sol.quote, symbol: "SOL-USD" };
+    assert.equal(evaluate(sol).approved, true);
+    sol.settings.crypto.allowed = ["BTC-USD", "ETH-USD"];
+    assert.deepEqual(failedRules(sol), ["crypto_allowed"]);
+    const off = btcInput();
+    off.settings.crypto.enabled = false;
+    assert.deepEqual(failedRules(off), ["crypto_allowed"]);
+  });
+
+  it("caps total crypto, counting what is already held", () => {
+    const input = btcInput();
+    // 8% of 1,235 is 98.80; 60 already held plus a 39.75 order is 99.75.
+    input.account.positions = [{ symbol: "BTC-USD", quantity: 0.00075, averageCost: 80_000, marketValue: 60, unrealizedPnl: 0, sector: "Crypto" }];
+    assert.deepEqual(failedRules(input), ["crypto_sleeve"]);
+  });
+
+  it("requires the configured reward to risk", () => {
+    const input = btcInput();
+    input.intent = { ...input.intent, expectedGainPct: 8, expectedLossPct: 5 };
+    assert.ok(failedRules(input).includes("crypto_reward_risk"));
+  });
+
+  it("uses half the stock risk allowance for crypto", () => {
+    const input = btcInput();
+    // Stock allowance 1.5% of 1,235 = 18.53; half is 9.26. 0.0005 x 5,000 = 2.5 passes, 0.002 x 5,000 = 10 fails.
+    input.intent = { ...input.intent, quantity: 0.002, limitPrice: 79_500 };
+    input.settings.crypto.maxOrderNotionalUsd = 500;
+    input.settings.risk.maxOrderNotionalUsd = 500;
+    input.settings.crypto.maxPortfolioPct = 25;
+    assert.deepEqual(failedRules(input), ["risk_per_trade"]);
+  });
+
+  it("does not spend stock entries or position slots, and ignores the pattern day trade rule", () => {
+    const btcBuy = { ...submittedBuy("BTC-USD", SUNDAY), status: "filled" as const };
+    assert.equal(countSubmittedBuysToday([btcBuy], "2026-11-01"), 0);
+    const btcSell = { ...submittedSell("BTC-USD", SUNDAY), status: "filled" as const };
+    assert.equal(countDayTrades([btcBuy, btcSell], "2026-11-01", () => 0), 0);
+    const full = btcInput();
+    full.settings.risk.maxPositions = 1;
+    full.account.positions = [{ symbol: "AAPL", quantity: 1, averageCost: 145, marketValue: 150, unrealizedPnl: 5, sector: "Technology" }];
+    assert.equal(evaluate(full).approved, true);
+  });
+
+  it("allows only one crypto buy per ET day by default", () => {
+    const input = btcInput();
+    input.recentOrders = [{ ...submittedBuy("ETH-USD", SUNDAY - 3_600_000), status: "filled" }];
+    assert.deepEqual(failedRules(input), ["entries_per_day"]);
+  });
+
+  it("always lets an exit out, even when the sleeve is switched off", () => {
+    const input = btcInput();
+    input.settings.crypto.enabled = false;
+    input.account.positions = [{ symbol: "BTC-USD", quantity: 0.0005, averageCost: 80_000, marketValue: 40, unrealizedPnl: 0, sector: "Crypto" }];
+    input.intent = { ...input.intent, side: "sell", quantity: 0.0005, limitPrice: 79_400, invalidationPrice: 85_000 };
+    const verdict = evaluate(input);
+    assert.equal(verdict.isExit, true);
+    assert.deepEqual(verdict.checks.filter((c) => !c.ok).map((c) => c.rule), []);
+  });
+});

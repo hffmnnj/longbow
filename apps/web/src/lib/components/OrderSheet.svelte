@@ -4,7 +4,7 @@
   import RiskChecks from "./RiskChecks.svelte";
   import SideBadge from "./SideBadge.svelte";
   import Ticker from "./Ticker.svelte";
-  import { etStamp, qty, usd } from "$lib/format";
+  import { etStamp, priceFor, qtyFor, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { notional, STATUS_LABEL } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
@@ -36,12 +36,12 @@
       {:else}
         <div class="flex flex-col gap-4 text-[13px]">
           <dl class="num grid grid-cols-2 gap-3">
-            <div><dt class="label-caps">Size</dt><dd>{qty(shown.intent.quantity)} @ {usd(shown.intent.limitPrice)}</dd></div>
+            <div><dt class="label-caps">Size</dt><dd>{qtyFor(shown.intent.symbol, shown.intent.quantity)} @ {priceFor(shown.intent.symbol, shown.intent.limitPrice)}</dd></div>
             <div><dt class="label-caps">Notional</dt><dd>{usd(notional(shown.intent))}</dd></div>
-            <div><dt class="label-caps">Invalidation</dt><dd>{usd(shown.intent.invalidationPrice)}</dd></div>
+            <div><dt class="label-caps">Invalidation</dt><dd>{priceFor(shown.intent.symbol, shown.intent.invalidationPrice)}</dd></div>
             <div><dt class="label-caps">Time stop</dt><dd>{shown.intent.timeStopDate}</dd></div>
             {#if shown.averageFillPrice !== undefined}
-              <div><dt class="label-caps">Filled</dt><dd>{qty(shown.filledQuantity ?? 0)} @ {usd(shown.averageFillPrice)}</dd></div>
+              <div><dt class="label-caps">Filled</dt><dd>{qtyFor(shown.intent.symbol, shown.filledQuantity ?? 0)} @ {priceFor(shown.intent.symbol, shown.averageFillPrice)}</dd></div>
             {/if}
           </dl>
           <p class="leading-relaxed">{shown.intent.thesis}</p>

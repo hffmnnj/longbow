@@ -21,20 +21,20 @@ export interface RiskToolsDeps {
 
 const submitOrderSchema = Type.Object({
   symbol: Type.String({
-    description: "Uppercase ticker to trade, such as AAPL. No options, crypto, or multi-leg orders.",
-    pattern: "^[A-Z.]{1,10}$",
+    description: "Uppercase ticker to trade, such as AAPL, or a crypto pair from the crypto sleeve, such as BTC-USD (load the crypto-sleeve skill first). No options or multi-leg orders.",
+    pattern: "^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$",
     minLength: 1,
-    maxLength: 10,
+    maxLength: 14,
   }),
   side: Type.Union([Type.Literal("buy"), Type.Literal("sell")], {
     description: "Buy to open a long, or sell shares you already hold. Shorting is never allowed.",
   }),
   quantity: Type.Number({
-    description: "Number of shares, fractional to 4 decimal places (for example 3.7894). Must fit the per-trade risk, position, and notional caps.",
+    description: "Number of shares, fractional to 4 decimal places (for example 3.7894), or coins for a crypto pair, to 8 decimals (for example 0.0005). Must fit the per-trade risk, position, and notional caps.",
     exclusiveMinimum: 0,
   }),
   orderType: Type.Union([Type.Literal("limit"), Type.Literal("stop_limit")], {
-    description: "Whole-share limits rest at limitPrice. Fractional limits execute as market orders only inside the limit during regular hours. Fractional sell stops are held and watched every minute by the harness.",
+    description: "Whole-share limits rest at limitPrice. Fractional limits execute as market orders only inside the limit during regular hours. Fractional sell stops are held and watched every minute by the harness. Crypto limits and stop_limit sells rest natively at Robinhood (limits last 90 days) and trade around the clock.",
   }),
   limitPrice: Type.Number({
     description: "Limit price in USD. Must sit within maxSlippageBps of the mid price.",
@@ -211,6 +211,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
           `trading day ${market.tradingDay}${market.earlyClose ? " (early close)" : ""}, ` +
           `next open ${formatEt(market.nextOpen)}, next close ${formatEt(market.nextClose)}`,
         `risk limits: ${JSON.stringify(settings.risk)}`,
+        `crypto sleeve: ${JSON.stringify(settings.crypto)}`,
         `entries today: ${entriesUsed}/${settings.risk.maxEntriesPerDay}, ` +
           `day trades (5d): ${dayTradesUsed}/${settings.risk.maxDayTrades5d}`,
         pending.length === 0

@@ -41,6 +41,56 @@ const defaultSystemOne = SystemOneSettings(
   gate: SystemOneGate.advise,
 );
 
+/// The crypto sleeve: a small, separately capped slice of the account.
+/// Mirrors TS CryptoSettings in `packages/shared`.
+@JsonSerializable(createToJson: false)
+class CryptoSettings {
+  const CryptoSettings({
+    required this.enabled,
+    required this.allowed,
+    required this.maxPortfolioPct,
+    required this.maxOrderNotionalUsd,
+    required this.maxEntriesPerDay,
+    required this.maxSpreadBps,
+    required this.minRewardRisk,
+  });
+
+  factory CryptoSettings.fromJson(Map<String, dynamic> json) =>
+      _$CryptoSettingsFromJson(json);
+
+  final bool enabled;
+
+  /// Pairs the agent may trade, such as BTC-USD.
+  final List<String> allowed;
+
+  /// Max market value of all crypto after an order, as % of equity.
+  final double maxPortfolioPct;
+
+  /// Fat-finger cap on one crypto order's notional.
+  final double maxOrderNotionalUsd;
+
+  /// Max crypto buys per ET day.
+  final int maxEntriesPerDay;
+
+  /// Max ask-bid spread in basis points of mid.
+  final double maxSpreadBps;
+
+  /// Entries need expectedGainPct / expectedLossPct at or above this.
+  final double minRewardRisk;
+}
+
+/// Older servers omit `crypto`; the sleeve stays off until the server and the
+/// user say otherwise. Numbers mirror TS DEFAULT_CRYPTO.
+const defaultCrypto = CryptoSettings(
+  enabled: false,
+  allowed: ['BTC-USD', 'ETH-USD'],
+  maxPortfolioPct: 8,
+  maxOrderNotionalUsd: 40,
+  maxEntriesPerDay: 1,
+  maxSpreadBps: 300,
+  minRewardRisk: 2,
+);
+
 @JsonSerializable(createToJson: false)
 class RiskConfig {
   const RiskConfig({
@@ -122,6 +172,7 @@ class Settings {
     required this.watchlist,
     required this.risk,
     this.systemOne = defaultSystemOne,
+    this.crypto = defaultCrypto,
   });
 
   factory Settings.fromJson(Map<String, dynamic> json) =>
@@ -140,6 +191,9 @@ class Settings {
   /// Absent on servers older than System One; defaults to advise.
   final SystemOneSettings systemOne;
 
+  /// Absent on servers older than the crypto sleeve; defaults to off.
+  final CryptoSettings crypto;
+
   Settings copyWith({
     TradingMode? mode,
     bool? killSwitch,
@@ -150,6 +204,7 @@ class Settings {
     List<String>? watchlist,
     RiskConfig? risk,
     SystemOneSettings? systemOne,
+    CryptoSettings? crypto,
   }) {
     return Settings(
       mode: mode ?? this.mode,
@@ -161,6 +216,7 @@ class Settings {
       watchlist: watchlist ?? this.watchlist,
       risk: risk ?? this.risk,
       systemOne: systemOne ?? this.systemOne,
+      crypto: crypto ?? this.crypto,
     );
   }
 }
@@ -256,6 +312,34 @@ class RiskConfigPatch {
   final double? minAvgDollarVolumeUsd;
 }
 
+/// Field-by-field merge patch for CryptoSettings. Either field alone is
+/// allowed; the server merges what is present.
+@JsonSerializable(includeIfNull: false, explicitToJson: true)
+class CryptoSettingsPatch {
+  const CryptoSettingsPatch({
+    this.enabled,
+    this.allowed,
+    this.maxPortfolioPct,
+    this.maxOrderNotionalUsd,
+    this.maxEntriesPerDay,
+    this.maxSpreadBps,
+    this.minRewardRisk,
+  });
+
+  factory CryptoSettingsPatch.fromJson(Map<String, dynamic> json) =>
+      _$CryptoSettingsPatchFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CryptoSettingsPatchToJson(this);
+
+  final bool? enabled;
+  final List<String>? allowed;
+  final double? maxPortfolioPct;
+  final double? maxOrderNotionalUsd;
+  final int? maxEntriesPerDay;
+  final double? maxSpreadBps;
+  final double? minRewardRisk;
+}
+
 /// PATCH /api/settings body. `toJson` omits every unset (null) field and nests
 /// `risk` only when present, so the server merges field by field.
 @JsonSerializable(includeIfNull: false, explicitToJson: true)
@@ -270,6 +354,7 @@ class SettingsPatch {
     this.watchlist,
     this.risk,
     this.systemOne,
+    this.crypto,
   });
 
   factory SettingsPatch.fromJson(Map<String, dynamic> json) =>
@@ -288,4 +373,5 @@ class SettingsPatch {
   final List<String>? watchlist;
   final RiskConfigPatch? risk;
   final SystemOneSettingsPatch? systemOne;
+  final CryptoSettingsPatch? crypto;
 }

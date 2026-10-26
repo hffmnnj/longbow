@@ -87,6 +87,9 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
     for (final k in riskKeys) {
       _ctrlFor('risk.${k.name}').text = form.risk[k] ?? '';
     }
+    for (final k in cryptoKeys) {
+      _ctrlFor('crypto.${k.name}').text = form.crypto[k] ?? '';
+    }
     _syncing = false;
     _serverErrors = {};
     _formError = null;
@@ -107,11 +110,23 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
         form.cycleMinutesOpen = text;
       } else if (key == _closedKey) {
         form.cycleMinutesClosed = text;
+      } else if (key.startsWith('crypto.')) {
+        form.crypto[CryptoKey.values.byName(key.substring(7))] = text;
       } else {
         form.risk[RiskKey.values.byName(key.substring(5))] = text;
       }
       _serverErrors.remove(key);
       _formError = null;
+      _justSaved = false;
+    });
+  }
+
+  void _toggleCrypto(bool next) {
+    final form = _form;
+    if (form == null) return;
+    Haptics.selection();
+    setState(() {
+      form.cryptoEnabled = next;
       _justSaved = false;
     });
   }
@@ -153,6 +168,8 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
       if (lower.contains(_closedKey.toLowerCase())) _closedKey,
       for (final k in riskKeys)
         if (lower.contains(k.name.toLowerCase())) 'risk.${k.name}',
+      for (final k in cryptoKeys)
+        if (lower.contains(k.name.toLowerCase())) 'crypto.${k.name}',
     ];
     if (keys.isEmpty) {
       _formError = message;
@@ -214,7 +231,7 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
     final errors = form == null ? const <String, String>{} : validateSettingsForm(form);
     final dirty = _dirty;
     final patch = _saved != null && form != null ? buildPatch(_saved!, form) : null;
-    final changeCount = patch == null ? 0 : patch.toJson().entries.fold<int>(0, (n, e) => n + (e.key == 'risk' ? (e.value as Map).length : 1));
+    final changeCount = patch == null ? 0 : patch.toJson().entries.fold<int>(0, (n, e) => n + (e.key == 'risk' || e.key == 'crypto' ? (e.value as Map).length : 1));
     final canSave = dirty && errors.isEmpty && !_saving;
 
     final children = <Widget>[
@@ -225,6 +242,7 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
           trailing: TextButton(onPressed: _resetRiskToDefaults, child: const Text('Reset to defaults')),
           child: _riskFields(errors),
         ),
+        _section('Crypto', child: _cryptoFields(form, errors)),
         _section('Cycles', child: _cycleFields(errors)),
         _section('Watchlist', child: _watchlist(form, errors['watchlist'])),
         _section('Robinhood', child: const RobinhoodSection()),
@@ -307,6 +325,22 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
           ]),
           const SizedBox(height: LbSpace.gap),
         ],
+      ],
+    );
+  }
+
+  Widget _cryptoFields(SettingsForm form, Map<String, String> errors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LbSwitchRow(
+          title: 'Crypto',
+          value: form.cryptoEnabled,
+          onChanged: _toggleCrypto,
+        ),
+        _fields([
+          for (final f in cryptoFields) _numberField('crypto.${f.key.name}', f.label, f.unit, errors, errors['crypto.${f.key.name}']),
+        ]),
       ],
     );
   }

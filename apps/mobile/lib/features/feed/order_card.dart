@@ -97,7 +97,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                     children: [
                       SideBadge(i.side.name),
                       TickerLink(i.symbol, style: LbText.number(context, size: 15, weight: FontWeight.w600)),
-                      Text('${qty(i.quantity)} @ ${usd(i.limitPrice)}', style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground)),
+                      Text('${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}', style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground)),
                       if (i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0)
                         Text('stop ${usd(i.stopPrice!)}', style: LbText.number(context, size: 12, weight: FontWeight.w400, color: c.mutedForeground)),
                     ],
@@ -154,7 +154,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                     tone: ev < 0 ? Tone.loss : Tone.flat,
                   ),
                   if (order.averageFillPrice != null)
-                    Stat(label: 'Filled', value: '${qty(order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
+                    Stat(label: 'Filled', value: '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
                 ],
               ),
             const SizedBox(height: 6),
@@ -347,7 +347,7 @@ class _CompactFacts extends StatelessWidget {
         pair('Win', '${(i.probabilityWin * 100).round()}%'),
         if (order.averageFillPrice != null) ...[
           const TextSpan(text: '   '),
-          pair('Filled', '${qty(order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
+          pair('Filled', '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
         ],
       ]),
     );

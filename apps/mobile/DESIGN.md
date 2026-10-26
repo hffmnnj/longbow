@@ -127,7 +127,7 @@ Import `lib/core/charts/charts.dart` only; charts take plain Dart inputs and rea
 
 ## Surfaces
 
-Feed (live transcript with decision cards and tool traces, composer, approvals, halt banner), Portfolio (equity hero, positions, orders, latest report), Markets (regime, indices, sectors, VIX, yields, breadth, calendar, earnings), Performance (equity vs SPY, trades, calibration, exposure, sectors), Agent control room (fleet, models, cycle controls, subagents, notes, skills), Reports (list and brief), Journal and orders, Lab (runs, suites, compare, new run), Settings (mode, kill switch, risk limits, cycle cadence, watchlist, Robinhood connection, notifications, theme, server address).
+Feed (live transcript with decision cards and tool traces, composer, approvals, halt banner), Portfolio (equity hero, positions, orders, latest report), Markets (regime, indices, sectors, VIX, yields, breadth, calendar, earnings), Performance (equity vs SPY, trades, calibration, exposure, sectors), Agent control room (fleet, models, cycle controls, subagents, notes, skills), Reports (list and brief), Journal and orders, Lab (runs, suites, compare, new run), Settings (mode, kill switch, risk limits, crypto sleeve, cycle cadence, watchlist, Robinhood connection, notifications, theme, server address).
 
 ## Decisions
 

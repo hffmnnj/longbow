@@ -166,8 +166,8 @@ export function periodReturn(values: number[], sessions: number): number | undef
   return last / first - 1;
 }
 
-/** Annualized realized volatility (sqrt(252) on daily log-return stdev). */
-export function realizedVol(values: number[], sessions = 20): number | undefined {
+/** Annualized realized volatility (sqrt(periodsPerYear) on daily log-return stdev; 252 for equities, 365 for crypto). */
+export function realizedVol(values: number[], sessions = 20, periodsPerYear = 252): number | undefined {
   if (values.length < sessions + 1 || sessions < 2) return undefined;
   const rets: number[] = [];
   for (let i = values.length - sessions; i < values.length; i++) {
@@ -178,7 +178,7 @@ export function realizedVol(values: number[], sessions = 20): number | undefined
   }
   const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
   const variance = rets.reduce((a, r) => a + (r - mean) ** 2, 0) / (rets.length - 1);
-  return Math.sqrt(variance * 252);
+  return Math.sqrt(variance * periodsPerYear);
 }
 
 /** Worst peak-to-trough drawdown (as a negative fraction) over the values. */

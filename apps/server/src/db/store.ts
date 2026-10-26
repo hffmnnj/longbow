@@ -74,11 +74,13 @@ export function openStore(path: string, _clock: Clock): Store {
     const storedRisk = typeof stored["risk"] === "object" && stored["risk"] !== null ? (stored["risk"] as Record<string, unknown>) : {};
     const storedSystemOne =
       typeof stored["systemOne"] === "object" && stored["systemOne"] !== null ? (stored["systemOne"] as Record<string, unknown>) : {};
+    const storedCrypto = typeof stored["crypto"] === "object" && stored["crypto"] !== null ? (stored["crypto"] as Record<string, unknown>) : {};
     const merged = {
       ...structuredClone(DEFAULT_SETTINGS),
       ...stored,
       risk: { ...structuredClone(DEFAULT_SETTINGS.risk), ...storedRisk },
       systemOne: { ...structuredClone(DEFAULT_SETTINGS.systemOne), ...storedSystemOne },
+      crypto: { ...structuredClone(DEFAULT_SETTINGS.crypto), ...storedCrypto },
     };
     return SettingsSchema.parse(merged);
   };
@@ -90,6 +92,7 @@ export function openStore(path: string, _clock: Clock): Store {
       ...patch,
       risk: { ...current.risk, ...(patch.risk ?? {}) },
       systemOne: { ...current.systemOne, ...(patch.systemOne ?? {}) },
+      crypto: { ...current.crypto, ...(patch.crypto ?? {}) },
     });
     db.prepare("INSERT INTO kv (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
       JSON.stringify(next),

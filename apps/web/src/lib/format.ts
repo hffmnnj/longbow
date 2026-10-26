@@ -1,3 +1,5 @@
+import { isCryptoSymbol } from "@rh/shared";
+
 const MINUS = "\u2212";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
@@ -7,6 +9,13 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 const numFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
+const cryptoQtyFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
+const subDollarFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 8,
+});
 const pctFmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -67,6 +76,31 @@ export function pct(value: number): string {
 
 export function qty(value: number): string {
   return numFmt.format(value);
+}
+
+/**
+ * Quantity for a symbol: shares exactly as today, crypto coins with up to 8
+ * decimals and trailing zeros trimmed (0.00058109, never 0.00).
+ */
+export function qtyFor(symbol: string, value: number): string {
+  if (!isCryptoSymbol(symbol)) return qty(value);
+  if (value === 0) return "0";
+  return cryptoQtyFmt.format(value);
+}
+
+/** "coins" for crypto pairs, "shares" for stocks. */
+export function qtyUnit(symbol: string): "coins" | "shares" {
+  return isCryptoSymbol(symbol) ? "coins" : "shares";
+}
+
+/**
+ * Per-unit price for a symbol: grouped dollars as today at $1 and above
+ * (80,062.48), full precision below $1 for crypto.
+ */
+export function priceFor(symbol: string, value: number): string {
+  if (!isCryptoSymbol(symbol) || Math.abs(value) >= 1) return usd(value);
+  const s = subDollarFmt.format(Math.abs(value));
+  return value < 0 ? MINUS + s : s;
 }
 
 export type Tone = "gain" | "loss" | "flat";

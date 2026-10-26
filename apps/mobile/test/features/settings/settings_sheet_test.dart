@@ -113,6 +113,25 @@ void main() {
     expect(find.text('Settings saved'), findsOneWidget);
   });
 
+  testWidgets('settings_crypto_sendsOnlyTheChangedCryptoFields', (tester) async {
+    final patches = _Patches();
+    final h = await _harness(patches: patches);
+    await _open(tester, h);
+
+    await _type(tester, 'Max crypto share', '10');
+    final save = _saveLabelled('Save 1 change');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(patches.sent, hasLength(1));
+    expect(patches.sent.single.toJson(), {
+      'crypto': {'maxPortfolioPct': 10.0},
+    });
+    expect(find.text('Settings saved'), findsOneWidget);
+  });
+
   testWidgets('settings_serverRejectionNamingAField_showsBesideThatField', (tester) async {
     final h = await _harness(onPatch: (_) async => throw const ApiError(400, 'maxPositionPct must be at most 100'));
     await _open(tester, h);

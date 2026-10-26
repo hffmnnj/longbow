@@ -1,5 +1,6 @@
 import {
   OrderIntentSchema,
+  isCryptoSymbol,
   type AccountSnapshot,
   type HaltReason,
   type OrderIntent,
@@ -10,7 +11,7 @@ import {
 } from "@rh/shared";
 import { etDayEndEpoch } from "./calendar.ts";
 import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
-import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged } from "./stops.ts";
+import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged, restingCryptoStops } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 
@@ -276,7 +277,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       latestSnapshot = snapshot;
 
       const heldQty = snapshot.positions.find((p) => p.symbol === valid.symbol)?.quantity ?? 0;
-      const marketInputsPromise = isEntryOrder(valid.side, heldQty, valid.quantity)
+      const marketInputsPromise = isEntryOrder(valid.side, heldQty, valid.quantity) && !isCryptoSymbol(valid.symbol)
         ? fetchMarketInputs(marketData, valid.symbol)
         : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
 
@@ -311,7 +312,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
       const account = snapshot;
-      await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)]);
+      await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
       const engineVerdict = evaluate({
         intent: valid,
         settings,
@@ -422,6 +423,8 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       try {
         if (supportsTrading(broker) && valid.side === "sell") {
           for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
+          // A resting native crypto stop locks the coins, so clear it before an exit by limit.
+          if (isCryptoSymbol(valid.symbol) && valid.orderType === "limit") for (const stop of restingCryptoStops(store, valid.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
         }
         const placed = await broker.placeOrder(valid);
         const order = store.addOrder({
@@ -490,7 +493,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       latestSnapshot = snapshot;
 
       const heldQty = snapshot.positions.find((p) => p.symbol === existing.intent.symbol)?.quantity ?? 0;
-      const marketInputsPromise = isEntryOrder(existing.intent.side, heldQty, existing.intent.quantity)
+      const marketInputsPromise = isEntryOrder(existing.intent.side, heldQty, existing.intent.quantity) && !isCryptoSymbol(existing.intent.symbol)
         ? fetchMarketInputs(marketData, existing.intent.symbol)
         : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
 
@@ -526,7 +529,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         )
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
-      await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)]);
+      await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
       const verdict = evaluate({
         intent: existing.intent,
         settings,
@@ -592,6 +595,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       try {
         if (supportsTrading(broker) && existing.intent.side === "sell") {
           for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
+          if (isCryptoSymbol(existing.intent.symbol) && existing.intent.orderType === "limit") for (const stop of restingCryptoStops(store, existing.intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
         }
         const placed = await broker.placeOrder(existing.intent);
         const order = store.updateOrder(id, {

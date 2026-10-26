@@ -1,10 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type {
-  AccountSnapshot,
-  CycleKind,
-  MarketClock,
-  Settings,
+import {
+  DEFAULT_CRYPTO,
+  type AccountSnapshot,
+  type CycleKind,
+  type MarketClock,
+  type Settings,
 } from "@rh/shared";
 import { createTraderPromptExtension, cycleInput, type CycleInput } from "./prompt.ts";
 
@@ -16,6 +17,7 @@ const settings: Settings = {
   cycleMinutesClosed: 240,
   watchlist: ["SPY", "QQQ"],
   systemOne: { enabled: true, gate: "advise" },
+  crypto: DEFAULT_CRYPTO,
   risk: {
     maxRiskPerTradePct: 1,
     maxPositionPct: 5,
@@ -122,6 +124,14 @@ describe("trader prompt sections", () => {
     assert.match(text, /watched every minute/);
     assert.match(text, /Use cancel_order/);
     assert.match(text, /cannot protect while the harness is down/);
+  });
+  it("allows_crypto_only_as_the_capped_sleeve_skill", async () => {
+    const sections = createTraderPromptExtension().sections ?? [];
+    const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+    assert.match(text, /Long only: no options, no margin, no shorting/);
+    assert.match(text, /capped sleeve/);
+    assert.match(text, /crypto-sleeve/);
+    assert.match(text, /load that skill before any crypto order/);
   });
   it("renders_stable_sections", async () => {
     const ext = createTraderPromptExtension();

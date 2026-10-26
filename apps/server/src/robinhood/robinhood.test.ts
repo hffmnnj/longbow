@@ -184,7 +184,7 @@ test("text envelopes ignore guide and snapshots join every positions page to quo
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const snapshot = await fetchSnapshot(async (name, args) => {
     calls.push({ name, args });
-    if (name === "get_portfolio") return { total_value: "1229.01", cash: "370.99", buying_power: { buying_power: "370.9900" }, crypto_value: "46.01" };
+    if (name === "get_portfolio") return { total_value: "1229.01", cash: "370.99", buying_power: { buying_power: "370.9900" }, crypto_value: "0" };
     if (name === "get_equity_quotes") return { results: (args.symbols as string[]).flatMap((s) => quoteData(s).results) };
     return args.cursor ? { positions: [{ symbol: "NVDA", quantity: "0.832971", shares_available_for_sells: "0.800000" }] } : { positions: [{ symbol: "CDNS", quantity: "0.205652", average_buy_price: "291.760000", shares_available_for_sells: "0.205652" }], next: "page-two" };
   }, "masked-account", 42);

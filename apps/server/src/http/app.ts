@@ -53,7 +53,7 @@ export interface AppDeps {
   systemOne?: SystemOneClient;
 }
 
-const SYMBOL = /^[A-Z.]{1,10}$/;
+const SYMBOL = /^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$/;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -132,6 +132,9 @@ function describeSettingsChange(before: Settings, after: Settings): string | und
   if (JSON.stringify(before.watchlist) !== JSON.stringify(after.watchlist)) parts.push("watchlist");
   for (const key of Object.keys(after.risk) as (keyof Settings["risk"])[]) {
     if (before.risk[key] !== after.risk[key]) parts.push(`risk.${key}`);
+  }
+  for (const key of Object.keys(after.crypto) as (keyof Settings["crypto"])[]) {
+    if (JSON.stringify(before.crypto[key]) !== JSON.stringify(after.crypto[key])) parts.push(`crypto.${key}`);
   }
   return parts.length === 0 ? undefined : parts.join(", ");
 }
