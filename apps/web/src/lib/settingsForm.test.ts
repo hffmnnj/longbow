@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "@rh/shared";
+import { DEFAULT_CRYPTO, DEFAULT_SETTINGS } from "@rh/shared";
 import { buildPatch, parseTickers, toForm, validate } from "./settingsForm.ts";
 
 describe("settings form", () => {
@@ -38,5 +38,34 @@ describe("settings form", () => {
       added: ["NVDA", "AAPL", "BRK.B"],
       rejected: ["12x"],
     });
+  });
+
+  it("round-trips the crypto sleeve and sends nothing when untouched", () => {
+    const f = toForm(DEFAULT_SETTINGS);
+    expect(f.crypto).toEqual({
+      enabled: DEFAULT_CRYPTO.enabled,
+      maxPortfolioPct: String(DEFAULT_CRYPTO.maxPortfolioPct),
+      maxOrderNotionalUsd: String(DEFAULT_CRYPTO.maxOrderNotionalUsd),
+    });
+    expect(buildPatch(DEFAULT_SETTINGS, f)).toEqual({});
+  });
+
+  it("sends only changed crypto fields", () => {
+    const f = toForm(DEFAULT_SETTINGS);
+    f.crypto.enabled = !DEFAULT_CRYPTO.enabled;
+    f.crypto.maxPortfolioPct = "10";
+    expect(buildPatch(DEFAULT_SETTINGS, f)).toEqual({
+      crypto: { enabled: !DEFAULT_CRYPTO.enabled, maxPortfolioPct: 10 },
+    });
+  });
+
+  it("reports out-of-range and empty crypto values inline", () => {
+    const f = toForm(DEFAULT_SETTINGS);
+    f.crypto.maxPortfolioPct = "30";
+    f.crypto.maxOrderNotionalUsd = "";
+    const e = validate(f);
+    expect(e["crypto.maxPortfolioPct"]).toBe("Max 25");
+    expect(e["crypto.maxOrderNotionalUsd"]).toBe("Required");
+    expect(validate(toForm(DEFAULT_SETTINGS))).toEqual({});
   });
 });

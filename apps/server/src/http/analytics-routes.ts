@@ -4,7 +4,7 @@ import type { Logger } from "../ports.ts";
 import type { AnalyticsService } from "../analytics/service.ts";
 
 const RANGES: AnalyticsRange[] = ["1m", "3m", "1y", "all"];
-const SYMBOL = /^[A-Z.]{1,10}$/;
+const SYMBOL = /^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$/;
 
 /**
  * Read-only dashboard endpoints. Upstream failures (market data, broker reads)

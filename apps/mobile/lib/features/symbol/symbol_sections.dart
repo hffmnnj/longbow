@@ -87,7 +87,7 @@ class PositionPanel extends StatelessWidget {
       title: 'Position',
       child: KeyValueList(
         rows: [
-          KeyValueRow('Shares', value: qty(position.quantity)),
+          KeyValueRow(isCryptoSymbol(position.symbol) ? 'Coins' : 'Shares', value: qtyFor(position.symbol, position.quantity)),
           KeyValueRow('Average cost', value: usd(position.averageCost)),
           KeyValueRow('Market value', value: usd(position.marketValue)),
           KeyValueRow('Unrealized', valueWidget: Pnl(amount: position.unrealizedPnl, percent: ret)),

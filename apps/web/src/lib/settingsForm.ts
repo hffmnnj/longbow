@@ -1,4 +1,13 @@
-import { RiskConfigSchema, SettingsSchema, type RiskConfig, type Settings, type SettingsPatch } from "@rh/shared";
+import {
+  CryptoSettingsSchema,
+  DEFAULT_CRYPTO,
+  RiskConfigSchema,
+  SettingsSchema,
+  type CryptoSettings,
+  type RiskConfig,
+  type Settings,
+  type SettingsPatch,
+} from "@rh/shared";
 
 export type RiskKey = keyof RiskConfig;
 
@@ -54,15 +63,26 @@ export interface SettingsForm {
   cycleMinutesClosed: string;
   watchlist: string[];
   risk: Record<RiskKey, string>;
+  crypto: {
+    enabled: boolean;
+    maxPortfolioPct: string;
+    maxOrderNotionalUsd: string;
+  };
 }
 
 export function toForm(s: Settings): SettingsForm {
   const risk = Object.fromEntries(RISK_KEYS.map((k) => [k, String(s.risk[k])])) as Record<RiskKey, string>;
+  const crypto = s.crypto ?? DEFAULT_CRYPTO;
   return {
     cycleMinutesOpen: String(s.cycleMinutesOpen),
     cycleMinutesClosed: String(s.cycleMinutesClosed),
     watchlist: [...s.watchlist],
     risk,
+    crypto: {
+      enabled: crypto.enabled,
+      maxPortfolioPct: String(crypto.maxPortfolioPct),
+      maxOrderNotionalUsd: String(crypto.maxOrderNotionalUsd),
+    },
   };
 }
 
@@ -100,6 +120,10 @@ export function validate(form: SettingsForm): Record<string, string> {
     const e = fieldError(RiskConfigSchema.shape[k], form.risk[k]);
     if (e) errors[`risk.${k}`] = e;
   }
+  const pct = fieldError(CryptoSettingsSchema.shape.maxPortfolioPct, form.crypto.maxPortfolioPct);
+  if (pct) errors["crypto.maxPortfolioPct"] = pct;
+  const notion = fieldError(CryptoSettingsSchema.shape.maxOrderNotionalUsd, form.crypto.maxOrderNotionalUsd);
+  if (notion) errors["crypto.maxOrderNotionalUsd"] = notion;
   if (form.watchlist.length > 50) errors.watchlist = "At most 50 tickers";
   return errors;
 }
@@ -118,6 +142,14 @@ export function buildPatch(saved: Settings, form: SettingsForm): SettingsPatch {
     if (n !== saved.risk[k]) risk[k] = n;
   }
   if (Object.keys(risk).length) patch.risk = risk;
+  const savedCrypto = saved.crypto ?? DEFAULT_CRYPTO;
+  const crypto: Partial<CryptoSettings> = {};
+  if (form.crypto.enabled !== savedCrypto.enabled) crypto.enabled = form.crypto.enabled;
+  const maxPct = Number(form.crypto.maxPortfolioPct);
+  if (maxPct !== savedCrypto.maxPortfolioPct) crypto.maxPortfolioPct = maxPct;
+  const maxNotional = Number(form.crypto.maxOrderNotionalUsd);
+  if (maxNotional !== savedCrypto.maxOrderNotionalUsd) crypto.maxOrderNotionalUsd = maxNotional;
+  if (Object.keys(crypto).length) patch.crypto = crypto;
   return patch;
 }
 

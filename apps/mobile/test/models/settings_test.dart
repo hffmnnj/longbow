@@ -40,4 +40,35 @@ void main() {
     expect(updated.watchlist, defaultSettings.watchlist);
     expect(updated.risk, defaultSettings.risk);
   });
+
+  test('settings_parsesCryptoSleeve', () {
+    final settings = Settings.fromJson({
+      ...loadJson('settings.json'),
+      'crypto': {
+        'enabled': true,
+        'allowed': ['BTC-USD', 'ETH-USD'],
+        'maxPortfolioPct': 8.0,
+        'maxOrderNotionalUsd': 40.0,
+        'maxEntriesPerDay': 1,
+        'maxSpreadBps': 300.0,
+        'minRewardRisk': 2.0,
+      },
+    });
+
+    expect(settings.crypto.enabled, isTrue);
+    expect(settings.crypto.allowed, ['BTC-USD', 'ETH-USD']);
+    expect(settings.crypto.maxPortfolioPct, 8);
+    expect(settings.crypto.maxOrderNotionalUsd, 40);
+    expect(settings.crypto.maxEntriesPerDay, 1);
+    expect(settings.crypto.maxSpreadBps, 300);
+    expect(settings.crypto.minRewardRisk, 2);
+  });
+
+  test('settings_missingCryptoDefaultsToAQuietSleeve', () {
+    final settings = Settings.fromJson(loadJson('settings.json'));
+
+    expect(settings.crypto.enabled, isFalse);
+    expect(settings.crypto.maxPortfolioPct, 8);
+    expect(settings.crypto.maxOrderNotionalUsd, 40);
+  });
 }

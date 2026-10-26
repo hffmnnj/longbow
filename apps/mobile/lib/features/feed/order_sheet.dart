@@ -72,7 +72,7 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
           const SizedBox(height: 8),
           KeyValueList(
             rows: [
-              KeyValueRow('Size', value: '${qty(i.quantity)} @ ${usd(i.limitPrice)}'),
+              KeyValueRow('Size', value: '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}'),
               KeyValueRow('Notional', value: usd(notional(i))),
               KeyValueRow('Order type', value: i.orderType == OrderType.stopLimit ? 'Stop limit' : 'Limit', mono: false),
               if (i.stopPrice != null && i.stopPrice! > 0) KeyValueRow('Stop', value: usd(i.stopPrice!)),
@@ -84,7 +84,7 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
               KeyValueRow('Estimated cost', value: pct(i.estimatedCostPct)),
               if (i.sector != null && i.sector!.isNotEmpty) KeyValueRow('Sector', value: i.sector!, mono: false),
               if (order.averageFillPrice != null)
-                KeyValueRow('Filled', value: '${qty(order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
+                KeyValueRow('Filled', value: '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}'),
               KeyValueRow('Updated', value: etStamp(order.updatedAt)),
             ],
           ),

@@ -165,6 +165,50 @@ const List<RiskGroup> riskGroups = [
 final List<RiskKey> riskKeys =
     riskGroups.expand((g) => g.fields.map((f) => f.key)).toList();
 
+/// Every crypto field shown in the form. Mirrors the form subset of TS
+/// `CryptoSettings` (the allowlist and the entry budget stay server-side).
+enum CryptoKey { maxPortfolioPct, maxOrderNotionalUsd }
+
+class CryptoFieldMeta {
+  const CryptoFieldMeta({
+    required this.key,
+    required this.label,
+    required this.unit,
+    required this.step,
+  });
+
+  final CryptoKey key;
+  final String label;
+  final String unit;
+  final String step;
+}
+
+/// One compact group: the sleeve's share of equity and its per-order cap.
+const List<CryptoFieldMeta> cryptoFields = [
+  CryptoFieldMeta(
+    key: CryptoKey.maxPortfolioPct,
+    label: 'Max crypto share',
+    unit: '% equity',
+    step: '1',
+  ),
+  CryptoFieldMeta(
+    key: CryptoKey.maxOrderNotionalUsd,
+    label: 'Max crypto order',
+    unit: 'USD',
+    step: '10',
+  ),
+];
+
+/// All form crypto keys, in display order.
+const List<CryptoKey> cryptoKeys = CryptoKey.values;
+
+/// Mirrors `CryptoSettingsSchema` for the form fields: the sleeve holds 1 to
+/// 25% of equity, and one order must be worth something (above 0).
+const Map<CryptoKey, FieldLimit> cryptoFieldLimits = {
+  CryptoKey.maxPortfolioPct: FieldLimit(min: 1, max: 25),
+  CryptoKey.maxOrderNotionalUsd: FieldLimit(min: 0, minInclusive: false),
+};
+
 /// Numeric limits for one text field, mirroring the matching zod schema.
 class FieldLimit {
   const FieldLimit({
@@ -247,6 +291,10 @@ String? fieldError(FieldLimit limit, String raw) {
 String? riskFieldError(RiskKey key, String raw) =>
     fieldError(riskFieldLimits[key]!, raw);
 
+/// Inline error for one crypto field, or null when valid.
+String? cryptoFieldError(CryptoKey key, String raw) =>
+    fieldError(cryptoFieldLimits[key]!, raw);
+
 /// The editable settings form: every number held as text.
 class SettingsForm {
   SettingsForm({
@@ -254,12 +302,16 @@ class SettingsForm {
     required this.cycleMinutesClosed,
     required this.watchlist,
     required this.risk,
+    required this.cryptoEnabled,
+    required this.crypto,
   });
 
   String cycleMinutesOpen;
   String cycleMinutesClosed;
   List<String> watchlist;
   Map<RiskKey, String> risk;
+  bool cryptoEnabled;
+  Map<CryptoKey, String> crypto;
 }
 
 String _numToString(num v) {
@@ -286,17 +338,24 @@ num _riskValue(RiskConfig risk, RiskKey key) => switch (key) {
   RiskKey.minEvToCost => risk.minEvToCost,
 };
 
+num _cryptoValue(CryptoSettings crypto, CryptoKey key) => switch (key) {
+  CryptoKey.maxPortfolioPct => crypto.maxPortfolioPct,
+  CryptoKey.maxOrderNotionalUsd => crypto.maxOrderNotionalUsd,
+};
+
 SettingsForm toForm(Settings s) {
   return SettingsForm(
     cycleMinutesOpen: _numToString(s.cycleMinutesOpen),
     cycleMinutesClosed: _numToString(s.cycleMinutesClosed),
     watchlist: [...s.watchlist],
     risk: {for (final k in riskKeys) k: _numToString(_riskValue(s.risk, k))},
+    cryptoEnabled: s.crypto.enabled,
+    crypto: {for (final k in cryptoKeys) k: _numToString(_cryptoValue(s.crypto, k))},
   );
 }
 
-/// Errors keyed by "cycleMinutesOpen", "cycleMinutesClosed", "watchlist" or
-/// `risk.<key>`.
+/// Errors keyed by "cycleMinutesOpen", "cycleMinutesClosed", "watchlist",
+/// `risk.<key>` or `crypto.<key>`.
 Map<String, String> validateSettingsForm(SettingsForm form) {
   final errors = <String, String>{};
   final open = fieldError(cycleMinutesOpenLimit, form.cycleMinutesOpen);
@@ -306,6 +365,10 @@ Map<String, String> validateSettingsForm(SettingsForm form) {
   for (final k in riskKeys) {
     final e = riskFieldError(k, form.risk[k] ?? '');
     if (e != null) errors['risk.${k.name}'] = e;
+  }
+  for (final k in cryptoKeys) {
+    final e = cryptoFieldError(k, form.crypto[k] ?? '');
+    if (e != null) errors['crypto.${k.name}'] = e;
   }
   if (form.watchlist.length > 50) errors['watchlist'] = 'At most 50 tickers';
   return errors;
@@ -414,6 +477,24 @@ SettingsPatch buildPatch(Settings saved, SettingsForm form) {
     }
   }
 
+  final cryptoEnabled =
+      form.cryptoEnabled != saved.crypto.enabled ? form.cryptoEnabled : null;
+  double? cryptoMaxPortfolioPct;
+  double? cryptoMaxOrderNotionalUsd;
+  var hasCrypto = cryptoEnabled != null;
+  for (final k in cryptoKeys) {
+    final parsed = _parseDoubleField(form.crypto[k] ?? '');
+    final current = _cryptoValue(saved.crypto, k).toDouble();
+    if (parsed == null || parsed == current) continue;
+    hasCrypto = true;
+    switch (k) {
+      case CryptoKey.maxPortfolioPct:
+        cryptoMaxPortfolioPct = parsed;
+      case CryptoKey.maxOrderNotionalUsd:
+        cryptoMaxOrderNotionalUsd = parsed;
+    }
+  }
+
   return SettingsPatch(
     cycleMinutesOpen: open != null && open != saved.cycleMinutesOpen
         ? open
@@ -439,6 +520,13 @@ SettingsPatch buildPatch(Settings saved, SettingsForm form) {
             maxSpreadBps: maxSpreadBps,
             maxSlippageBps: maxSlippageBps,
             minEvToCost: minEvToCost,
+          )
+        : null,
+    crypto: hasCrypto
+        ? CryptoSettingsPatch(
+            enabled: cryptoEnabled,
+            maxPortfolioPct: cryptoMaxPortfolioPct,
+            maxOrderNotionalUsd: cryptoMaxOrderNotionalUsd,
           )
         : null,
   );

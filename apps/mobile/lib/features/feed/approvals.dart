@@ -185,7 +185,7 @@ class _RecentRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    qty(i.quantity),
+                    qtyFor(i.symbol, i.quantity),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: LbText.number(context, size: 12.5, weight: FontWeight.w400, color: c.mutedForeground),

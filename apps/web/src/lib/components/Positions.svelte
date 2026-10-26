@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isCryptoSymbol } from "@rh/shared";
   import * as Table from "$lib/components/ui/table/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import DitherBar from "./viz/DitherBar.svelte";
@@ -8,7 +9,7 @@
   import Sparkline from "./Sparkline.svelte";
   import Ticker from "./Ticker.svelte";
   import { positionStops } from "$lib/analytics";
-  import { pct, qty, usd } from "$lib/format";
+  import { pct, qtyFor, usd } from "$lib/format";
   import { harness } from "$lib/store.svelte";
 
   let { compact = false }: { compact?: boolean } = $props();
@@ -51,8 +52,15 @@
         {#each rows as r (r.position.symbol)}
           {@const p = r.position}
           <Table.Row>
-            <Table.Cell class="px-3.5 py-1"><Ticker symbol={p.symbol} /></Table.Cell>
-            <Table.Cell class="num py-2 text-right">{qty(p.quantity)}</Table.Cell>
+            <Table.Cell class="px-3.5 py-1">
+              <span class="flex items-center gap-1.5">
+                <Ticker symbol={p.symbol} />
+                {#if isCryptoSymbol(p.symbol)}
+                  <span class="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10.5px] font-medium">Crypto</span>
+                {/if}
+              </span>
+            </Table.Cell>
+            <Table.Cell class="num py-2 text-right">{qtyFor(p.symbol, p.quantity)}</Table.Cell>
             <Table.Cell class="py-2"><Sparkline symbol={p.symbol} /></Table.Cell>
             <Table.Cell class="num py-2 text-right">{usd(p.marketValue)}</Table.Cell>
             <Table.Cell class="py-2 text-right"><Pnl amount={p.unrealizedPnl} /></Table.Cell>
