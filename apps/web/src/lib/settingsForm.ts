@@ -90,10 +90,12 @@ interface Checkable {
   safeParse(v: unknown): { success: boolean; error?: { issues: { code: string; message: string; minimum?: unknown; maximum?: unknown; inclusive?: boolean }[] } };
 }
 
-/** Turns a text input into a short inline error, or null when valid. */
-export function fieldError(schema: Checkable, raw: string): string | null {
-  if (raw.trim() === "") return "Required";
-  const n = Number(raw);
+/** Turns a text input into a short inline error, or null when valid. Accepts unknown because Svelte number bindings deliver numbers (or null when cleared) at runtime despite the string type. */
+export function fieldError(schema: Checkable, raw: unknown): string | null {
+  if (raw === null || raw === undefined) return "Required";
+  const text = typeof raw === "string" ? raw : String(raw);
+  if (text.trim() === "") return "Required";
+  const n = Number(text);
   if (!Number.isFinite(n)) return "Enter a number";
   const res = schema.safeParse(n);
   if (res.success) return null;

@@ -22,7 +22,8 @@
       inputmode="decimal"
       {step}
       {placeholder}
-      bind:value
+      value={value ?? ""}
+      oninput={(e) => (value = e.currentTarget.value)}
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? `${id}-err` : undefined}
       class="num h-10 pr-[5.5rem] text-right md:h-9"
