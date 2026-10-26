@@ -22,8 +22,13 @@ class _RiskChecksState extends State<RiskChecks> {
   Widget build(BuildContext context) {
     final c = context.lb;
     final checks = widget.verdict.checks;
-    final failed = checks.where((x) => !x.ok).toList();
-    final passed = checks.length - failed.length;
+    // System One gets its own bolt line below; it never joins the generic
+    // summary or list, so a block failure is not shown twice.
+    final systemOne =
+        checks.where((x) => x.rule == 'system_one').toList();
+    final rest = checks.where((x) => x.rule != 'system_one').toList();
+    final failed = rest.where((x) => !x.ok).toList();
+    final passed = rest.length - failed.length;
     final summary = failed.isEmpty ? '$passed passed' : '$passed passed, ${failed.length} failed';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -68,12 +73,57 @@ class _RiskChecksState extends State<RiskChecks> {
         if (!_open)
           for (final check in failed) _CheckLine(check),
         if (_open)
-          for (final check in checks) _CheckLine(check),
+          for (final check in rest) _CheckLine(check),
+        for (final check in systemOne) _SystemOneLine(check),
       ],
     );
   }
 }
 
+/// The System One review, on its own bolt line with the card's pass/fail
+/// colors. Split from [_CheckLine] so the rule reads "System One" and the
+/// review is never counted in the generic summary above it.
+class _SystemOneLine extends StatelessWidget {
+  const _SystemOneLine(this.check);
+
+  final RiskCheck check;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.lb;
+    final color = check.ok ? c.mutedForeground : c.loss;
+    final style = Theme.of(context).textTheme.bodySmall!.copyWith(color: color, fontSize: 12.5, height: 1.4);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: LbIcon(LbIcons.flash, size: 15, color: check.ok ? c.gain : c.loss),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: 'System One. ',
+                    style: style.copyWith(fontWeight: FontWeight.w600, color: check.ok ? c.foreground : c.loss),
+                  ),
+                  TextSpan(text: check.detail),
+                ],
+              ),
+              style: style,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shared with [_SystemOneLine]: one generic risk check as "Rule. detail".
 class _CheckLine extends StatelessWidget {
   const _CheckLine(this.check);
 
