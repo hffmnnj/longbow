@@ -131,4 +131,4 @@ Scope, the roadmap, and open follow-ups are in [`docs/SPEC.md`](docs/SPEC.md) an
 
 ## License
 
-No license has been chosen yet, so all rights are reserved for now.
+[MIT](LICENSE). The license covers the code, not the risk: see the warning at the top.
