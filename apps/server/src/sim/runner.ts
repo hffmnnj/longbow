@@ -154,7 +154,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
     const liveSettings = deps.settings?.() ?? DEFAULT_SETTINGS;
     store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
-      watchlist: run.config.watchlist ?? liveSettings.watchlist, risk: { ...liveSettings.risk, ...run.config.risk } });
+      watchlist: run.config.watchlist ?? liveSettings.watchlist, risk: { ...liveSettings.risk, ...run.config.risk },
+      // The paper broker only knows stocks and ETFs.
+      crypto: { ...liveSettings.crypto, enabled: false } });
     const universe = [...new Set(run.config.watchlist ?? liveSettings.watchlist)];
     let bars: (symbol: string) => Promise<Bar[]>;
     let market: MarketData;

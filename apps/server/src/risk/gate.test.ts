@@ -78,6 +78,7 @@ class FakeStore implements Store {
       ...patch,
       risk: { ...this.settings.risk, ...patch.risk },
       systemOne: { ...this.settings.systemOne, ...patch.systemOne },
+      crypto: { ...this.settings.crypto, ...patch.crypto },
     };
     return this.settings;
   }
@@ -628,5 +629,33 @@ describe("system one entry review", () => {
     const order = await gate.submit({ ...baseIntent(), quantity: 100_000 });
     assert.equal(order.status, "rejected_risk");
     assert.equal(calls, 0);
+  });
+});
+
+describe("crypto protection rests natively at Robinhood", () => {
+  function cryptoSetup() {
+    const f = liveSetup();
+    f.broker.snapshotValue = { ...baseSnapshot(), equity: 1235, cash: 665, buyingPower: 665, cryptoBuyingPower: 665, settledCash: undefined,
+      positions: [{ symbol: "BTC-USD", quantity: 0.0005, sharesAvailableForSells: 0.0005, averageCost: 80_000, marketValue: 40, unrealizedPnl: 0, sector: "Crypto" }] };
+    f.broker.quoteValue = { ...baseQuote(), symbol: "BTC-USD", bid: 79_300, ask: 80_800, last: 80_050 };
+    const base = { ...baseIntent(), symbol: "BTC-USD", side: "sell" as const, quantity: 0.0005, limitPrice: 79_400, invalidationPrice: 85_000, timeInForce: "gtc" as const,
+      expectedGainPct: 15, expectedLossPct: 6, estimatedCostPct: 2, probabilityWin: 0.6, timeStopDate: "2026-11-20" };
+    return { ...f, base };
+  }
+
+  it("sends a fractional crypto stop to the broker instead of holding it", async () => {
+    const { gate, broker, base } = cryptoSetup();
+    const order = await gate.submit({ ...base, orderType: "stop_limit", stopPrice: 79_000, limitPrice: 78_500 });
+    assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("cancels the resting crypto stop before an exit by limit", async () => {
+    const { gate, broker, cancellations, base } = cryptoSetup();
+    const stop = await gate.submit({ ...base, orderType: "stop_limit", stopPrice: 79_000, limitPrice: 78_500 });
+    const exit = await gate.submit({ ...base, orderType: "limit" });
+    assert.equal(exit.status, "submitted", JSON.stringify(exit.verdict.checks.filter((c) => !c.ok)));
+    assert.deepEqual(cancellations, [stop.id].map(() => stop.brokerOrderId));
+    assert.equal(broker.placeCalls, 2);
   });
 });

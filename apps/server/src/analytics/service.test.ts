@@ -73,7 +73,7 @@ function orderRecord(symbol: string, status: OrderRecord["status"], stopPrice?: 
 function fakeStore(orders: OrderRecord[]): Store {
   return {
     getSettings: () => structuredClone(DEFAULT_SETTINGS),
-    patchSettings: (patch) => ({ ...structuredClone(DEFAULT_SETTINGS), ...patch, risk: { ...DEFAULT_SETTINGS.risk, ...patch.risk }, systemOne: { ...DEFAULT_SETTINGS.systemOne, ...patch.systemOne } }),
+    patchSettings: (patch) => ({ ...structuredClone(DEFAULT_SETTINGS), ...patch, risk: { ...DEFAULT_SETTINGS.risk, ...patch.risk }, systemOne: { ...DEFAULT_SETTINGS.systemOne, ...patch.systemOne }, crypto: { ...DEFAULT_SETTINGS.crypto, ...patch.crypto } }),
     addJournal: (entry) => ({ ...entry, id: "j1" }),
     listJournal: () => [],
     addOrder: (o) => ({ ...o, id: "o1" }),

@@ -1,3 +1,4 @@
+import { isCryptoSymbol } from "@rh/shared";
 import type {
   AccountSnapshot,
   MarketClock,
@@ -57,10 +58,17 @@ export function countsAsSubmitted(order: OrderRecord): boolean {
   return ["submitted", "partially_filled", "filled"].includes(order.status) || (order.filledQuantity ?? 0) > 0;
 }
 
-/** Submitted buys today in ET. */
+/** Submitted stock and ETF buys today in ET. Crypto has its own daily budget. */
 export function countSubmittedBuysToday(recentOrders: OrderRecord[], todayEt: string): number {
   return recentOrders.filter(
-    (o) => countsAsSubmitted(o) && o.intent.side === "buy" && etDateOf(o.createdAt) === todayEt,
+    (o) => countsAsSubmitted(o) && o.intent.side === "buy" && !isCryptoSymbol(o.intent.symbol) && etDateOf(o.createdAt) === todayEt,
+  ).length;
+}
+
+/** Submitted crypto buys today in ET. */
+export function countSubmittedCryptoBuysToday(recentOrders: OrderRecord[], todayEt: string): number {
+  return recentOrders.filter(
+    (o) => countsAsSubmitted(o) && o.intent.side === "buy" && isCryptoSymbol(o.intent.symbol) && etDateOf(o.createdAt) === todayEt,
   ).length;
 }
 
@@ -73,7 +81,7 @@ export function countDayTrades(
   todayEt: string,
   tradingDaysBetween: (a: string, b: string) => number,
 ): number {
-  const submitted = recentOrders.filter(countsAsSubmitted);
+  const submitted = recentOrders.filter((o) => countsAsSubmitted(o) && !isCryptoSymbol(o.intent.symbol));
   const buyDays = new Set(
     submitted
       .filter((o) => o.intent.side === "buy")
@@ -112,6 +120,14 @@ function floorShares(qty: number): number {
   return Math.floor(qty * 10_000) / 10_000;
 }
 
+/** Coins to 8 decimal places (floor): 0.0001 BTC is already worth several dollars. */
+function floorCoins(qty: number): number {
+  return Math.floor(qty * 1e8) / 1e8;
+}
+
+/** Crypto entries risk half the stock per-trade allowance: weekend gaps can jump a stop. */
+const CRYPTO_RISK_FRACTION = 0.5;
+
 export function evaluate(input: RiskInput): RiskVerdict {
   const {
     intent,
@@ -144,6 +160,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
   const isEntry = !isExit;
   const todayEt = etDateForInstant(now);
   const submitted = recentOrders.filter(countsAsSubmitted);
+  const crypto = isCryptoSymbol(intent.symbol);
+  const cryptoRules = settings.crypto;
+  const floorQty = crypto ? floorCoins : floorShares;
 
   // 1. kill_switch: blocks every order.
   push(
@@ -162,17 +181,23 @@ export function evaluate(input: RiskInput): RiskVerdict {
   );
 
   // 3. market_hours: the regular session must be open, for entries and exits alike.
-  push(
-    "market_hours",
-    market.isOpen,
-    market.isOpen
-      ? `market is open (regular session, trading day ${market.tradingDay})`
-      : `market is ${market.session} (trading day ${market.tradingDay}); the regular session is closed`,
-  );
+  if (crypto) {
+    push("market_hours", true, "crypto trades around the clock; the stock session does not apply");
+  } else {
+    push(
+      "market_hours",
+      market.isOpen,
+      market.isOpen
+        ? `market is open (regular session, trading day ${market.tradingDay})`
+        : `market is ${market.session} (trading day ${market.tradingDay}); the regular session is closed`,
+    );
+  }
 
   // 4. entry_window: no entries near the open or the close. Exits are allowed.
   if (!isEntry) {
     push("entry_window", true, "exit; the entry window does not apply");
+  } else if (crypto) {
+    push("entry_window", true, "crypto; the stock open and close quiet windows do not apply");
   } else {
     const minutesSinceOpen = Math.floor((now - market.nextOpen) / 60_000);
     const minutesToClose = Math.floor((market.nextClose - now) / 60_000);
@@ -198,11 +223,12 @@ export function evaluate(input: RiskInput): RiskVerdict {
 
   // 6. spread: (ask - bid) / mid in basis points.
   const spreadBps = mid > 0 ? ((quote.ask - quote.bid) / mid) * 10_000 : Number.POSITIVE_INFINITY;
+  const spreadLimitBps = crypto ? cryptoRules.maxSpreadBps : risk.maxSpreadBps;
   push(
     "spread",
-    spreadBps <= risk.maxSpreadBps,
+    spreadBps <= spreadLimitBps,
     `spread ${quote.ask - quote.bid} on mid ${mid} = ${spreadBps.toFixed(1)}bps ` +
-      `(limit ${risk.maxSpreadBps}bps)`,
+      `(limit ${spreadLimitBps}bps)`,
   );
 
   // 7. limit_vs_mid: the limit may sit at most maxSlippageBps through the mid.
@@ -220,6 +246,21 @@ export function evaluate(input: RiskInput): RiskVerdict {
       `${intent.side} stop ${stop} limit ${intent.limitPrice} vs current ${mid} ` +
         `(must trigger at or ${intent.side === "buy" ? "above" : "below"} the current price, ` +
         `with the limit at or ${intent.side === "buy" ? "above" : "below"} the stop)`,
+    );
+  } else if (crypto && intent.side === "buy") {
+    // Crypto quotes are wide: a patient buy may rest anywhere below the ask, but must not pay up through it.
+    const ceiling = quote.ask * (1 + risk.maxSlippageBps / 10_000);
+    push(
+      "limit_vs_mid",
+      intent.limitPrice <= ceiling,
+      `buy limit ${intent.limitPrice} vs ask ${quote.ask} (ceiling ${ceiling.toFixed(2)} at ${risk.maxSlippageBps}bps)`,
+    );
+  } else if (crypto) {
+    const floor = quote.bid * (1 - risk.maxSlippageBps / 10_000);
+    push(
+      "limit_vs_mid",
+      intent.limitPrice >= floor,
+      `sell limit ${intent.limitPrice} vs bid ${quote.bid} (floor ${floor.toFixed(2)} at ${risk.maxSlippageBps}bps)`,
     );
   } else if (intent.side === "buy") {
     const ceiling = mid * (1 + risk.maxSlippageBps / 10_000);
@@ -290,9 +331,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
     push("risk_per_trade", true, "exit; per-trade risk sizing does not apply");
   } else {
     const riskPerShare = Math.abs(intent.limitPrice - intent.invalidationPrice);
-    const allowance = equity * (risk.maxRiskPerTradePct / 100);
+    const allowance = equity * (risk.maxRiskPerTradePct / 100) * (crypto ? CRYPTO_RISK_FRACTION : 1);
     if (riskPerShare > 0 && Number.isFinite(riskPerShare)) {
-      riskQty = floorShares(allowance / riskPerShare);
+      riskQty = floorQty(allowance / riskPerShare);
     }
     const sideOk =
       intent.side === "buy"
@@ -306,7 +347,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
         ? `${intent.side} invalidation ${intent.invalidationPrice} is on the wrong side of limit ` +
             `${intent.limitPrice} (must be below for buys, above for sells)`
         : `risk ${intent.quantity}x${money(riskPerShare)}=${money(loss)} vs allowance ` +
-            `${money(allowance)} (${risk.maxRiskPerTradePct}% of equity ${money(equity)})`,
+            `${money(allowance)} (${risk.maxRiskPerTradePct * (crypto ? CRYPTO_RISK_FRACTION : 1)}% of equity ${money(equity)}${crypto ? ", half the stock allowance for crypto" : ""})`,
     );
   }
 
@@ -318,7 +359,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     const existing = position?.marketValue ?? 0;
     const allowance = equity * (risk.maxPositionPct / 100);
     if (intent.limitPrice > 0) {
-      positionQty = floorShares((allowance - existing) / intent.limitPrice);
+      positionQty = floorQty((allowance - existing) / intent.limitPrice);
     }
     push(
       "position_size",
@@ -331,6 +372,8 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 12. sector: the sector's value after the order bounded by % of equity.
   if (!isEntry) {
     push("sector", true, "exit; sector sizing does not apply");
+  } else if (crypto) {
+    push("sector", true, "crypto; the crypto sleeve cap replaces the sector cap");
   } else {
     const sector = intent.sector ?? sectorOf(intent.symbol);
     if (sector === undefined) {
@@ -350,32 +393,35 @@ export function evaluate(input: RiskInput): RiskVerdict {
   }
 
   // 13. notional_cap: fat-finger cap, plus buying power / settled cash for buys.
+  const orderCapUsd = crypto ? Math.min(risk.maxOrderNotionalUsd, cryptoRules.maxOrderNotionalUsd) : risk.maxOrderNotionalUsd;
+  // Crypto is cash-only: Robinhood reports its own buying power.
+  const buyingPower = crypto ? Math.min(account.buyingPower, account.cryptoBuyingPower ?? account.buyingPower) : account.buyingPower;
   let capQty: number | undefined;
   if (intent.limitPrice > 0 && Number.isFinite(intent.limitPrice)) {
-    capQty = floorShares(risk.maxOrderNotionalUsd / intent.limitPrice);
+    capQty = floorQty(orderCapUsd / intent.limitPrice);
     if (intent.side === "buy") {
-      capQty = Math.min(capQty, floorShares(account.buyingPower / intent.limitPrice));
+      capQty = Math.min(capQty, floorQty(buyingPower / intent.limitPrice));
       if (account.settledCash !== undefined) {
-        capQty = Math.min(capQty, floorShares(account.settledCash / intent.limitPrice));
+        capQty = Math.min(capQty, floorQty(account.settledCash / intent.limitPrice));
       }
     }
   }
   if (intent.side === "sell") {
     push(
       "notional_cap",
-      notional <= risk.maxOrderNotionalUsd,
-      `sell notional ${money(notional)} vs cap ${money(risk.maxOrderNotionalUsd)}`,
+      notional <= orderCapUsd,
+      `sell notional ${money(notional)} vs cap ${money(orderCapUsd)}`,
     );
   } else {
     const cashOk =
       account.settledCash === undefined ? true : notional <= account.settledCash;
     const ok =
-      notional <= risk.maxOrderNotionalUsd && notional <= account.buyingPower && cashOk;
+      notional <= orderCapUsd && notional <= buyingPower && cashOk;
     push(
       "notional_cap",
       ok,
-      `buy notional ${money(notional)} vs cap ${money(risk.maxOrderNotionalUsd)}, ` +
-        `buying power ${money(account.buyingPower)}` +
+      `buy notional ${money(notional)} vs cap ${money(orderCapUsd)}, ` +
+        `buying power ${money(buyingPower)}` +
         (account.settledCash === undefined
           ? " (no settled-cash mark)"
           : `, settled cash ${money(account.settledCash)}`),
@@ -410,9 +456,11 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 15. max_positions: no new symbol once maxPositions distinct symbols are held.
   if (!isEntry) {
     push("max_positions", true, "exit; the position count does not apply");
+  } else if (crypto) {
+    push("max_positions", true, "crypto does not use a stock position slot; the allowlist and sleeve cap bound it");
   } else {
     const heldSymbols = new Set(
-      account.positions.filter((p) => p.quantity > 0).map((p) => p.symbol),
+      account.positions.filter((p) => p.quantity > 0 && !isCryptoSymbol(p.symbol)).map((p) => p.symbol),
     );
     const alreadyHeld = heldSymbols.has(intent.symbol);
     push(
@@ -427,6 +475,13 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 16. entries_per_day: submitted buys today in ET below the daily max.
   if (intent.side !== "buy") {
     push("entries_per_day", true, "not a buy; the daily entry count does not apply");
+  } else if (crypto) {
+    const count = countSubmittedCryptoBuysToday(submitted, todayEt);
+    push(
+      "entries_per_day",
+      count < cryptoRules.maxEntriesPerDay,
+      `${count} submitted crypto buys today in ET vs max ${cryptoRules.maxEntriesPerDay}`,
+    );
   } else {
     const count = countSubmittedBuysToday(submitted, todayEt);
     push(
@@ -447,7 +502,10 @@ export function evaluate(input: RiskInput): RiskVerdict {
       "lot age unknown (position predates order records); treating as seasoned",
     );
   } else {
-    const heldDays = tradingDaysBetween(lotOpenedEtDate, todayEt);
+    // Crypto trades on weekends, so its lots age in calendar days.
+    const heldDays = crypto
+      ? Math.round((Date.parse(`${todayEt}T00:00:00Z`) - Date.parse(`${lotOpenedEtDate}T00:00:00Z`)) / MS_PER_DAY)
+      : tradingDaysBetween(lotOpenedEtDate, todayEt);
     if (heldDays >= risk.minHoldDays) {
       push(
         "min_hold",
@@ -487,7 +545,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
       o.intent.symbol === intent.symbol &&
       etDateOf(o.createdAt) === todayEt,
   );
-  if (intent.side !== "sell" || !boughtToday) {
+  if (crypto) {
+    push("day_trades", true, "crypto is not subject to the pattern day trade rule");
+  } else if (intent.side !== "sell" || !boughtToday) {
     push("day_trades", true, "not a same-day round trip; the day-trade count does not apply");
   } else if (intent.orderType === "stop_limit") {
     push("day_trades", true, "resting protective stop; it is not a same-day round trip when placed");
@@ -509,7 +569,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
   } else {
     const spreadPct = ((quote.ask - quote.bid) / mid) * 100;
     // Fees on the exit leg are priced at the target, the larger sale and so the larger SEC fee.
-    const feePct = roundTripFeePct(intent.quantity, mid, mid * (1 + intent.expectedGainPct / 100), todayEt);
+    const feePct = crypto ? 0 : roundTripFeePct(intent.quantity, mid, mid * (1 + intent.expectedGainPct / 100), todayEt);
     const floorPct = spreadPct + feePct;
     const ev =
       intent.probabilityWin * intent.expectedGainPct -
@@ -555,6 +615,8 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 21. earnings_blackout: no entries shortly before a scheduled report. Exits allowed.
   if (!isEntry) {
     push("earnings_blackout", true, "exit; the earnings blackout does not apply");
+  } else if (crypto) {
+    push("earnings_blackout", true, "crypto has no earnings");
   } else if (risk.earningsBlackoutDays <= 0) {
     push("earnings_blackout", true, "earnings blackout is disabled (0d)");
   } else if (!marketDataAvailable) {
@@ -593,6 +655,8 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 22. liquidity: entries need enough average dollar volume. Exits allowed.
   if (!isEntry) {
     push("liquidity", true, "exit; the liquidity floor does not apply");
+  } else if (crypto) {
+    push("liquidity", true, "crypto; the allowlist keeps to BTC and ETH and the spread cap checks the live book");
   } else if (risk.minAvgDollarVolumeUsd <= 0) {
     push("liquidity", true, "liquidity floor is disabled ($0)");
   } else if (!marketDataAvailable) {
@@ -616,13 +680,53 @@ export function evaluate(input: RiskInput): RiskVerdict {
     );
   }
 
+  // 23-25. Crypto sleeve rules: allowlist, total exposure cap, reward to risk. Entries only.
+  let sleeveQty: number | undefined;
+  if (crypto) {
+    if (!isEntry) {
+      push("crypto_allowed", true, "exit; crypto exits are always allowed");
+      push("crypto_sleeve", true, "exit; the crypto sleeve cap does not apply");
+      push("crypto_reward_risk", true, "exit; reward to risk does not apply");
+    } else {
+      const anyPair = cryptoRules.allowed.length === 0;
+      const allowed = cryptoRules.enabled && (anyPair || cryptoRules.allowed.includes(intent.symbol));
+      push(
+        "crypto_allowed",
+        allowed,
+        !cryptoRules.enabled
+          ? "the crypto sleeve is switched off"
+          : allowed
+            ? anyPair
+              ? `${intent.symbol}: any Robinhood crypto pair is allowed`
+              : `${intent.symbol} is on the crypto allowlist (${cryptoRules.allowed.join(", ")})`
+            : `${intent.symbol} is not on the crypto allowlist (${cryptoRules.allowed.join(", ")})`,
+      );
+      const held = account.positions.filter((p) => isCryptoSymbol(p.symbol)).reduce((sum, p) => sum + p.marketValue, 0);
+      const allowance = equity * (cryptoRules.maxPortfolioPct / 100);
+      if (intent.limitPrice > 0) sleeveQty = floorQty(Math.max(0, allowance - held) / intent.limitPrice);
+      push(
+        "crypto_sleeve",
+        held + notional <= allowance,
+        `crypto held ${money(held)} + order ${money(notional)} = ${money(held + notional)} ` +
+          `vs ${money(allowance)} (${cryptoRules.maxPortfolioPct}% of equity ${money(equity)})`,
+      );
+      const rewardRisk = intent.expectedLossPct > 0 ? intent.expectedGainPct / intent.expectedLossPct : Number.POSITIVE_INFINITY;
+      push(
+        "crypto_reward_risk",
+        intent.expectedLossPct > 0 && rewardRisk >= cryptoRules.minRewardRisk,
+        `expected gain ${intent.expectedGainPct}% / expected loss ${intent.expectedLossPct}% = ` +
+          `${Number.isFinite(rewardRisk) ? rewardRisk.toFixed(2) : "n/a"} vs minimum ${cryptoRules.minRewardRisk}`,
+      );
+    }
+  }
+
   let maxQuantity: number | undefined;
   if (isEntry) {
-    const candidates = [riskQty, positionQty, capQty].filter(
+    const candidates = [riskQty, positionQty, capQty, sleeveQty].filter(
       (q): q is number => q !== undefined && Number.isFinite(q),
     );
     if (candidates.length > 0) {
-      maxQuantity = Math.max(0, floorShares(Math.min(...candidates)));
+      maxQuantity = Math.max(0, floorQty(Math.min(...candidates)));
     }
   }
 
