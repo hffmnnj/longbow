@@ -5,6 +5,8 @@ description: Runs bull, bear, and risk_reviewer subagents in parallel before ent
 
 Use when: a setup passed all other checks and you are one step away from `submit_order`.
 
+System One: `jev_thesis_check` is a second opinion beside this debate, never a substitute for it; see the system-one skill.
+
 ## Rules
 
 1. Every entry requires one debate: a bull, a bear, and a risk_reviewer, all launched in parallel from a single Code Mode script with the same evidence packet. No entry proceeds on a single viewpoint.

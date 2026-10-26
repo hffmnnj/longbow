@@ -38,6 +38,12 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 - The model never sees order-placing Robinhood tools. It calls `submit_order` with a structured intent
   (thesis, invalidation, time stop, EV inputs, evidence). The gate runs the risk engine, then
   Robinhood's review, then places the order (mode `auto`) or queues it for approval (mode `approve`).
+- System One (Jev): TypeSafe's fast decision model answers typed questions with calibrated
+  probabilities. The agent calls six read-only tools (`jev_status`, `jev_decide`, `jev_candidates`,
+  `jev_read_text`, `jev_thesis_check`, `jev_regime`) as second opinions for triage, text reading,
+  thesis checks, and regime reads. After the risk engine approves an entry, Jev reviews the thesis
+  and the result appears as a `system_one` check in the verdict (`advise` always passes, `block`
+  rejects on a high-confidence concern, outages pass). It never places, sizes, or cancels orders.
 - Port 4520 on 127.0.0.1 and the Tailnet address. Mutating requests need the `x-harness` header.
 
 ## Not doing (v1)
@@ -48,6 +54,9 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 - No FRED, Yahoo, or Stooq (blocked or rate-limited from this host); no paid data feeds.
 - No bash or file access for the agent beyond its notes workspace.
 - No hosted deploy; it runs on one machine as a user service.
+- System One: Jev never places, sizes, or cancels orders and never sets a stop; no fine-tuning or
+  calibration database yet (reviews ride on the order record); no automatic wrapping of every news
+  result; no native Flutter screens for it yet.
 
 ## Native Android app (apps/mobile)
 
