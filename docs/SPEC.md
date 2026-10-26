@@ -35,6 +35,9 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
   4 positions, $500 order cap, self-clearing drawdown halt.
 - One lead agent conversation. Scheduled cycles (pre-open, intraday every 30 min, post-close, overnight
   every 4 h) and the user's chat messages are inputs to it. Cycle request ids make them idempotent.
+- Crypto sleeve: any pair Robinhood lists (optional allowlist), an 8 percent of equity total cap, native
+  Robinhood stops, and Coinbase daily candles for charts. Crypto trades 24/7 and is exempt from
+  market-hours and day-trade rules.
 - The model never sees order-placing Robinhood tools. It calls `submit_order` with a structured intent
   (thesis, invalidation, time stop, EV inputs, evidence). The gate runs the risk engine, then
   Robinhood's review, then places the order (mode `auto`) or queues it for approval (mode `approve`).
@@ -49,7 +52,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 ## Not doing (v1)
 
 - No strategy optimizer or parameter sweeps; simulations run one at a time.
-- No options, crypto, shorting, margin use, or multi-leg orders.
+- No options, shorting, margin use, or multi-leg orders. Crypto is limited to a small capped sleeve.
 - No app login; the Tailnet plus the CSRF header is the boundary.
 - No FRED, Yahoo, or Stooq (blocked or rate-limited from this host); no paid data feeds.
 - No bash or file access for the agent beyond its notes workspace.
