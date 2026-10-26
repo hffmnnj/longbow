@@ -11,9 +11,36 @@ ModelsInfo _$ModelsInfoFromJson(Map<String, dynamic> json) => ModelsInfo(
   subagents: json['subagents'] as String,
 );
 
+SystemOneStatus _$SystemOneStatusFromJson(Map<String, dynamic> json) =>
+    SystemOneStatus(
+      state: $enumDecode(
+        _$SystemOneStateEnumMap,
+        json['state'],
+        unknownValue: SystemOneState.unconfigured,
+      ),
+      model: json['model'] as String,
+      calls24h: (json['calls24h'] as num).toInt(),
+      medianLatencyMs: (json['medianLatencyMs'] as num?)?.toInt(),
+      inputTokens24h: (json['inputTokens24h'] as num).toInt(),
+      cooldownUntil: (json['cooldownUntil'] as num?)?.toInt(),
+      lastError: json['lastError'] as String?,
+      lastOkAt: (json['lastOkAt'] as num?)?.toInt(),
+    );
+
+const _$SystemOneStateEnumMap = {
+  SystemOneState.ok: 'ok',
+  SystemOneState.degraded: 'degraded',
+  SystemOneState.rateLimited: 'rate_limited',
+  SystemOneState.payment: 'payment',
+  SystemOneState.unconfigured: 'unconfigured',
+};
+
 StatusResponse _$StatusResponseFromJson(Map<String, dynamic> json) =>
     StatusResponse(
       agent: AgentStatus.fromJson(json['agent'] as Map<String, dynamic>),
+      systemOne: json['systemOne'] == null
+          ? null
+          : SystemOneStatus.fromJson(json['systemOne'] as Map<String, dynamic>),
       broker: BrokerStatus.fromJson(json['broker'] as Map<String, dynamic>),
       market: MarketClock.fromJson(json['market'] as Map<String, dynamic>),
       settings: Settings.fromJson(json['settings'] as Map<String, dynamic>),

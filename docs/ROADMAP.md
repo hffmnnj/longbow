@@ -34,9 +34,14 @@
 | 28 | Android app: Flutter shell around the live UI, native bridge (alerts, print, haptics, copy), APK at /download/longbow.apk | frontend-minion + coordinator | built; awaiting on-device check |
 | 29 | Local-timezone timestamps; chat messages steer a running cycle instead of queueing behind it | coordinator | done (2026-10-26) |
 | 30 | Native Flutter Android app replacing the WebView shell: models, data layer, design system, all screens | frontend + frontend-minions + minions + coordinator | done |
+| 31 | System One (Jev) decision layer: typed client, agent tools, entry second opinion, prompt and skill, settings and status chip, on web and Android | minions + frontend-minion + coordinator | done (PR #3); agent seen calling jev_* live |
+| 32 | Native Codex remote compaction, gated to openai-codex/gpt-6.1-sol; Muse and subagents keep text compaction | engineer + coordinator | in progress |
 
 ## Follow-ups
 
+- Join entry reviews to realized P&L to measure Jev's calibration on our own trades.
+- First live `system_one` order check (advise and block) is still unseen; watch the first entry the agent proposes.
+- Free OpenCode Jev tier is quota-limited by IP or pool; production uses TypeSafe direct.
 - First live order is the first check of Robinhood's place and cancel response shapes; watch it.
 - Fractional stops are protected only while the harness runs during regular hours.
 - Background helper stop cannot abort a child turn already running (no abort API on the tool context).

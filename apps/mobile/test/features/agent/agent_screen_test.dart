@@ -161,6 +161,7 @@ void main() {
   group('AgentScreen panels', () {
     testWidgets('models panel shows lead and subagent specs', (tester) async {
       final h = await _start(tester, _fixture());
+      await _reveal(tester, find.textContaining('gpt-6.1-sol'));
       // main: openai-codex/gpt-6.1-sol#xhigh, subagents: meta/muse-spark-1.3-contributor#xhigh
       expect(find.textContaining('gpt-6.1-sol'), findsOneWidget);
       expect(find.textContaining('openai-codex'), findsOneWidget);

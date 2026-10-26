@@ -33,10 +33,61 @@ class ModelsInfo {
   final String subagents;
 }
 
+// Unknown System One states read as unconfigured: no reviews claimed.
+enum SystemOneState {
+  @JsonValue('ok')
+  ok,
+  @JsonValue('degraded')
+  degraded,
+  @JsonValue('rate_limited')
+  rateLimited,
+  @JsonValue('payment')
+  payment,
+  @JsonValue('unconfigured')
+  unconfigured,
+}
+
+/// Health of the System One (decision model) connection. Mirrors TS
+/// SystemOneStatus: `rate_limited` and `payment` may carry a `cooldownUntil`.
+@JsonSerializable(createToJson: false)
+class SystemOneStatus {
+  const SystemOneStatus({
+    required this.state,
+    required this.model,
+    required this.calls24h,
+    this.medianLatencyMs,
+    required this.inputTokens24h,
+    this.cooldownUntil,
+    this.lastError,
+    this.lastOkAt,
+  });
+
+  factory SystemOneStatus.fromJson(Map<String, dynamic> json) =>
+      _$SystemOneStatusFromJson(json);
+
+  @JsonKey(unknownEnumValue: SystemOneState.unconfigured)
+  final SystemOneState state;
+
+  /// Model id sent on the wire, such as jev-latest.
+  final String model;
+
+  /// Calls answered in the last 24 hours, and the median latency of the
+  /// last 200 (absent when unknown).
+  final int calls24h;
+  final int? medianLatencyMs;
+
+  /// Input tokens billed in the last 24 hours.
+  final int inputTokens24h;
+  final int? cooldownUntil;
+  final String? lastError;
+  final int? lastOkAt;
+}
+
 @JsonSerializable(createToJson: false)
 class StatusResponse {
   const StatusResponse({
     required this.agent,
+    this.systemOne,
     required this.broker,
     required this.market,
     required this.settings,
@@ -52,6 +103,9 @@ class StatusResponse {
       _$StatusResponseFromJson(json);
 
   final AgentStatus agent;
+
+  /// Absent on servers older than System One.
+  final SystemOneStatus? systemOne;
   final BrokerStatus broker;
   final MarketClock market;
   final Settings settings;
@@ -70,6 +124,7 @@ class StatusResponse {
 
   StatusResponse copyWith({
     AgentStatus? agent,
+    SystemOneStatus? systemOne,
     BrokerStatus? broker,
     MarketClock? market,
     Settings? settings,
@@ -82,6 +137,7 @@ class StatusResponse {
   }) {
     return StatusResponse(
       agent: agent ?? this.agent,
+      systemOne: systemOne ?? this.systemOne,
       broker: broker ?? this.broker,
       market: market ?? this.market,
       settings: settings ?? this.settings,

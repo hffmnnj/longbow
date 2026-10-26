@@ -39,3 +39,14 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 - ChatGPT sign-in (missing or expired): in `apps/server`, run `node scripts/codex-login.ts`, open the URL and code it
   writes to `codex-login-status.txt` in the system temp directory, then `systemctl --user restart robinhood-harness`. It is
   the harness's own login, separate from OpenCode's, because OpenAI refresh tokens are single use.
+
+## System One
+
+- Env vars: `SYSTEMONE_URL` (TypeSafe default; OpenCode proxy for development), `SYSTEMONE_MODEL`
+  (`jev-latest` in production, `jev-1.13-free` for the OpenCode free tier), key from `SYSTEMONE_API_KEY`
+  or the file at `SYSTEMONE_KEY_FILE` (default `~/.config/opencode-v2/secrets/typesafe.env`).
+- Status: `curl -s http://127.0.0.1:4520/api/status` and read the `systemOne` field for connection state.
+  `rate_limited` means the quota breaker tripped (shared daily quota on the free tier); `payment` means
+  a billing problem. Either way the tools report unavailable and the agent continues without Jev.
+- Turn it off: `curl -X PATCH -H "x-harness: 1" -H "content-type: application/json" -d '{"systemOne":{"enabled":false}}' http://127.0.0.1:4520/api/settings`.
+- Restarting the service fails running simulations; check for running sims before touching it.

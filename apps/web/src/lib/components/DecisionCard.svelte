@@ -3,7 +3,7 @@
   import ActionBadge from "./ActionBadge.svelte";
   import Icon from "./Icon.svelte";
   import Ticker from "./Ticker.svelte";
-  import { ArrowRight01Icon, Cancel01Icon, Tick02Icon } from "$lib/icons";
+  import { ArrowRight01Icon, Cancel01Icon, FlashIcon, Tick02Icon } from "$lib/icons";
   import { clock } from "$lib/clock.svelte";
   import { ago } from "$lib/format";
   import { ruleName, STATUS_LABEL } from "$lib/orders";
@@ -22,6 +22,8 @@
   let open = $state(false);
   const checks = $derived(order?.verdict.checks ?? []);
   const failed = $derived(checks.filter((c) => !c.ok));
+  const otherFailed = $derived(failed.filter((c) => c.rule !== "system_one"));
+  const systemOne = $derived(checks.find((c) => c.rule === "system_one"));
   const win = $derived(order ? { label: "win", value: order.intent.probabilityWin } : entry.confidence !== undefined ? { label: "conf", value: entry.confidence } : undefined);
   const detailsId = $props.id();
 </script>
@@ -53,9 +55,15 @@
     {/if}
   {/if}
   {#if open && entry.regime}<p class="text-muted-foreground text-[12px]">Regime: {entry.regime}</p>{/if}
-  {#if open && order && failed.length}
+  {#if systemOne}
+    <p class={cn("flex items-start gap-1.5 text-[12px]", systemOne.ok ? "text-muted-foreground" : "text-destructive")}>
+      <Icon icon={FlashIcon} class="mt-0.5 size-3.5 shrink-0" />
+      <span><span class="font-medium">System One.</span> {systemOne.detail}</span>
+    </p>
+  {/if}
+  {#if open && order && otherFailed.length}
     <ul class="flex flex-col gap-1">
-      {#each failed as c (c.rule)}
+      {#each otherFailed as c (c.rule)}
         <li class="text-destructive flex items-start gap-1.5 text-[12px]"><Icon icon={Cancel01Icon} class="mt-0.5 size-3.5 shrink-0" /><span><span class="font-medium">{ruleName(c.rule)}.</span> {c.detail}</span></li>
       {/each}
     </ul>
