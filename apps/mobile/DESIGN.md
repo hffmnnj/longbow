@@ -85,7 +85,7 @@ The first screen is a verdict, not a menu: equity, day P&L, whether the agent is
 
 ## Colors
 
-Tokens are exposed as a `LongbowColors` `ThemeExtension` (gain, loss, warn, warnBg, live, lab, labBg, bar, mutedForeground, border, input) beside the Material `ColorScheme` built from the same values. Call sites read `context.lb.gain`, never a literal. Dark is the default; light follows the system when the user picks System in settings. No dynamic wallpaper color: the brand wins.
+Tokens are exposed as a `LongbowColors` `ThemeExtension` (gain, loss, warn, warnBg, live, lab, labBg, bar, mutedForeground, border, input) beside the Material `ColorScheme` built from the same values. Call sites read `context.lb.gain`, never a literal. Text fields use `lbFieldBorder` (a stronger outline than the `input` token, which is only 1.7:1 on light surfaces). Dark is the default; light follows the system when the user picks System in settings. No dynamic wallpaper color: the brand wins.
 
 Color is never the only signal. Gain and loss carry a sign and a minus glyph (U+2212); status chips carry an icon or word.
 
@@ -101,7 +101,7 @@ Navigation: a bottom `NavigationBar` with Feed, Portfolio, Markets, Performance,
 
 ## Components
 
-Material 3 widgets (NavigationBar, FilledButton, SegmentedButton, Switch.adaptive, ModalBottomSheet, SnackBar) themed through tokens. Longbow-specific pieces live in `lib/core/widgets`: Money and percent text, Pnl, StatusChip, ActionBadge, GradeChip, SideBadge, Section card, Empty, ErrorState, SkeletonBlock, KeyValue rows, Disclosure. Charts live in `lib/core/charts`: DitherAreaChart, Sparkline, EquityChart with benchmark, CandleChart-free price line with scrub, bar and calibration strips. Markdown renders through one themed widget.
+Material 3 widgets (NavigationBar, FilledButton, SegmentedButton, Switch, ModalBottomSheet, SnackBar) are themed once in `buildLongbowTheme`, so call sites rarely style anything by hand. Import everything from `package:longbow/core/core.dart`. Longbow-specific pieces live in `lib/core/widgets`: `Money`, `PctText`, `Pnl`, `StatusChip` (neutral, live, warn, loss, gain, lab), `ActionBadge`, `SideBadge`, `GradeChip`, `LbCard`, `SectionCard`, `KeyValueRow` and `KeyValueList`, `Empty`, `ErrorState`, `SkeletonBlock` and `SkeletonLines`, `StaleBanner`, `Disclosure`, `PulseDot`, `SectionLabel`, `CodeBlock`; inputs `LbSegmented`, `LbSwitchRow`, `LbTextField`, `LbNumberField`, `LbSliderRow`, `LbSearchField`; overlays `showLbSheet`, `showLbConfirm`, `showToast`; the page frame `LbPageScaffold` (collapsing large title, pull to refresh, safe areas). `LbMarkdown` renders agent markdown. Helpers: `LbMotion`, `Haptics`, `LbIcons` and `LbIcon`, `LbText.number` (tabular mono), and the web-parity formatters in `format.dart`. `DesignGallery` (debug only) shows every widget in every state. Charts live in `lib/core/charts`: DitherAreaChart, Sparkline, EquityChart with benchmark, CandleChart-free price line with scrub, bar and calibration strips.
 
 ## Behaviors
 
