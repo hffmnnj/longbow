@@ -1,0 +1,40 @@
+<!-- Monochrome Longbow mark for notifications: bow arc, string, and arrow.
+     Small icons render as a white alpha mask, so everything is one fill. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Bow: arc bulging right, from the upper-left limb to the lower-right. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M5,4 C12,5 18.5,11 19,20" />
+    <!-- String: upper-left limb to lower-right limb. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:pathData="M5,4 L19,20" />
+    <!-- Arrow shaft: lower-left to upper-right. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M4,20 L17,7" />
+    <!-- Arrowhead at the upper-right tip. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20.5,3.5 L15.2,4.9 L19.1,9.7 Z" />
+    <!-- Fletching tick at the tail. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M4,20 L2.6,21.4" />
+</vector>

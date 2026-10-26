@@ -16,7 +16,24 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 - `apps/web`: SvelteKit static SPA, shadcn-svelte, bits-ui, Tailwind 4, HugeIcons. Served by the server.
 - `packages/shared`: wire types and zod schemas (`packages/shared/src/index.ts`).
 - Server ports: `apps/server/src/ports.ts`.
-- One agent conversation. Scheduled cycles (pre-open, intraday every 30 min, post-close, overnight
+- Code Mode everywhere: the model is offered only the `codemode` tool and writes JavaScript that calls
+  every other tool (Robinhood `rh_*`, `market_*`, `sec_company`, web, skills, notes, risk, journal,
+  `delegate`) as `await tools.<name>()`, in parallel where useful. Tools return structured JSON.
+- Skills: trading playbooks and reference resources in `apps/server/skills/<name>/SKILL.md`, listed in
+  the system prompt and loaded on demand. Notes: a durable markdown workspace for theses, plan, lessons.
+- Market data from free sources: Nasdaq daily bars and earnings calendar, CBOE VIX, US Treasury yields,
+  SEC EDGAR filings and XBRL facts, plus deterministic indicators computed server-side.
+- Subagents: `delegate` runs read-only analyst, bull, bear, risk reviewer, or researcher subagents,
+  several in parallel.
+- Simulation: accelerated point-in-time replays of past trading days (`apps/server/src/sim/`) with a paper
+  cash broker, synthetic intraday path from daily bars, the real risk engine, and metrics against SPY
+  buy-and-hold. Runs are isolated in `${DATA_DIR}/sim/<id>/`; the live agent can start one with `sim_start`
+  to test a strategy hypothesis.
+- Installable PWA at https://<host>.<tailnet>.ts.net:8443 (Tailscale serve, tailnet only) with web push for
+  fills, failures, halts, sign-in problems, the daily review, and finished simulations.
+- Defaults tuned for a ~$1,200 cash account in full auto: fractional shares, 1.5% risk per trade, 30% per name,
+  4 positions, $500 order cap, self-clearing drawdown halt.
+- One lead agent conversation. Scheduled cycles (pre-open, intraday every 30 min, post-close, overnight
   every 4 h) and the user's chat messages are inputs to it. Cycle request ids make them idempotent.
 - The model never sees order-placing Robinhood tools. It calls `submit_order` with a structured intent
   (thesis, invalidation, time stop, EV inputs, evidence). The gate runs the risk engine, then
@@ -25,13 +42,12 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 
 ## Not doing (v1)
 
-- No multi-agent debate or subagents; one agent with a structured decision protocol.
-- No backtester, paper-trading simulator, or strategy optimizer.
+- No strategy optimizer or parameter sweeps; simulations run one at a time.
 - No options, crypto, shorting, margin use, or multi-leg orders.
 - No app login; the Tailnet plus the CSRF header is the boundary.
-- No extra market-data feeds (FRED, CBOE) or indicator libraries; Robinhood's tools provide data.
-- No server-side earnings or liquidity feeds; those rules are in the prompt and the intent.
-- No hosted deploy; it runs on this laptop as a user service.
+- No FRED, Yahoo, or Stooq (blocked or rate-limited from this host); no paid data feeds.
+- No bash or file access for the agent beyond its notes workspace.
+- No hosted deploy; it runs on one machine as a user service.
 
 ## Acceptance checks
 
@@ -46,3 +62,7 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 6. In `approve` mode an approved-by-risk order appears in the UI and can be approved or rejected;
    the kill switch blocks every order.
 7. The UI works at desktop and phone widths.
+9. A 5-day simulation finishes with an equity curve, fills, and metrics, and leaks no data after the simulated date.
+10. The app installs on a phone from the Tailscale HTTPS URL and a test push notification arrives.
+8. The model's only direct tool is `codemode`; a cycle's script calls market data, skills, and
+   `delegate` in parallel, and the UI shows the script and its nested calls.

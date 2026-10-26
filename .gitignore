@@ -6,3 +6,7 @@ apps/web/build/
 *.sqlite
 *.sqlite-*
 .env
+
+# Local machine config and captured live data
+*.local.json
+.env.*

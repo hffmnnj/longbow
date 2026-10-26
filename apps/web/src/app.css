@@ -1,0 +1,470 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn-svelte's registry styles target data-open/closed/active/horizontal; bits-ui emits data-state and data-orientation. */
+@custom-variant data-open (&:is([data-state="open"], [data-open]));
+@custom-variant data-closed (&:is([data-state="closed"], [data-closed]));
+@custom-variant data-active (&:is([data-state="active"], [data-active]));
+@custom-variant data-horizontal (&:is([data-orientation="horizontal"], [data-horizontal]));
+@custom-variant data-vertical (&:is([data-orientation="vertical"], [data-vertical]));
+
+/*
+ * Graphite terminal tokens. One steel-blue accent; green and red are reserved
+ * for P&L and buy/sell (--gain / --loss). Amber marks warnings and halts.
+ */
+:root {
+  color-scheme: light;
+
+  --background: oklch(0.975 0.002 250);
+  --foreground: oklch(0.22 0.012 255);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.46 0.12 245);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.953 0.004 250);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.953 0.004 250);
+  --muted-foreground: oklch(0.47 0.015 255);
+  --accent: oklch(0.935 0.006 250);
+  --accent-foreground: var(--foreground);
+
+  --destructive: oklch(0.5 0.2 27);
+  --border: oklch(0.9 0.005 250);
+  --input: oklch(0.8 0.008 250);
+  --ring: oklch(0.55 0.13 245);
+
+  --surface-bar: oklch(1 0 0);
+  --gain: oklch(0.47 0.13 150);
+  --loss: oklch(0.52 0.19 27);
+  --warn: oklch(0.52 0.12 65);
+  --warn-bg: oklch(0.95 0.05 85);
+  --live: oklch(0.55 0.13 245);
+  --lab: oklch(0.47 0.14 300);
+  --lab-bg: oklch(0.955 0.02 300);
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(0.165 0.006 255);
+  --foreground: oklch(0.93 0.006 250);
+  --card: oklch(0.2 0.007 255);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.235 0.008 255);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.76 0.1 235);
+  --primary-foreground: oklch(0.17 0.01 255);
+  --secondary: oklch(0.25 0.008 255);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.23 0.007 255);
+  --muted-foreground: oklch(0.7 0.012 250);
+  --accent: oklch(0.28 0.01 255);
+  --accent-foreground: var(--foreground);
+
+  --destructive: oklch(0.7 0.17 25);
+  --border: oklch(0.3 0.008 255);
+  --input: oklch(0.45 0.01 255);
+  --ring: oklch(0.76 0.1 235);
+
+  --surface-bar: oklch(0.19 0.007 255);
+  --gain: oklch(0.78 0.16 150);
+  --loss: oklch(0.72 0.17 25);
+  --warn: oklch(0.8 0.13 80);
+  --warn-bg: oklch(0.28 0.05 80);
+  --live: oklch(0.76 0.1 235);
+  --lab: oklch(0.78 0.11 300);
+  --lab-bg: oklch(0.215 0.03 300);
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bar: var(--surface-bar);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-live: var(--live);
+  --color-lab: var(--lab);
+  --color-lab-bg: var(--lab-bg);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 13.5px;
+    overscroll-behavior: none;
+  }
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a,
+  [role="tab"],
+  [role="checkbox"],
+  [role="switch"] {
+    touch-action: manipulation;
+  }
+  /* Haptic-like press: touch screens only, so desktop hover states stay calm. */
+  @media (pointer: coarse) {
+    button:not(:disabled):active,
+    [role="tab"]:active,
+    [role="checkbox"]:active,
+    [role="switch"]:active {
+      transform: scale(0.97);
+      transition: transform 70ms ease-out;
+    }
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Navigation chrome is tapped, never selected. Content stays selectable. */
+  nav {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Phones: 16px inputs stop iOS zoom-on-focus. */
+  @media (max-width: 767px) {
+    input,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+@layer utilities {
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .label-caps {
+    @apply text-muted-foreground text-[10.5px] font-medium tracking-[0.08em] uppercase;
+  }
+  /* Only iOS reports insets that the page must pad for; app.html sets html.ios. Android lays the page out inside its bars. */
+  .ios .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .ios .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Agent markdown */
+.md {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > * + * {
+  margin-top: 0.6em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  margin-top: 1em;
+}
+.md h1 {
+  font-size: 1.15em;
+}
+.md h2 {
+  font-size: 1.07em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.3em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li + li {
+  margin-top: 0.2em;
+}
+.md a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--muted);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.md pre {
+  background: var(--muted);
+  border-radius: var(--radius);
+  padding: 0.7em 0.9em;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+}
+.md blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.8em;
+  color: var(--muted-foreground);
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+.md th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.md hr {
+  border-color: var(--border);
+}
+
+/* Reports: printing renders a clean light single-column brief. App chrome, toasts and action buttons stay on screen. */
+@media print {
+  /* Force the light tokens even when the app runs dark. */
+  html.dark {
+    color-scheme: light;
+    --background: oklch(0.975 0.002 250);
+    --foreground: oklch(0.22 0.012 255);
+    --card: oklch(1 0 0);
+    --card-foreground: var(--foreground);
+    --popover: oklch(1 0 0);
+    --popover-foreground: var(--foreground);
+    --primary: oklch(0.46 0.12 245);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.953 0.004 250);
+    --secondary-foreground: var(--foreground);
+    --muted: oklch(0.953 0.004 250);
+    --muted-foreground: oklch(0.47 0.015 255);
+    --accent: oklch(0.935 0.006 250);
+    --accent-foreground: var(--foreground);
+    --border: oklch(0.9 0.005 250);
+    --input: oklch(0.8 0.008 250);
+    --gain: oklch(0.47 0.13 150);
+    --loss: oklch(0.52 0.19 27);
+    --warn: oklch(0.52 0.12 65);
+    --surface-bar: oklch(1 0 0);
+  }
+  nav,
+  [data-sonner-toaster],
+  .no-print {
+    display: none !important;
+  }
+  /* The app shell is a fixed-height scroller; let the brief flow onto pages. */
+  .h-dvh {
+    height: auto !important;
+  }
+  main,
+  main > div {
+    overflow: visible !important;
+  }
+  body {
+    font-size: 12px;
+  }
+  .report-brief {
+    max-width: none;
+  }
+  .report-section {
+    break-inside: avoid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* View-transition pseudos are outside `*`; kill them explicitly. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+/* Section changes crossfade in ~180ms (see runSectionTransition). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
+}
+
+/* Code Mode script highlighting (highlight.js classes, themed from tokens) */
+.hljs-keyword,
+.hljs-literal,
+.hljs-built_in {
+  color: var(--primary);
+}
+.hljs-string,
+.hljs-template-variable,
+.hljs-regexp {
+  color: var(--gain);
+}
+.hljs-number,
+.hljs-attr,
+.hljs-property {
+  color: var(--warn);
+}
+.hljs-comment {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+/* shadcn Trace running-state shimmer: a text shimmer via a moving background-clip
+   gradient. It derives its highlight from currentColor, so it adapts to any text
+   color in both themes, and TraceTitle turns it off under reduced motion. */
+@keyframes shimmer-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@utility shimmer {
+  --shimmer-duration: 2s;
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in oklch, currentColor 30%, transparent) 30%,
+    currentColor 50%,
+    color-mix(in oklch, currentColor 30%, transparent) 70%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-sweep var(--shimmer-duration) linear infinite;
+}
+@utility shimmer-none {
+  background-image: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+}
+
+/* Motion: short fade and rise for new feed items, a soft caret on streaming text, a quiet pulse for running calls. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes caret-blink {
+  50% {
+    opacity: 0.15;
+  }
+}
+@keyframes soft-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .rise-in {
+    animation: rise-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .soft-pulse {
+    animation: soft-pulse 1.3s ease-in-out infinite;
+  }
+}
+.stream-caret .md > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--primary);
+  animation: caret-blink 1.1s ease-in-out infinite;
+}
+.md-ticker {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.md-ticker:hover,
+.md-ticker:focus-visible {
+  color: var(--primary);
+}
