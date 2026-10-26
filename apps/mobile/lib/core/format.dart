@@ -65,6 +65,28 @@ String pct(num value) => '${_pct.format(value)}%';
 /// Share quantity, up to four decimals: 1,234.5.
 String qty(num value) => _num.format(value);
 
+final NumberFormat _coins = NumberFormat('#,##0.########', 'en_US');
+
+/// Robinhood crypto pairs are `BTC-USD`; equities and ETFs are bare tickers.
+/// Mirrors TS `CRYPTO_SYMBOL_PATTERN` in `packages/shared`.
+final RegExp cryptoSymbolPattern = RegExp(r'^[A-Z]{2,10}-USD$');
+
+/// True for crypto pairs such as BTC-USD (quantity in coins, trades 24/7).
+bool isCryptoSymbol(String symbol) => cryptoSymbolPattern.hasMatch(symbol);
+
+/// Coin quantity, up to eight decimals with trailing zeros trimmed, so a
+/// dust balance like 0.00058109 never reads as 0.00. Thousands group above
+/// 1,000 exactly like [qty].
+String qtyCoins(num value) => _coins.format(value);
+
+/// Quantity for a known symbol: coins at up to eight decimals for crypto,
+/// shares at up to four decimals for stocks.
+String qtyFor(String symbol, num value) =>
+    isCryptoSymbol(symbol) ? qtyCoins(value) : qty(value);
+
+/// Unit word for a known symbol: "coins" for crypto, "shares" for stocks.
+String qtyUnit(String symbol) => isCryptoSymbol(symbol) ? 'coins' : 'shares';
+
 /// Compact count/amount: 1.2K, 3.4M, 5.6B (no currency).
 String compact(num value) {
   final a = value.abs();

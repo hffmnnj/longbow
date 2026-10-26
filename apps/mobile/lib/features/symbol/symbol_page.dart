@@ -207,16 +207,18 @@ class _Header extends StatelessWidget {
             const SizedBox(height: 10),
             Semantics(
               container: true,
-              label: 'You hold ${qty(p.quantity)} shares worth ${usd(p.marketValue)}',
+              label: 'You hold ${qtyFor(p.symbol, p.quantity)} ${qtyUnit(p.symbol)} worth ${usd(p.marketValue)}',
               child: Wrap(
                 spacing: 8,
                 runSpacing: 4,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text('Held', style: t.labelMedium?.copyWith(color: c.mutedForeground)),
-                  Text('${qty(p.quantity)} sh', style: LbText.number(context, size: 13)),
+                  Text('${qtyFor(p.symbol, p.quantity)} ${isCryptoSymbol(p.symbol) ? 'coins' : 'sh'}', style: LbText.number(context, size: 13)),
                   Text(usd(p.marketValue), style: LbText.number(context, size: 13)),
                   Pnl(amount: p.unrealizedPnl, size: 13),
+                  if (p.sector == 'Crypto')
+                    const StatusChip('Crypto', tone: StatusTone.neutral, showIcon: false),
                 ],
               ),
             ),

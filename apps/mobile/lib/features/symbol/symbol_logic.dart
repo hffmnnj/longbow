@@ -106,11 +106,11 @@ List<ChartMarker> fillMarkers(List<Bar> bars, List<OrderRecord> orders, {LbZone?
     out.add(ChartMarker(
       index: idx,
       kind: side == OrderSide.buy ? ChartMarkerKind.buy : ChartMarkerKind.sell,
-      label: '${side == OrderSide.buy ? 'Bought' : 'Sold'} ${qty(q)} at ${usd(price)}',
+      label: '${side == OrderSide.buy ? 'Bought' : 'Sold'} ${qtyFor(o.intent.symbol, q)} at ${usd(price)}',
     ));
   }
   return out;
 }
 
 String orderLine(OrderRecord o) =>
-    '${qty(o.intent.quantity)} @ ${usd(o.intent.limitPrice)} \u00b7 ${usd(notional(o.intent))}';
+    '${qtyFor(o.intent.symbol, o.intent.quantity)} @ ${usd(o.intent.limitPrice)} \u00b7 ${usd(notional(o.intent))}';

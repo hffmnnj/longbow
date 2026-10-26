@@ -22,6 +22,19 @@ const _$SystemOneGateEnumMap = {
   SystemOneGate.block: 'block',
 };
 
+CryptoSettings _$CryptoSettingsFromJson(Map<String, dynamic> json) =>
+    CryptoSettings(
+      enabled: json['enabled'] as bool,
+      allowed: (json['allowed'] as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
+      maxPortfolioPct: (json['maxPortfolioPct'] as num).toDouble(),
+      maxOrderNotionalUsd: (json['maxOrderNotionalUsd'] as num).toDouble(),
+      maxEntriesPerDay: (json['maxEntriesPerDay'] as num).toInt(),
+      maxSpreadBps: (json['maxSpreadBps'] as num).toDouble(),
+      minRewardRisk: (json['minRewardRisk'] as num).toDouble(),
+    );
+
 RiskConfig _$RiskConfigFromJson(Map<String, dynamic> json) => RiskConfig(
   maxRiskPerTradePct: (json['maxRiskPerTradePct'] as num).toDouble(),
   maxPositionPct: (json['maxPositionPct'] as num).toDouble(),
@@ -61,6 +74,9 @@ Settings _$SettingsFromJson(Map<String, dynamic> json) => Settings(
   systemOne: json['systemOne'] == null
       ? defaultSystemOne
       : SystemOneSettings.fromJson(json['systemOne'] as Map<String, dynamic>),
+  crypto: json['crypto'] == null
+      ? defaultCrypto
+      : CryptoSettings.fromJson(json['crypto'] as Map<String, dynamic>),
 );
 
 const _$TradingModeEnumMap = {
@@ -132,6 +148,31 @@ Map<String, dynamic> _$RiskConfigPatchToJson(RiskConfigPatch instance) =>
       'minAvgDollarVolumeUsd': ?instance.minAvgDollarVolumeUsd,
     };
 
+CryptoSettingsPatch _$CryptoSettingsPatchFromJson(Map<String, dynamic> json) =>
+    CryptoSettingsPatch(
+      enabled: json['enabled'] as bool?,
+      allowed: (json['allowed'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
+      maxPortfolioPct: (json['maxPortfolioPct'] as num?)?.toDouble(),
+      maxOrderNotionalUsd: (json['maxOrderNotionalUsd'] as num?)?.toDouble(),
+      maxEntriesPerDay: (json['maxEntriesPerDay'] as num?)?.toInt(),
+      maxSpreadBps: (json['maxSpreadBps'] as num?)?.toDouble(),
+      minRewardRisk: (json['minRewardRisk'] as num?)?.toDouble(),
+    );
+
+Map<String, dynamic> _$CryptoSettingsPatchToJson(
+  CryptoSettingsPatch instance,
+) => <String, dynamic>{
+  'enabled': ?instance.enabled,
+  'allowed': ?instance.allowed,
+  'maxPortfolioPct': ?instance.maxPortfolioPct,
+  'maxOrderNotionalUsd': ?instance.maxOrderNotionalUsd,
+  'maxEntriesPerDay': ?instance.maxEntriesPerDay,
+  'maxSpreadBps': ?instance.maxSpreadBps,
+  'minRewardRisk': ?instance.minRewardRisk,
+};
+
 SettingsPatch _$SettingsPatchFromJson(Map<String, dynamic> json) =>
     SettingsPatch(
       mode: $enumDecodeNullable(
@@ -155,6 +196,11 @@ SettingsPatch _$SettingsPatchFromJson(Map<String, dynamic> json) =>
           : SystemOneSettingsPatch.fromJson(
               json['systemOne'] as Map<String, dynamic>,
             ),
+      crypto: json['crypto'] == null
+          ? null
+          : CryptoSettingsPatch.fromJson(
+              json['crypto'] as Map<String, dynamic>,
+            ),
     );
 
 Map<String, dynamic> _$SettingsPatchToJson(SettingsPatch instance) =>
@@ -168,4 +214,5 @@ Map<String, dynamic> _$SettingsPatchToJson(SettingsPatch instance) =>
       'watchlist': ?instance.watchlist,
       'risk': ?instance.risk?.toJson(),
       'systemOne': ?instance.systemOne?.toJson(),
+      'crypto': ?instance.crypto?.toJson(),
     };
