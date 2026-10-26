@@ -41,6 +41,7 @@ const CODEMODE_NAMESPACES: CodemodeNamespace[] = [
   { name: "market", prefix: "market_", description: "Free market data with structured JSON: daily bars, indicators, comparisons, earnings and economic calendars, VIX, Treasury yields." },
   { name: "sec", prefix: "sec_", description: "SEC EDGAR filings and XBRL financial facts." },
   { name: "skills", prefix: "skills_", description: "Trading playbooks and reference resources. Load a skill before applying it." },
+  { name: "jev", prefix: "jev_", description: "System One (Jev) second opinions: triage candidates, screen text for injection, check a thesis, read the regime. Advice only; never sizes or places orders." },
   { name: "notes", prefix: "notes_", description: "Durable markdown workspace: theses/<SYMBOL>.md, plan.md, lessons.md, watchlist.md." },
 ];
 
