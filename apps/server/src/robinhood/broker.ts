@@ -1,11 +1,12 @@
 import { McpClient, StreamableHttpTransport, type Tool, type CallToolResult } from "@earendil-works/pi-mcp";
 import type { Extension, Registry } from "@earendil-works/pi-durable";
 import type { BrokerStatus, OrderIntent, OrderRecord, Quote } from "@rh/shared";
+import { isCryptoSymbol } from "@rh/shared";
 import type { Broker, Config, Logger, Clock } from "../ports.ts";
 import { RobinhoodOAuth, MCP_URL } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
 import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
-import { BrokerMappingError, findTool, orderMapping, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
+import { BrokerMappingError, cryptoOrderMapping, findTool, orderMapping, orderRef, parseCryptoOrder, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
 
 export type { OpenStopOrder, PnlTrade };
@@ -14,8 +15,8 @@ export interface RobinhoodBroker extends Broker {
   extension(): Extension;
   attach(registry: Registry): void;
   quotes(symbols: string[]): Promise<Quote[]>;
-  cancelOrder(id: string): Promise<void>;
-  orderState(id: string): Promise<Partial<OrderRecord>>;
+  cancelOrder(id: string, symbol?: string): Promise<void>;
+  orderState(id: string, symbol?: string): Promise<Partial<OrderRecord>>;
   executeStop(intent: OrderIntent, refId: string): Promise<{ brokerOrderId: string; raw: string }>;
   /** Closed trades from Robinhood's PnL hub (span "all"), oldest first. Read-only. */
   tradeHistory(): Promise<PnlTrade[]>;
@@ -38,6 +39,7 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   let tools: Tool[] = [];
   let client: McpClient | undefined;
   let accountId: string | undefined;
+  let rhsAccountId: string | undefined;
   let refresh: Promise<void> | undefined;
   let lifecycle: Promise<unknown> = Promise.resolve();
   let generation = 0;
@@ -70,6 +72,7 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     const previous = client;
     client = undefined;
     accountId = undefined;
+    rhsAccountId = undefined;
     await previous?.close().catch(() => {});
   }
   async function connect() {
@@ -95,7 +98,9 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
       client = current;
       setTools(discovered);
       const accountsTool = findTool(discovered, ["get_accounts"]);
-      accountId = tradingAccount(responseObject(await current.callTool(accountsTool.name, validateArguments(accountsTool, {})))).accountId;
+      const identifiedConnect = tradingAccount(responseObject(await current.callTool(accountsTool.name, validateArguments(accountsTool, {}))));
+      accountId = identifiedConnect.accountId;
+      rhsAccountId = identifiedConnect.rhsAccountId;
       publish({ state: "connected", tools: discovered.map((tool) => tool.name) });
       current.onClose(() => {
         if (version === generation) {
@@ -110,6 +115,7 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
           if (version !== generation) return;
           await privateWrite(store.directory, "tools.json", next.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
           accountId = undefined;
+          rhsAccountId = undefined;
           setTools(next);
         }).catch(() => { log.warn("Robinhood tool discovery failed"); });
       });
@@ -133,6 +139,7 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     const tool = findTool(tools, ["get_accounts"]);
     const identified = tradingAccount(responseObject(await call(tool.name, validateArguments(tool, {}))));
     accountId = identified.accountId;
+    rhsAccountId = identified.rhsAccountId;
   }
   async function mappedCall(name: string, args: Record<string, unknown>) {
     return responseObject(await call(name, validateArguments(findTool(tools, [name]), args)));
@@ -144,6 +151,22 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   }
   async function place(intent: OrderIntent, options: ExecutionOptions) {
     await identifyAccount();
+    if (isCryptoSymbol(intent.symbol)) {
+      if (options.market) throw new BrokerMappingError("Robinhood crypto orders do not use market orders");
+      const preview = cryptoOrderMapping(tools, "review", intent, rhsAccountId);
+      const previewData = responseObject(await call(preview.tool.name, preview.args));
+      validateReview(previewData);
+      const previewedQuantity = previewData.order == null ? undefined : record(previewData.order).quantity;
+      if (typeof previewedQuantity !== "string" || !previewedQuantity) throw new BrokerMappingError("Robinhood crypto preview missing order quantity; do not retry without reconciliation");
+      const mapping = cryptoOrderMapping(tools, "place", intent, rhsAccountId, { refId: options.refId ?? orderRef(intent), quantity: previewedQuantity });
+      const result = await call(mapping.tool.name, mapping.args);
+      const response = responseObject(result);
+      if (response.customer_approval_required === true) throw new BrokerMappingError("Robinhood order requires customer approval; reconcile before retrying");
+      const order = response.order == null ? response : record(response.order);
+      const id = order.order_id ?? order.id;
+      if (typeof id !== "string" || !id) throw new BrokerMappingError("Robinhood order response missing order id; do not retry without reconciliation");
+      return { brokerOrderId: id, raw: JSON.stringify(order).slice(0, 12_000) };
+    }
     const mapping = orderMapping(tools, "place", intent, accountId, options);
     const result = await call(mapping.tool.name, mapping.args);
     const response = responseObject(result);
@@ -168,12 +191,16 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     }),
     async snapshot() {
       await identifyAccount();
-      return fetchSnapshot(mappedCall, accountId!, clock.now());
+      return fetchSnapshot(mappedCall, accountId!, clock.now(), rhsAccountId);
     },
     async quote(symbol) {
-      return (await fetchQuotes(mappedCall, [symbol], clock.now()))[0]!;
+      if (isCryptoSymbol(symbol)) await identifyAccount();
+      return (await fetchQuotes(mappedCall, [symbol], clock.now(), rhsAccountId))[0]!;
     },
-    quotes: (symbols) => fetchQuotes(mappedCall, symbols, clock.now()),
+    quotes: async (symbols) => {
+      if (symbols.some(isCryptoSymbol)) await identifyAccount();
+      return fetchQuotes(mappedCall, symbols, clock.now(), rhsAccountId);
+    },
     async tradeHistory() {
       await identifyAccount();
       const trades: PnlTrade[] = [];
@@ -200,18 +227,29 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
       }
       return stops;
     },
-    async cancelOrder(id) {
+    async cancelOrder(id, symbol) {
       await identifyAccount();
+      if (symbol !== undefined && isCryptoSymbol(symbol)) {
+        await mappedCall("cancel_crypto_order", { rhs_account_number: rhsAccountId, order_id: id });
+        return;
+      }
       await mappedCall("cancel_equity_order", { account_number: accountId, order_id: id });
     },
-    async orderState(id) {
+    async orderState(id, symbol) {
       await identifyAccount();
+      if (symbol !== undefined && isCryptoSymbol(symbol)) {
+        const data = await mappedCall("get_crypto_orders", { rhs_account_number: rhsAccountId, order_id: id });
+        const order = Array.isArray(data.results) ? data.results.map(record).find((o) => o.id === id) : undefined;
+        if (!order) throw new BrokerMappingError("Robinhood crypto order not found during reconciliation");
+        return parseCryptoOrder(order);
+      }
       const data = await mappedCall("get_equity_orders", { account_number: accountId, order_id: id });
       const order = Array.isArray(data.orders) ? data.orders.map(record).find((o) => o.id === id) : undefined;
       if (!order) throw new BrokerMappingError("Robinhood order not found during reconciliation");
       return parseOrder(order);
     },
     async executeStop(intent, refId) {
+      if (isCryptoSymbol(intent.symbol)) throw new BrokerMappingError("executeStop does not support crypto symbols; crypto trades 24/7 without held stops");
       if (!calendar.clock(clock.now()).isOpen) throw new BrokerMappingError("Stop execution requires regular hours");
       await identifyAccount();
       const mapping = orderMapping(tools, "review", intent, accountId, { market: true });
@@ -220,12 +258,19 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     },
     async reviewOrder(intent: OrderIntent) {
       await identifyAccount();
+      if (isCryptoSymbol(intent.symbol)) {
+        const mapping = cryptoOrderMapping(tools, "review", intent, rhsAccountId);
+        const result = await call(mapping.tool.name, mapping.args);
+        if (result.isError) throw new BrokerMappingError("Robinhood order review failed");
+        return validateReview(responseObject(result));
+      }
       const mapping = orderMapping(tools, "review", intent, accountId, await execution(intent));
       const result = await call(mapping.tool.name, mapping.args);
       if (result.isError) throw new BrokerMappingError("Robinhood order review failed");
       return validateReview(responseObject(result));
     },
     async placeOrder(intent: OrderIntent) {
+      if (isCryptoSymbol(intent.symbol)) return place(intent, {});
       return place(intent, await execution(intent));
     },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
