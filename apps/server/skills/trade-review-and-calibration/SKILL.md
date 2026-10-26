@@ -5,6 +5,8 @@ description: Reviews closed trades on R-multiples, MFE/MAE, and Brier scores and
 
 Use when: after the close, reviewing the day's closed trades, or during the weekly calibration pass.
 
+System One: Jev probabilities are not guarantees and never predict direction; see the system-one skill for the reading thresholds.
+
 ## Rules
 
 1. Score every closed trade in R-multiples: actual P&L divided by the initial dollar risk. Wins below 1R after fees are execution failures even when green. Losses at exactly -1R are the system working.

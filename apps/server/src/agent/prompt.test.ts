@@ -74,6 +74,47 @@ function input(overrides: Partial<CycleInput> = {}): CycleInput {
 }
 
 describe("trader prompt sections", () => {
+  it("keeps_a_system_one_section_naming_all_six_tools", async () => {
+    const ext = createTraderPromptExtension();
+    const sections = ext.sections ?? [];
+    const keys = sections.map((section) => section.key);
+    assert.ok(keys.includes("trader-system-one"), "has a trader-system-one section");
+    const found = sections.find((section) => section.key === "trader-system-one");
+    const text = found === undefined ? undefined : await found.render({} as never, {} as never);
+    assert.ok(text, "system-one section renders text");
+    for (const tool of [
+      "jev_status",
+      "jev_decide",
+      "jev_candidates",
+      "jev_read_text",
+      "jev_thesis_check",
+      "jev_regime",
+    ]) {
+      assert.ok(text.includes(tool), `system-one section names ${tool}`);
+    }
+  });
+  it("keeps_the_original_section_ids", async () => {
+    const keys = (createTraderPromptExtension().sections ?? []).map((section) => section.key);
+    for (const key of [
+      "trader-mandate",
+      "trader-loop",
+      "trader-protocol",
+      "trader-edge",
+      "trader-system-one",
+      "trader-portfolio",
+      "trader-numbers",
+      "trader-orders",
+      "trader-risk",
+      "trader-small",
+      "trader-exits",
+      "trader-autonomy",
+      "trader-journal",
+      "trader-tools",
+    ]) {
+      assert.ok(keys.includes(key), `still has ${key}`);
+    }
+    assert.equal(keys.indexOf("trader-system-one"), keys.indexOf("trader-edge") + 1, "system-one follows edge");
+  });
   it("explains fractional execution, held protection and cancellation", async () => {
     const sections = createTraderPromptExtension().sections ?? [];
     const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
