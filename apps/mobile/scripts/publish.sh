@@ -16,7 +16,7 @@ else
   exit 1
 fi
 
-flutter build apk --release "${defines[@]}"
+flutter build apk --release --target-platform android-arm64 "${defines[@]}"
 
 mkdir -p "$HOME/.local/share/robinhood-harness/downloads"
 cp build/app/outputs/flutter-apk/app-release.apk \

@@ -43,7 +43,7 @@ colors:
     loss: "#BE2323"
     warn: "#975800"
     warnBg: "#FEEDC9"
-    live: "#1777B8"
+    live: "#0F69A3"
     lab: "#68449C"
     labBg: "#F2EDFC"
 typography:
@@ -117,7 +117,7 @@ Import `lib/core/charts/charts.dart` only; charts take plain Dart inputs and rea
 
 ## Behaviors
 
-- Auto connection: on launch the app probes the known tailnet addresses in parallel (MagicDNS HTTPS on 8443, MagicDNS HTTP on 4520, the tailnet IP on 4520), takes the first that answers `GET /api/status`, remembers it, and re-probes on failure and on network change. If nothing answers it shows one screen: "Can't reach Longbow", a Retry, an Open Tailscale button, and an Advanced field to type a host. The app retries by itself every 10 seconds and when it returns to the foreground.
+- Auto connection: the build carries your tailnet hosts (`LONGBOW_HOSTS`, from the gitignored `hosts.local.json`), and each bare host expands to `https://host:8443` and `http://host:4520`. On launch the app probes the saved host, the last host that worked, and those candidates in parallel with `GET /api/status`, prefers HTTPS, remembers the winner, tells the foreground alert service about it, and re-probes on failure and on network change. With no hosts it asks for one. If nothing answers it shows one screen: "Can't reach Longbow" with what was tried, Retry, Open Tailscale and an Advanced host field. It retries by itself every 10 seconds and when the app returns to the foreground.
 - Live data: one `GET /api/events` stream (SSE) with backoff reconnect; REST refresh on every (re)connect. Offline shows the last known account with its age.
 - Pull to refresh on scrolling data screens. Skeletons reserve the loaded geometry; stale data stays visible while a refresh runs.
 - Haptics at commit moments only: approve and reject, kill switch, mode change, sending a message, tab change (selection). Never on scroll. The visual always stands alone.

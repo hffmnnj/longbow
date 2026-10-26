@@ -110,7 +110,7 @@ class LongbowColors extends ThemeExtension<LongbowColors> {
     loss: Color(0xFFBE2323),
     warn: Color(0xFF975800),
     warnBg: Color(0xFFFEEDC9),
-    live: Color(0xFF1777B8),
+    live: Color(0xFF0F69A3),
     lab: Color(0xFF68449C),
     labBg: Color(0xFFF2EDFC),
   );
