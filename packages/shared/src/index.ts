@@ -90,6 +90,44 @@ export type SystemOneSettings = z.infer<typeof SystemOneSettingsSchema>;
 
 export const DEFAULT_SYSTEM_ONE: SystemOneSettings = { enabled: true, gate: "advise" };
 
+/** Robinhood crypto pairs are `BTC-USD`; equities and ETFs are bare tickers. */
+export const CRYPTO_SYMBOL_PATTERN = /^[A-Z]{2,10}-USD$/;
+export function isCryptoSymbol(symbol: string): boolean {
+  return CRYPTO_SYMBOL_PATTERN.test(symbol);
+}
+
+/**
+ * The crypto sleeve: a small, separately capped slice of the account for any crypto pair on Robinhood.
+ * Orders still go through the same gate; the sleeve adds an allowlist, a total-exposure cap,
+ * a reward-to-risk floor and its own entry budget, and drops the stock-market-hours rules.
+ */
+export const CryptoSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** Pairs the agent may trade. Empty means any pair Robinhood lists. */
+  allowed: z.array(z.string().regex(CRYPTO_SYMBOL_PATTERN)).max(10),
+  /** Max market value of all crypto after an order, as % of equity. */
+  maxPortfolioPct: z.number().positive().max(25),
+  /** Fat-finger cap on one crypto order's notional. */
+  maxOrderNotionalUsd: z.number().positive(),
+  /** Max crypto buys per ET day. */
+  maxEntriesPerDay: z.number().int().nonnegative().max(5),
+  /** Max ask-bid spread in basis points of mid. Robinhood's crypto spread is wide, so this is looser than the equity cap. */
+  maxSpreadBps: z.number().positive().max(1000),
+  /** Entries need expectedGainPct / expectedLossPct at or above this. */
+  minRewardRisk: z.number().nonnegative().max(10),
+});
+export type CryptoSettings = z.infer<typeof CryptoSettingsSchema>;
+
+export const DEFAULT_CRYPTO: CryptoSettings = {
+  enabled: true,
+  allowed: [],
+  maxPortfolioPct: 8,
+  maxOrderNotionalUsd: 40,
+  maxEntriesPerDay: 1,
+  maxSpreadBps: 300,
+  minRewardRisk: 2,
+};
+
 export const SettingsSchema = z.object({
   mode: TradingModeSchema,
   /** When true no order of any kind is submitted and scheduled cycles still run as research only. */
@@ -103,6 +141,7 @@ export const SettingsSchema = z.object({
   watchlist: z.array(z.string().regex(/^[A-Z.]{1,10}$/)).max(50),
   risk: RiskConfigSchema,
   systemOne: SystemOneSettingsSchema,
+  crypto: CryptoSettingsSchema,
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -115,12 +154,14 @@ export const DEFAULT_SETTINGS: Settings = {
   watchlist: ["SPY", "QQQ", "IWM", "SMH", "XLK", "XLF", "XLE", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL"],
   risk: DEFAULT_RISK,
   systemOne: DEFAULT_SYSTEM_ONE,
+  crypto: DEFAULT_CRYPTO,
 };
 
-/** PATCH /api/settings body. `risk` and `systemOne` merge field by field. */
-export const SettingsPatchSchema = SettingsSchema.omit({ risk: true, systemOne: true }).partial().extend({
+/** PATCH /api/settings body. `risk`, `systemOne` and `crypto` merge field by field. */
+export const SettingsPatchSchema = SettingsSchema.omit({ risk: true, systemOne: true, crypto: true }).partial().extend({
   risk: RiskConfigSchema.partial().optional(),
   systemOne: SystemOneSettingsSchema.partial().optional(),
+  crypto: CryptoSettingsSchema.partial().optional(),
 });
 export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
 
@@ -165,7 +206,10 @@ export interface AccountSnapshot {
   equity: number;
   cash: number;
   buyingPower: number;
+  /** Spendable cash for crypto buys; crypto is cash-only. Absent when Robinhood does not report it. */
+  cryptoBuyingPower?: number;
   settledCash?: number;
+  /** Equity positions plus crypto positions (`BTC-USD`, sector "Crypto", quantity in coins). */
   positions: Position[];
 }
 
@@ -181,7 +225,8 @@ export interface Quote {
 // Orders and the risk gate
 
 export const OrderIntentSchema = z.object({
-  symbol: z.string().regex(/^[A-Z.]{1,10}$/),
+  /** A ticker (AAPL, BRK.B) or a crypto pair (BTC-USD). Crypto quantity is in coins. */
+  symbol: z.string().regex(/^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$/),
   side: z.enum(["buy", "sell"]),
   quantity: z.number().positive(),
   orderType: z.enum(["limit", "stop_limit"]),
@@ -570,7 +615,7 @@ export type ReportGrade = z.infer<typeof ReportGradeSchema>;
 export const ReportNarrativeSchema = z.object({
   kind: ReportKindSchema,
   /** Trade reports only: the closed symbol. */
-  symbol: z.string().regex(/^[A-Z.]{1,10}$/).optional(),
+  symbol: z.string().regex(/^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$/).optional(),
   /** Weekly reports only: the Monday (ET date) of the week covered; defaults to the current week. */
   weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** One plain sentence, the first thing the owner reads. */

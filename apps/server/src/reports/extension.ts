@@ -5,7 +5,7 @@ import { publishReport, type ReportServiceDeps } from "./service.ts";
 
 export type ReportExtensionDeps = ReportServiceDeps;
 
-const SYMBOL_PATTERN = "^[A-Z.]{1,10}$";
+const SYMBOL_PATTERN = "^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$";
 const ET_DATE_PATTERN = "^\\d{4}-\\d{2}-\\d{2}$";
 
 const publishReportSchema = Type.Object({

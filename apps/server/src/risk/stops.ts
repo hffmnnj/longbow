@@ -1,4 +1,4 @@
-import type { OrderIntent, OrderRecord } from "@rh/shared";
+import { isCryptoSymbol, type OrderIntent, type OrderRecord } from "@rh/shared";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, Store } from "../ports.ts";
 import type { RobinhoodBroker } from "../robinhood/broker.ts";
 import { orderRef } from "../robinhood/mapping.ts";
@@ -8,20 +8,21 @@ export function supportsTrading(broker: Broker): broker is TradingBroker {
   return ["quotes", "cancelOrder", "orderState", "executeStop"].every((key) => key in broker && typeof Reflect.get(broker, key) === "function");
 }
 export function isHeldStop(intent: OrderIntent): boolean {
-  return intent.side === "sell" && intent.orderType === "stop_limit" && !Number.isInteger(intent.quantity);
+  // Crypto stops rest natively at Robinhood; only fractional shares need the harness to watch them.
+  return intent.side === "sell" && intent.orderType === "stop_limit" && !Number.isInteger(intent.quantity) && !isCryptoSymbol(intent.symbol);
 }
 export interface StopDeps { broker: TradingBroker; store: Store; clock: Clock; calendar: MarketCalendar; bus: EventBus; log?: Logger }
 export function orderChanged(deps: Pick<StopDeps, "store" | "clock" | "bus">, order: OrderRecord): void {
   deps.bus.publish({ type: "order", order });
   const entry = deps.store.addJournal({ at: deps.clock.now(), action: order.intent.side, symbol: order.intent.symbol,
-    summary: `${order.intent.symbol} order ${order.status}`, rationale: order.error ?? `Order ${order.id}: ${order.intent.quantity} shares`,
+    summary: `${order.intent.symbol} order ${order.status}`, rationale: order.error ?? `Order ${order.id}: ${order.intent.quantity} ${isCryptoSymbol(order.intent.symbol) ? order.intent.symbol.split("-")[0] : "shares"}`,
     evidence: order.intent.evidence, orderId: order.id, ...(order.cycleId ? { cycleId: order.cycleId } : {}) });
   deps.bus.publish({ type: "journal", entry });
 }
 export async function syncOrders(deps: StopDeps): Promise<void> {
   for (const order of deps.store.ordersSince(0).filter((o) => o.brokerOrderId && ["submitted", "partially_filled", "triggering"].includes(o.status))) {
     try {
-      const patch = await deps.broker.orderState(order.brokerOrderId!);
+      const patch = await deps.broker.orderState(order.brokerOrderId!, order.intent.symbol);
       if (patch.status !== order.status || patch.filledQuantity !== order.filledQuantity || patch.averageFillPrice !== order.averageFillPrice) {
         orderChanged(deps, deps.store.updateOrder(order.id, { ...patch, updatedAt: deps.clock.now() }));
       }
@@ -37,11 +38,15 @@ export async function cancelOrder(deps: StopDeps, id: string): Promise<OrderReco
     return cancelled;
   }
   if (!order.brokerOrderId || !["submitted", "partially_filled"].includes(order.status)) throw new Error(`order ${id} is not cancellable`);
-  await deps.broker.cancelOrder(order.brokerOrderId);
+  await deps.broker.cancelOrder(order.brokerOrderId, order.intent.symbol);
   // A cancellation request can race a fill: only the broker can confirm the final state.
-  const updated = deps.store.updateOrder(id, { ...await deps.broker.orderState(order.brokerOrderId), updatedAt: deps.clock.now() });
+  const updated = deps.store.updateOrder(id, { ...await deps.broker.orderState(order.brokerOrderId, order.intent.symbol), updatedAt: deps.clock.now() });
   orderChanged(deps, updated);
   return updated;
+}
+/** Native crypto stop orders resting at Robinhood for a symbol. They lock the coins until cancelled. */
+export function restingCryptoStops(store: Store, symbol: string): OrderRecord[] {
+  return store.ordersSince(0).filter((o) => o.intent.symbol === symbol && o.intent.side === "sell" && o.intent.orderType === "stop_limit" && ["submitted", "partially_filled"].includes(o.status));
 }
 export async function watchStops(deps: StopDeps): Promise<void> {
   await syncOrders(deps);
