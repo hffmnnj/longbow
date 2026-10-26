@@ -1,0 +1,122 @@
+[
+  {
+    "id": "20261025040559417-c74d1b",
+    "createdAt": 1792901159417,
+    "startedBy": "agent",
+    "config": {
+      "name": "ETF five-day-low branch filter pilot",
+      "scenarios": [
+        "volmageddon-2018",
+        "steady-bull-2021"
+      ],
+      "bootstrapRuns": 1,
+      "scenarioMode": "blind",
+      "bootstrapDays": 10,
+      "startingCash": 1200,
+      "cyclesPerDay": 2,
+      "execution": "realistic",
+      "watchlist": [
+        "SPY",
+        "QQQ",
+        "IWM"
+      ],
+      "variants": [
+        {
+          "label": "A current OR rule",
+          "strategy": "Synthetic variant A for fixture tests: baseline paper-trading filter on broad index ETFs. No real orders; fixed sample rules, fixed costs, and illustrative results only.",
+          "model": "subagent"
+        },
+        {
+          "label": "B RSI-only filter",
+          "strategy": "Synthetic variant B for fixture tests: alternate paper-trading filter on broad index ETFs. No real orders; fixed sample rules, fixed costs, and illustrative results only.",
+          "model": "subagent"
+        }
+      ]
+    },
+    "status": "done",
+    "runs": [
+      {
+        "runId": "20261025040600202-83c0c3",
+        "variant": "A current OR rule",
+        "scenario": "volmageddon-2018",
+        "seed": 493024862,
+        "mode": "blind"
+      },
+      {
+        "runId": "20261025040600985-9fc9a1",
+        "variant": "A current OR rule",
+        "scenario": "steady-bull-2021",
+        "seed": 1093733106,
+        "mode": "blind"
+      },
+      {
+        "runId": "20261025040601015-971541",
+        "variant": "A current OR rule",
+        "seed": 1,
+        "mode": "bootstrap"
+      },
+      {
+        "runId": "20261025040601018-30e9a2",
+        "variant": "B RSI-only filter",
+        "scenario": "volmageddon-2018",
+        "seed": 493024862,
+        "mode": "blind"
+      },
+      {
+        "runId": "20261025040601021-b2732a",
+        "variant": "B RSI-only filter",
+        "scenario": "steady-bull-2021",
+        "seed": 1093733106,
+        "mode": "blind"
+      }
+    ],
+    "summary": [
+      {
+        "label": "A current OR rule",
+        "runs": 3,
+        "done": 3,
+        "failed": 0,
+        "meanReturnPct": -0.1598387512192471,
+        "medianReturnPct": 0,
+        "p10ReturnPct": -0.38361300292619305,
+        "p90ReturnPct": 0,
+        "meanExcessPct": -1.184916833759227,
+        "beatBenchmarkPct": 66.66666666666666,
+        "worstDrawdownPct": 0.4968669322606904,
+        "medianSharpe": 0,
+        "winRatePct": 0,
+        "avgR": -1.296953140710173,
+        "costsPct": 0.03762506625916934,
+        "brier": 0.42250000000000004
+      },
+      {
+        "label": "B RSI-only filter",
+        "runs": 3,
+        "done": 3,
+        "failed": 0,
+        "meanReturnPct": -0.17088531003179863,
+        "medianReturnPct": 0,
+        "p10ReturnPct": -0.4101247440763167,
+        "p90ReturnPct": 0,
+        "meanExcessPct": -1.1959633925717785,
+        "beatBenchmarkPct": 66.66666666666666,
+        "worstDrawdownPct": 0.5209076245581231,
+        "medianSharpe": 0,
+        "winRatePct": 0,
+        "avgR": -1.2791451511081748,
+        "costsPct": 0.037955243286615065,
+        "brier": 0.4553
+      }
+    ],
+    "comparison": {
+      "metric": "excessReturnPct",
+      "meanDiff": -0.01104655881255153,
+      "ci95": [
+        -0.033139676437654586,
+        0
+      ],
+      "pairs": 3
+    },
+    "finishedAt": 1792903528074
+  }
+]

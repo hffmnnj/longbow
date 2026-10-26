@@ -33,6 +33,7 @@
 | 27 | Go-live: live trading on, auto mode, 24/7 service on 0.0.0.0 with tailnet-only peers | coordinator | done (2026-10-25) |
 | 28 | Android app: Flutter shell around the live UI, native bridge (alerts, print, haptics, copy), APK at /download/longbow.apk | frontend-minion + coordinator | built; awaiting on-device check |
 | 29 | Local-timezone timestamps; chat messages steer a running cycle instead of queueing behind it | coordinator | done (2026-10-26) |
+| 30 | Native Flutter Android app replacing the WebView shell: models, data layer, design system, all screens | frontend + frontend-minions + minions + coordinator | done |
 
 ## Follow-ups
 

@@ -1,0 +1,114 @@
+{
+  "symbol": "NVDA",
+  "quote": {
+    "symbol": "NVDA",
+    "at": 1792982749026,
+    "bid": 211.27,
+    "ask": 211.31,
+    "last": 211.28
+  },
+  "position": {
+    "symbol": "NVDA",
+    "quantity": 6.6638,
+    "averageCost": 234.1,
+    "marketValue": 1412.05,
+    "sharesAvailableForSells": 6.6638,
+    "unrealizedPnl": -147.94,
+    "sector": "Technology"
+  },
+  "history": {
+    "symbol": "NVDA",
+    "bars": [
+      {
+        "date": "2026-10-16",
+        "open": 216.56,
+        "high": 218.676,
+        "low": 213.32,
+        "close": 214.13,
+        "volume": 121252500
+      },
+      {
+        "date": "2026-10-19",
+        "open": 218.095,
+        "high": 219.62,
+        "low": 214.7,
+        "close": 217.09,
+        "volume": 98684720
+      },
+      {
+        "date": "2026-10-20",
+        "open": 215.98,
+        "high": 218.46,
+        "low": 212.77,
+        "close": 216.47,
+        "volume": 79609080
+      },
+      {
+        "date": "2026-10-21",
+        "open": 220.96,
+        "high": 222.19,
+        "low": 217.66,
+        "close": 221.97,
+        "volume": 87085730
+      },
+      {
+        "date": "2026-10-22",
+        "open": 217.13,
+        "high": 218.88,
+        "low": 211.26,
+        "close": 212.21,
+        "volume": 125407600
+      },
+      {
+        "date": "2026-10-23",
+        "open": 210.99,
+        "high": 213.85,
+        "low": 210.18,
+        "close": 210.96,
+        "volume": 80189770
+      }
+    ],
+    "source": "nasdaq",
+    "asOf": 1792982749026
+  },
+  "indicators": {
+    "sma20": 225.54149999999998,
+    "sma50": 222.48259999999988,
+    "sma200": 203.6653999999999,
+    "rsi14": 38.08914904253016,
+    "atr14": 6.061693154951734,
+    "avgDollarVolume": 23764159236.245,
+    "return1m": -6.0646540208388995,
+    "return3m": 7.353315352908263,
+    "high52w": 243.37,
+    "low52w": 164.27
+  },
+  "thesis": {
+    "path": "theses/NVDA.md",
+    "content": "# NVDA — synthetic sample thesis (fixture only, not real advice)\n\n## Purpose\nThis is a synthetic placeholder written for public-repo tests. Every figure below is illustrative sample data, not a real position, recommendation, or trade record.\n\n## Sample control state — 2026-10-25\n- **Sample invalidation: $200.63.** Illustrative stop level kept for fixture shape; not a recommendation. Never move a real stop on the basis of this file.\n- **Sample time stop / latest exit: 2026-11-06**, illustrative expiry; an earlier invalidation would take priority in a real plan.\n- Sample position 6.6638 shares; broker average cost $234.10 (scaled sample quantity, unchanged sample price).\n- Sample close $210.96 with the long average at $203.67; weekend marks are not execution quotes.\n- Protection audit: no resting protection is recorded in this fixture. Do not imply that a saved note is operational protection.\n\n## Regime and setup (illustrative)\nSideways / normal-but-elevated volatility. Sample posture only: manage the retained sample position against the sample line; no additions.\n- Bull sketch: a close back above SMA50 222.48, then SMA20 225.54, would mark the first two recovery checkpoints.\n- Bear sketch: RSI14 38.09 with the close below both intermediate averages shows weak momentum in this sample snapshot.\n\n## Structure and liquidity (sample snapshot)\nSample close $210.96; SMA20 225.54; SMA50 222.48; SMA200 203.67; RSI14 38.09; ATR14 $6.06. Screen minimums are illustrative, and the regular-hours spread is unavailable in this fixture.\n\n## Rules restated for fixture shape\nNo averaging down and no new entries arise from this sample note. Any real decision would need its own measured edge, live prices, and verified protection. Stops do not cap overnight gaps; log a missed trigger rather than trading through a closed session.\n",
+    "updatedAt": 1792973092635
+  },
+  "orders": [],
+  "journal": [
+    {
+      "id": "3e5ae584-8052-42fb-b0ef-7dbe76f3053a",
+      "at": 1792883227895,
+      "action": "hold",
+      "symbol": "NVDA",
+      "summary": "NVDA sample review: calendar and controls restated for fixture shape",
+      "rationale": "This synthetic entry restates the sample invalidation and the sample expiry without reassessing them. No order was submitted; the closed session is research-only in this fixture.",
+      "evidence": [
+        "synthetic review: sample $200.63 invalidation and 2026-11-06 expiry restated unchanged.",
+        "get_risk_state, synthetic review: market closed, no pending orders."
+      ],
+      "regime": "not reassessed — sample calendar review"
+    }
+  ],
+  "nextEarnings": {
+    "date": "2026-11-18"
+  },
+  "stop": {
+    "price": 200.63,
+    "source": "thesis"
+  }
+}
