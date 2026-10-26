@@ -111,8 +111,16 @@ class _CycleDividerState extends State<CycleDivider> {
   }
 }
 
-/// A message the owner sent: right-aligned bubble, selectable.
-class UserBubble extends StatelessWidget {
+/// Longer than this and a user bubble starts collapsed, so one pasted brief or
+/// a compaction summary cannot fill the screen and bury the history above it.
+const int kUserBubbleCollapseChars = 600;
+
+/// Lines shown while a long bubble is collapsed.
+const int kUserBubbleCollapsedLines = 8;
+
+/// A message the owner sent: right-aligned bubble. Long text is clamped behind
+/// a "Show more" toggle; short text is selectable.
+class UserBubble extends StatefulWidget {
   const UserBubble({super.key, required this.text, required this.at, this.caption, this.dim = false, this.footer});
 
   final String text;
@@ -124,15 +132,26 @@ class UserBubble extends StatelessWidget {
   final Widget? footer;
 
   @override
+  State<UserBubble> createState() => _UserBubbleState();
+}
+
+class _UserBubbleState extends State<UserBubble> {
+  bool _expanded = false;
+
+  bool get _long => widget.text.length > kUserBubbleCollapseChars;
+
+  @override
   Widget build(BuildContext context) {
     final c = context.lb;
+    final style = Theme.of(context).textTheme.bodyMedium;
+    final collapsed = _long && !_expanded;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         ConstrainedBox(
           constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.85),
           child: Opacity(
-            opacity: dim ? 0.65 : 1,
+            opacity: widget.dim ? 0.65 : 1,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: c.accent,
@@ -145,13 +164,41 @@ class UserBubble extends StatelessWidget {
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: SelectableText(text, style: Theme.of(context).textTheme.bodyMedium),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // A plain Text while collapsed: it never competes with the list for drags.
+                    if (collapsed)
+                      Text(widget.text, maxLines: kUserBubbleCollapsedLines, overflow: TextOverflow.ellipsis, style: style)
+                    else
+                      SelectableText(widget.text, style: style),
+                    if (_long)
+                      Semantics(
+                        button: true,
+                        child: InkWell(
+                          onTap: () => setState(() => _expanded = !_expanded),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: kMinTarget),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: 1,
+                              child: Text(
+                                _expanded ? 'Show less' : 'Show more',
+                                style: Theme.of(context).textTheme.labelLarge!.copyWith(color: c.primary),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
         const SizedBox(height: 4),
-        footer ?? Text(caption ?? 'You \u00b7 ${etTime(at)}', style: LbText.muted(context, size: 11.5)),
+        widget.footer ?? Text(widget.caption ?? 'You \u00b7 ${etTime(widget.at)}', style: LbText.muted(context, size: 11.5)),
       ],
     );
   }
