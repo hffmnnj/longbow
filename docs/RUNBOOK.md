@@ -1,10 +1,13 @@
 # Runbook
 
-Runs on `laptop` as a systemd user service. State lives in `~/.local/share/robinhood-harness`
+Runs on one machine as a systemd user service. State lives in `~/.local/share/robinhood-harness`
 (`durable.sqlite` for the agent, `app.sqlite` for settings, journal, and orders,
 `robinhood/oauth.json` for Robinhood tokens, mode 0600).
 
 ## Install or update
+
+Machine-specific settings (tailnet host and origin, bind address, `HARNESS_LIVE_TRADING=1`, `SEC_CONTACT`) live in
+`~/.config/robinhood-harness/env`, which the unit loads. Live trading stays off until that file sets `HARNESS_LIVE_TRADING=1`.
 
 ```sh
 cd ~/Documents/robinhood-harness
@@ -15,7 +18,7 @@ systemctl --user enable --now robinhood-harness
 curl -fsS http://127.0.0.1:4520/api/status | head -c 300
 ```
 
-Open http://127.0.0.1:4520 locally or http://100.101.102.103:4520 over the Tailnet.
+Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 
 ## First run
 
@@ -34,5 +37,5 @@ Open http://127.0.0.1:4520 locally or http://100.101.102.103:4520 over the Tailn
   run `SUBAGENT_MODEL` (default `meta/muse-spark-1.3-contributor#xhigh`). Without a ChatGPT login the main agent falls
   back to the subagent model and logs a warning.
 - ChatGPT sign-in (missing or expired): in `apps/server`, run `node scripts/codex-login.ts`, open the URL and code it
-  writes to `/tmp/codex-login/status.txt`, then `systemctl --user restart robinhood-harness`. It is
+  writes to `codex-login-status.txt` in the system temp directory, then `systemctl --user restart robinhood-harness`. It is
   the harness's own login, separate from OpenCode's, because OpenAI refresh tokens are single use.

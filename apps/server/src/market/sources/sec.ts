@@ -6,8 +6,9 @@ import { MarketCache, MarketError, TTL } from "../cache.ts";
  * Remote JSON is untrusted data; only the fields named here are parsed.
  */
 
+/** SEC fair-access policy requires a contact in the User-Agent; set SEC_CONTACT to "Your Name you@example.com". */
 export const SEC_HEADERS: Record<string, string> = {
-  "User-Agent": "robinhood-harness set-SEC_CONTACT@example.com",
+  "User-Agent": process.env["SEC_CONTACT"]?.trim() || "robinhood-harness set-SEC_CONTACT@example.com",
   Accept: "application/json",
 };
 

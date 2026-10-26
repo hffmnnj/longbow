@@ -9,7 +9,7 @@ import { createNotes } from "./notes.ts";
 import { createSkillLibrary } from "./library.ts";
 import { createSkillsExtension } from "./tools.ts";
 
-const BASE = "/tmp/opencode";
+const BASE = "/tmp";
 let skillsDir = "";
 let notesDir = "";
 

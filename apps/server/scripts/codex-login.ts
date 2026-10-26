@@ -1,13 +1,13 @@
 // One-off: device-code ChatGPT (Codex) login into the harness credential store.
 import { writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { FileCredentialStore, credentialFilePath } from "../src/agent/credential-store.ts";
 
 const dataDir = process.env.DATA_DIR ?? join(homedir(), ".local", "share", "robinhood-harness");
-const status = "/tmp/codex-login/status.txt";
+const status = join(tmpdir(), "codex-login-status.txt");
 const models = createModels({ credentials: new FileCredentialStore(credentialFilePath(dataDir)) });
 const provider = openaiCodexProvider();
 models.setProvider(provider);
