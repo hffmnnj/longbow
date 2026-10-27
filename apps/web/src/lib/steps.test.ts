@@ -149,11 +149,11 @@ describe("historical times anchor items", () => {
       msg("a2", 9_000_000),
     ]);
     const step = items[0];
-    expect(step?.kind).toBe("step");
+    if (step?.kind !== "step" || step.result === undefined) throw new Error("expected a completed step");
     // The rendered "Worked for …" reads this wall time, which is fixed by the
     // stored script/result instants no matter how late the reload happens.
-    expect(step?.kind === "step" && step.result?.at - step.code.at).toBe(3_000);
-    expect(step?.kind === "step" && durationShort(step.result!.at - step.code.at)).toBe("3.0s");
+    expect(step.result.at - step.code.at).toBe(3_000);
+    expect(durationShort(step.result.at - step.code.at)).toBe("3.0s");
   });
 
   it("matchRuns matches inside the stored step window even when now is later", () => {
