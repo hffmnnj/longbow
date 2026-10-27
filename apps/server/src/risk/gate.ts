@@ -15,6 +15,7 @@ import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged, restingCryptoStops } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
+import { FractionalPreflightError } from "../robinhood/mapping.ts";
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -166,6 +167,29 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
 
   function publish(order: OrderRecord): void {
     bus.publish({ type: "order", order });
+  }
+
+  async function placeWithStopCancellation(intent: OrderIntent): ReturnType<Broker["placeOrder"]> {
+    const cancelledHeld: OrderRecord[] = [];
+    if (supportsTrading(broker) && intent.side === "sell") {
+      for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === intent.symbol)) {
+        cancelledHeld.push(await cancelOrder({ ...deps, broker }, stop.id));
+      }
+      // A resting native crypto stop locks the coins, so clear it before an exit by limit.
+      if (isCryptoSymbol(intent.symbol) && intent.orderType === "limit") {
+        for (const stop of restingCryptoStops(store, intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
+      }
+    }
+    try {
+      return await broker.placeOrder(intent);
+    } catch (error) {
+      if (error instanceof FractionalPreflightError) {
+        for (const stop of cancelledHeld) {
+          orderChanged(deps, store.updateOrder(stop.id, { status: "held", updatedAt: clock.now() }));
+        }
+      }
+      throw error;
+    }
   }
 
   function isExpired(order: OrderRecord, now: number): boolean {
@@ -433,12 +457,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
       try {
-        if (supportsTrading(broker) && valid.side === "sell") {
-          for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
-          // A resting native crypto stop locks the coins, so clear it before an exit by limit.
-          if (isCryptoSymbol(valid.symbol) && valid.orderType === "limit") for (const stop of restingCryptoStops(store, valid.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
-        }
-        const placed = await broker.placeOrder(valid);
+        const placed = await placeWithStopCancellation(valid);
         const order = store.addOrder({
           createdAt: now,
           updatedAt: clock.now(),
@@ -606,11 +625,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
       try {
-        if (supportsTrading(broker) && existing.intent.side === "sell") {
-          for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
-          if (isCryptoSymbol(existing.intent.symbol) && existing.intent.orderType === "limit") for (const stop of restingCryptoStops(store, existing.intent.symbol)) await cancelOrder({ ...deps, broker }, stop.id);
-        }
-        const placed = await broker.placeOrder(existing.intent);
+        const placed = await placeWithStopCancellation(existing.intent);
         const order = store.updateOrder(id, {
           verdict,
           status: "submitted",

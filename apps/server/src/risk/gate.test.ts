@@ -20,7 +20,7 @@ import {
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import { watchStops } from "./stops.ts";
-import { fractionalExecution } from "../robinhood/mapping.ts";
+import { BrokerMappingError, FractionalPreflightError, fractionalExecution } from "../robinhood/mapping.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 
@@ -265,6 +265,14 @@ function liveSetup() {
 }
 
 describe("fractional equity limit compatibility", () => {
+  it("distinguishes definite local fractional preflight refusals from mapping errors", () => {
+    const intent = { ...baseIntent(), side: "sell" as const, quantity: 0.5, limitPrice: 150 };
+    for (const run of [
+      () => fractionalExecution(intent, baseQuote(), true),
+      () => fractionalExecution(intent, baseQuote(), false),
+      () => fractionalExecution({ ...intent, orderType: "stop_limit" }, baseQuote(), true),
+    ]) assert.throws(run, (error: unknown) => error instanceof FractionalPreflightError && error instanceof BrokerMappingError);
+  });
   it("rejects the observed SPY bid-priced buy before review or placement with an actionable check", async () => {
     const { gate, broker } = setup({ mode: "auto" });
     broker.quoteValue = { symbol: "SPY", bid: 770.51, ask: 770.53, last: 770.51, at: NOW };
@@ -444,6 +452,136 @@ describe("harness-held fractional protection", () => {
     const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
     assert.equal(sell.status, "submitted", JSON.stringify(sell.verdict));
     assert.equal(f.store.getOrder(held.id)?.status, "cancelled"); assert.equal(f.broker.placeCalls, 1);
+  });
+  it("restores held protection when a sell bid falls below its floor after review", async () => {
+    const f = liveSetup();
+    const held = await f.gate.submit(f.stop);
+    assert.equal(held.status, "held");
+    let remotePlacements = 0;
+    f.broker.reviewOrder = async (intent) => {
+      f.broker.reviewCalls++;
+      assert.deepEqual(fractionalExecution(intent, f.broker.quoteValue, true), { market: true });
+      f.broker.quoteValue = { ...baseQuote(), bid: 139, ask: 139.1, last: 139 };
+      return "review";
+    };
+    f.broker.placeOrder = async (intent) => {
+      f.broker.placeCalls++;
+      fractionalExecution(intent, f.broker.quoteValue, true);
+      remotePlacements++;
+      return { brokerOrderId: "b1", raw: "{}" };
+    };
+    const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+    assert.equal(sell.status, "failed");
+    assert.match(sell.error ?? "", /bid 139, floor 149\.95/);
+    assert.equal(remotePlacements, 0);
+    assert.equal(f.store.getOrder(held.id)?.status, "held");
+    assert.deepEqual(f.events.filter((e) => e.type === "order" && e.order.id === held.id).map((e) => e.type === "order" && e.order.status), ["held", "cancelled", "held"]);
+    assert.equal(f.executions.length, 0);
+    await f.gate.tick();
+    await f.gate.tick();
+    assert.equal(f.executions.length, 1);
+    assert.equal(f.store.getOrder(held.id)?.status, "filled");
+    assert.equal(f.broker.placeCalls, 1);
+  });
+  it("restores only the same-symbol held stops after approval preflight refusal", async () => {
+    const f = liveSetup();
+    const first = await f.gate.submit({ ...f.stop, quantity: 0.3 });
+    const second = await f.gate.submit({ ...f.stop, quantity: 0.4 });
+    assert.equal(first.status, "held");
+    assert.equal(second.status, "held");
+    const other = f.store.addOrder({ createdAt: NOW, updatedAt: NOW, intent: { ...f.stop, symbol: "MSFT" }, verdict: first.verdict, status: "held" });
+    f.store.settings.mode = "approve";
+    const intent = { ...f.stop, orderType: "limit" as const, limitPrice: 149.95, invalidationPrice: 160 };
+    const pending = await f.gate.submit(intent);
+    assert.equal(pending.status, "pending_approval");
+    let remotePlacements = 0;
+    f.broker.reviewOrder = async (order) => {
+      assert.deepEqual(fractionalExecution(order, f.broker.quoteValue, true), { market: true });
+      f.broker.quoteValue = { ...baseQuote(), bid: 149, ask: 149.1, last: 149 };
+      return "review";
+    };
+    f.broker.placeOrder = async (order) => {
+      f.broker.placeCalls++;
+      fractionalExecution(order, f.broker.quoteValue, true);
+      remotePlacements++;
+      return { brokerOrderId: "b1", raw: "{}" };
+    };
+    const result = await f.gate.approve(pending.id);
+    assert.equal(result.status, "failed");
+    assert.equal(remotePlacements, 0);
+    assert.equal(f.broker.placeCalls, 1);
+    for (const id of [first.id, second.id]) {
+      assert.equal(f.store.getOrder(id)?.status, "held");
+      assert.deepEqual(f.events.filter((e) => e.type === "order" && e.order.id === id).map((e) => e.type === "order" && e.order.status), ["held", "cancelled", "held"]);
+    }
+    assert.equal(f.store.getOrder(other.id)?.status, "held");
+    assert.equal(f.events.filter((e) => e.type === "order" && e.order.id === other.id).length, 0);
+    assert.equal(f.executions.length, 0);
+  });
+  for (const mode of ["auto", "approve"] as const) {
+    for (const message of ["response could not be parsed", "fractional limit not marketable now: this equity order was not placed"] as const) {
+      it(`${mode}: keeps protection cancelled after ambiguous mapping error: ${message}`, async () => {
+        const f = liveSetup();
+        const held = await f.gate.submit(f.stop);
+        assert.equal(held.status, "held");
+        f.store.settings.mode = mode;
+        f.broker.placeOrder = async () => { f.broker.placeCalls++; throw new BrokerMappingError(message); };
+        const pendingOrResult = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+        if (mode === "approve") assert.equal(pendingOrResult.status, "pending_approval");
+        const result = mode === "approve" ? await f.gate.approve(pendingOrResult.id) : pendingOrResult;
+        assert.equal(result.status, "failed");
+        assert.equal(f.store.getOrder(held.id)?.status, "cancelled");
+        f.broker.quoteValue = { ...baseQuote(), bid: 139, ask: 139.1, last: 139 };
+        await f.gate.tick();
+        await f.gate.tick();
+        assert.equal(f.executions.length, 0);
+        assert.equal(f.broker.placeCalls, 1);
+      });
+    }
+  }
+  it("does not restore protection when a preflight-shaped error occurs after placement", async () => {
+    const f = liveSetup();
+    const held = await f.gate.submit(f.stop);
+    assert.equal(held.status, "held");
+    const addOrder = f.store.addOrder.bind(f.store);
+    let injected = false;
+    f.store.addOrder = (order) => {
+      if (order.status === "submitted" && !injected) {
+        injected = true;
+        throw new FractionalPreflightError("post-placement persistence failure");
+      }
+      return addOrder(order);
+    };
+    const result = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+    assert.equal(result.status, "failed");
+    assert.equal(f.broker.placeCalls, 1);
+    assert.equal(f.store.getOrder(held.id)?.status, "cancelled");
+  });
+  it("does not restore protection when cancellation publishing throws a preflight-shaped error", async () => {
+    const f = liveSetup();
+    const held = await f.gate.submit(f.stop);
+    assert.equal(held.status, "held");
+    const addJournal = f.store.addJournal.bind(f.store);
+    f.store.addJournal = (entry) => {
+      if (entry.summary === "AAPL order cancelled") throw new FractionalPreflightError("cancellation publishing failure");
+      return addJournal(entry);
+    };
+    const result = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+    assert.equal(result.status, "failed");
+    assert.equal(f.broker.placeCalls, 0);
+    assert.equal(f.store.getOrder(held.id)?.status, "cancelled");
+  });
+  it("keeps protection cancelled after a successful approved sell", async () => {
+    const f = liveSetup();
+    const held = await f.gate.submit(f.stop);
+    assert.equal(held.status, "held");
+    f.store.settings.mode = "approve";
+    const pending = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+    assert.equal(pending.status, "pending_approval");
+    const result = await f.gate.approve(pending.id);
+    assert.equal(result.status, "submitted");
+    assert.equal(f.broker.placeCalls, 1);
+    assert.equal(f.store.getOrder(held.id)?.status, "cancelled");
   });
 });
 

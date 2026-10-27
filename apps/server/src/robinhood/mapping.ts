@@ -7,6 +7,10 @@ import { isCryptoSymbol } from "@rh/shared";
 export class BrokerMappingError extends Error {
   constructor(message: string) { super(message); this.name = "BrokerMappingError"; }
 }
+/** Proof of local refusal before placement; never use for remote or response-parsing errors. */
+export class FractionalPreflightError extends BrokerMappingError {
+  constructor(message: string) { super(message); this.name = "FractionalPreflightError"; }
+}
 export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BrokerMappingError("Expected an object in Robinhood response");
   return value as Record<string, unknown>;
@@ -86,12 +90,12 @@ export function cryptoOrderMapping(tools: Tool[], kind: "review" | "place", inte
 export function fractionalExecution(intent: OrderIntent, quote: Quote, regular: boolean): ExecutionOptions {
   if (Number.isInteger(intent.quantity)) return {};
   if (intent.orderType !== "limit" || !regular) {
-    throw new BrokerMappingError("fractional limit not marketable now; Robinhood only fills fractional shares as market orders");
+    throw new FractionalPreflightError("fractional limit not marketable now; Robinhood only fills fractional shares as market orders");
   }
   const buy = intent.side === "buy";
   const price = buy ? quote.ask : quote.bid;
   if (buy ? price > intent.limitPrice : price < intent.limitPrice) {
-    throw new BrokerMappingError(`fractional limit not marketable now: ${intent.symbol} ${intent.side} ${buy ? "ask" : "bid"} ${price}, ${buy ? "ceiling" : "floor"} ${intent.limitPrice}; this equity order was not placed. Reassess the fresh quote, costs, sizing and constraints before choosing an acceptable limit or waiting.`);
+    throw new FractionalPreflightError(`fractional limit not marketable now: ${intent.symbol} ${intent.side} ${buy ? "ask" : "bid"} ${price}, ${buy ? "ceiling" : "floor"} ${intent.limitPrice}; this equity order was not placed. Reassess the fresh quote, costs, sizing and constraints before choosing an acceptable limit or waiting.`);
   }
   return { market: true };
 }
