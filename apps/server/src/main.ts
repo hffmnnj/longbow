@@ -302,7 +302,7 @@ async function main(): Promise<void> {
   const stopNotifier = startNotifier({ bus, push: nativePush.wrap(push), log: log.child("push") });
 
   const refresher = setInterval(() => {
-    if (calendar.clock(clock.now()).session !== "regular") return;
+    // Crypto fills and external account changes also happen outside stock-market hours.
     void refreshAccount("interval");
   }, 5 * 60_000);
   refresher.unref();

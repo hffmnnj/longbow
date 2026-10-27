@@ -116,6 +116,15 @@ Not doing: no native-stop replacement, ambiguous-order reconciliation, financial
 
 Not doing: no automatic order management, new broker calls, allocation changes, client UI/wire changes, or service restart. Age is not proof of a broker fault or stale price.
 
+### Hourly R&D: after-hours account freshness (2026-10-27)
+
+1. Continue the existing five-minute read-only account refresh outside regular equity hours; disconnected brokers still skip refresh and failed reads retain the cached snapshot.
+2. Both clients and diagnostics continue using the same account wire shape; no order, settings, strategy or credential behavior changes.
+3. Run root typechecking/tests and one focused safety review, restart only with trader idle and no running simulations, then verify the broker account no longer shows the filled BTC holding.
+4. Verify a subsequent after-hours snapshot advances without a new agent cycle before merging.
+
+Not doing: no immediate fill-event refresh framework, new timer, forced cycle, live test trade, financial-limit change or order retry.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.
