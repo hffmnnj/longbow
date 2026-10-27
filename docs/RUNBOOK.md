@@ -55,6 +55,8 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 
 `longbow-health.timer` runs a read-only probe on the hour, including while the market is closed. It reads `/api/status` and opens `app.sqlite` read-only. It does not message the trader, submit/cancel orders, change settings, or update source code. Warnings identify repeated holds, rejected reducing exits and incomplete locally recorded stop coverage; they are not buy signals. Local stop records do not verify broker-side protection, and a recent cycle start does not prove completion.
 
+`STALE_WORKING_EXIT` distinguishes plain-limit reducing sells still locally recorded as working after 60 wall-clock minutes from protective stops. `staleWorkingExits` shows the oldest 20 candidates and the total found within the newest 5,000 order records. These orders may be intentionally resting; creation age is not time since the last fill or proof of a stale limit. Reconcile broker status before interpreting the warning. It never authorizes or triggers cancellation, repricing or a replacement sale.
+
 ```sh
 cd ~/Documents/robinhood-harness
 install -Dm644 ops/longbow-health.service ~/.config/systemd/user/longbow-health.service

@@ -26,6 +26,7 @@ const ROW_LIMIT = 500;
 const STOP_SCAN_LIMIT = 5_000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const OPEN_STOP_STATUSES: OrderRecord["status"][] = ["held", "submitted", "partially_filled"];
+const WORKING_EXIT_STATUSES: OrderRecord["status"][] = ["submitted", "partially_filled"];
 
 function shortError(error: unknown, max = 200): string {
   const text = error instanceof Error ? error.message : String(error);
@@ -71,10 +72,11 @@ interface DbRows {
   journalLastHour: HealthInput["journalLastHour"];
   ordersLastHour: OrderRecord[];
   openStops: HealthInput["openStops"];
+  workingExits: OrderRecord[];
 }
 
 function readDb(dataDir: string, now: number): DbRows {
-  const empty: DbRows = { dbOk: true, journalLastHour: [], ordersLastHour: [], openStops: [] };
+  const empty: DbRows = { dbOk: true, journalLastHour: [], ordersLastHour: [], openStops: [], workingExits: [] };
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(join(dataDir, "app.sqlite"), { readOnly: true });
@@ -107,10 +109,23 @@ function readDb(dataDir: string, now: number): DbRows {
           remainingQuantity: Math.max(0, order.intent.quantity - (order.filledQuantity ?? 0)),
         });
       }
+      // Working plain-limit exits come from this same bounded scan; the
+      // report applies the staleness threshold. Submitted stop_limit
+      // protection stays separate: a working limit exit is not protection.
+      if (
+        order.intent?.side === "sell" &&
+        order.intent?.orderType === "limit" &&
+        order.verdict?.isExit === true &&
+        typeof order.brokerOrderId === "string" &&
+        order.brokerOrderId.length > 0 &&
+        (WORKING_EXIT_STATUSES as string[]).includes(order.status)
+      ) {
+        empty.workingExits.push(order);
+      }
     }
     return empty;
   } catch (error) {
-    return { ...empty, dbOk: false, dbError: shortError(error), journalLastHour: [], ordersLastHour: [], openStops: [] };
+    return { ...empty, dbOk: false, dbError: shortError(error), journalLastHour: [], ordersLastHour: [], openStops: [], workingExits: [] };
   } finally {
     db?.close();
   }
@@ -131,6 +146,7 @@ async function main(): Promise<void> {
       journalLastHour: rows.journalLastHour,
       ordersLastHour: rows.ordersLastHour,
       openStops: rows.openStops,
+      workingExits: rows.workingExits,
       dbOk: rows.dbOk,
       ...(rows.dbError !== undefined ? { dbError: rows.dbError } : {}),
     });
