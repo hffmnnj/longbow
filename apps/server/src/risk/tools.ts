@@ -30,7 +30,7 @@ const submitOrderSchema = Type.Object({
     description: "Buy to open a long, or sell shares you already hold. Shorting is never allowed.",
   }),
   quantity: Type.Number({
-    description: "Number of shares, fractional to 4 decimal places (for example 3.7894), or coins for a crypto pair, to 8 decimals (for example 0.0005). Must fit the per-trade risk, position, and notional caps.",
+    description: "Number of shares, fractional to 4 decimal places (for example 3.7894), or coins for a crypto pair, to 8 decimals (for example 0.0005). Entries must fit the per-trade risk, position, and notional caps. A reducing sell, including a protective stop, is exempt from those entry caps but cannot exceed the held quantity; all other applicable gate checks still apply.",
     exclusiveMinimum: 0,
   }),
   orderType: Type.Union([Type.Literal("limit"), Type.Literal("stop_limit")], {

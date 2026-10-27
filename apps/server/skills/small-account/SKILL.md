@@ -15,7 +15,7 @@ Default to liquid ETFs (SPY, QQQ, DIA, IWM) and mega-cap leaders with average da
 
 ## Position count and sizing
 
-At most 4 names, and usually 1 to 2. Each slot is scarce, so a new entry must displace the weakest idea on paper, not just clear the gate. Read the live per-trade risk percent, per-name cap, and order-notional cap from `get_risk_state` before every computation; the worked numbers below illustrate method, not current settings.
+Hold at most the live maxPositions names from the cycle header and `get_risk_state` (usually 1 to 2 at this size). Each slot is scarce, so a new entry must displace the weakest idea on paper, not just clear the gate. Read the live position cap, per-trade risk percent, per-name cap, and entry-order notional cap from the cycle header and `get_risk_state` before every computation; the worked numbers below illustrate method, not current settings. A hard-coded count in older prose never overrides the live cap.
 
 Worked example at $1,000 with a one-and-a-half percent per-trade risk ($15) and a 30% per-name cap ($300): a $95 entry with a $4.50 per-share stop gives $15 / $4.50 = 3.33 shares on risk, which cost $316 and breach the name cap, so the cap binds at $300 / $95 = 3.16 shares. Fractional shares are allowed and expected: size to the tighter of the risk constraint and the cap constraint, to the cent, and never round up to a whole share.
 
@@ -49,4 +49,4 @@ Once a week, post-close: recompute heat per `portfolio-heat`, check realized cos
 - Chasing: entering above the planned limit because the name is running converts edge into slippage; the missed trade costs nothing and the chased one pays spread.
 - Borrowing conviction from size: no averaging down, ever; a position against its stop is smaller next time, not bigger this time.
 
-Crypto is not a fifth slot: crypto pairs live in the separate capped sleeve, so load `crypto-sleeve` before sizing any crypto order.
+Crypto is not an extra stock slot: crypto pairs live in the separate capped sleeve, so load `crypto-sleeve` before sizing any crypto order.

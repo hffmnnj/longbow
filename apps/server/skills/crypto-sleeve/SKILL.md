@@ -11,7 +11,7 @@ The core stays the equity swing book; this sleeve is a toe in the water. Researc
 
 ## Gate numbers (live values win)
 
-The gate enforces, on top of the usual rules: any pair Robinhood lists is allowed by default (the owner can set an allowlist; read it under crypto settings in `get_risk_state`), a total crypto cap of 8 percent of equity (existing holdings count; read the live value in `get_risk_state` under crypto settings), a 40 USD fat-finger cap per crypto order, at most 1 crypto buy per ET day, a 300 bps spread cap, reward-to-risk of at least 2, EV after costs, per-trade risk, and the daily-loss and monthly-drawdown halts. Symbols are hyphenated pairs (BTC-USD) and quantity is in coins. Crypto trades 24/7: market-hours and entry-window rules do not apply, the overnight cycle can trade it, and the pattern-day-trade rule does not apply to crypto. Earnings, SEC, and equity calendars do not apply.
+Read current crypto settings in `get_risk_state`; live values override all examples here. Entries face the shared sleeve exposure cap, crypto per-entry notional cap (40 USD by default), daily crypto entry budget, reward-to-risk, EV after costs, per-trade risk, and daily-loss/monthly-drawdown halts. A reducing sell or protective sell stop that does not exceed the held quantity is exempt from the entry notional cap, even if appreciation or a legacy purchase puts its value above that cap; do not split it to evade a limit. All other applicable exit checks still apply, including fresh quotes, spread/price checks, kill switch and mode. Any Robinhood pair is allowed unless the owner configures an allowlist. Symbols are hyphenated pairs (BTC-USD) and quantity is in coins. Crypto trades 24/7: stock market-hours, entry-window and day-trade rules do not apply. Earnings, SEC, and equity calendars do not apply.
 
 ## Regime gate
 
@@ -23,9 +23,9 @@ Pullback to the rising 20-day EMA or 50-day SMA with RSI14 between 40 and 60, or
 
 ## Sizing
 
-The invalidation is the lower of the last swing low and 2x ATR14 below entry (daily bars). Read the live per-trade risk from `get_risk_state` (1.5 percent figure) and halve it for crypto (0.75 percent of equity at risk), because a stop can gap over the weekend. Quantity is halved risk dollars divided by entry minus invalidation, then capped by the remaining room under the crypto cap (cap percent times equity minus current crypto value) and the 40 USD order cap.
+The invalidation is the lower of the last swing low and 2x ATR14 below entry (daily bars). Read the live per-trade risk from `get_risk_state` and halve it for crypto, because a stop can gap over the weekend. Entry quantity is halved risk dollars divided by entry minus invalidation, then capped by remaining sleeve room (live cap percent times equity minus current crypto value) and the live crypto entry-order cap. These entry sizing rules do not size a reducing exit or its protective stop.
 
-Worked example at roughly 1,235 USD equity with BTC at 80,000: entry 79,500 limit, invalidation 74,500 (5,000 below). Risk allowance 0.75 percent of 1,235 is about 9.26 USD, so 9.26 / 5,000 = 0.00185 BTC (about 147 USD) on risk; the 40 USD order cap binds, so size 0.0005 BTC (about 39.75 USD). The caps will usually bind at this account size. That is the point: a toe in the water.
+Illustrative entry only, assuming 1.5 percent stock risk and a 40 USD crypto entry cap: at 1,235 USD equity, entry 79,500 and invalidation 74,500, crypto risk allowance is 0.75 percent of 1,235, about 9.26 USD. Risk sizing gives about 0.00185 BTC, but the entry cap binds at about 0.0005 BTC (39.75 USD). Recompute from live inputs; these are not current account figures or settings, and the entry cap does not limit a later reducing exit.
 
 ## Costs
 

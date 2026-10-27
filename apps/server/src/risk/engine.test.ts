@@ -274,7 +274,7 @@ describe("risk engine", () => {
     assert.deepEqual(failedRules(input), ["sector"]);
   });
 
-  it("notional_cap blocks a sell above the fat-finger cap", () => {
+  it("notional_cap allows a partial stock exit above the entry cap", () => {
     const input = passingInput();
     input.account = {
       ...input.account,
@@ -283,7 +283,25 @@ describe("risk engine", () => {
       ],
     };
     input.intent = { ...input.intent, side: "sell", quantity: 4, invalidationPrice: 160 };
-    assert.deepEqual(failedRules(input), ["notional_cap"]);
+    const verdict = evaluate(input);
+    assert.equal(verdict.approved, true);
+    assert.equal(verdict.isExit, true);
+    assert.equal(verdict.maxQuantity, undefined);
+    assert.match(verdict.checks.find((c) => c.rule === "notional_cap")?.detail ?? "", /exit.*entry/i);
+  });
+
+  it("oversells are never exits, regardless of whether they exceed the cap", () => {
+    for (const cap of [100, 500]) {
+      const input = passingInput();
+      input.settings.risk.maxOrderNotionalUsd = cap;
+      input.intent = { ...input.intent, side: "sell", quantity: 2, invalidationPrice: 160 };
+      const verdict = evaluate(input);
+      assert.equal(verdict.isExit, false);
+      assert.equal(verdict.approved, false);
+      assert.equal(verdict.checks.find((c) => c.rule === "no_short")?.ok, false);
+      assert.equal(verdict.checks.find((c) => c.rule === "notional_cap")?.ok, cap >= 300);
+      assert.doesNotMatch(verdict.checks.find((c) => c.rule === "notional_cap")?.detail ?? "", /exit/i);
+    }
   });
 
   it("notional_cap blocks buys above buying power", () => {
@@ -523,6 +541,43 @@ describe("crypto sleeve", () => {
     };
     return input;
   }
+
+  it("allows a full BTC exit above the crypto entry cap without suggesting a smaller quantity", () => {
+    const input = btcInput();
+    input.settings.crypto.maxOrderNotionalUsd = 40;
+    input.account.positions = [{ symbol: "BTC-USD", quantity: 0.00058, averageCost: 80_000, marketValue: 46.11, unrealizedPnl: 0 }];
+    input.intent = { ...input.intent, side: "sell", quantity: 0.00058, limitPrice: 79_500 };
+    const verdict = evaluate(input);
+    assert.equal(verdict.approved, true, JSON.stringify(verdict.checks.filter((c) => !c.ok)));
+    assert.equal(verdict.isExit, true);
+    assert.equal(verdict.maxQuantity, undefined);
+    assert.match(verdict.checks.find((c) => c.rule === "notional_cap")?.detail ?? "", /exit.*entry/i);
+  });
+
+  it("keeps the crypto entry cap and eight-decimal quantity floor for buys", () => {
+    const input = btcInput();
+    input.settings.crypto.maxOrderNotionalUsd = 40;
+    input.intent = { ...input.intent, quantity: 0.00058 };
+    const verdict = evaluate(input);
+    assert.deepEqual(verdict.checks.filter((c) => !c.ok).map((c) => c.rule), ["notional_cap"]);
+    assert.equal(verdict.isExit, false);
+    assert.equal(verdict.maxQuantity, 0.00050314);
+  });
+
+  it("continues blocking an above-cap BTC exit when mode is off or kill switch is engaged", () => {
+    for (const halt of ["mode", "kill_switch"] as const) {
+      const input = btcInput();
+      input.settings.crypto.maxOrderNotionalUsd = 40;
+      input.account.positions = [{ symbol: "BTC-USD", quantity: 0.00058, averageCost: 80_000, marketValue: 46.11, unrealizedPnl: 0 }];
+      input.intent = { ...input.intent, side: "sell", quantity: 0.00058, limitPrice: 79_500 };
+      if (halt === "mode") input.settings.mode = "off";
+      else input.settings.killSwitch = true;
+      const verdict = evaluate(input);
+      assert.equal(verdict.isExit, true);
+      assert.equal(verdict.approved, false);
+      assert.deepEqual(verdict.checks.filter((c) => !c.ok).map((c) => c.rule), [halt]);
+    }
+  });
 
   it("lets a patient BTC buy through on a weekend despite the wide spread", () => {
     const verdict = evaluate(btcInput());

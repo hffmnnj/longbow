@@ -51,6 +51,8 @@ the agent's live work, the journal, pending approvals, settings, and a kill swit
 
 ## Not doing (v1)
 
+- R&D does not place test orders, unlock trading, automatically raise financial limits, spend reserved cash, or claim that more trades guarantee profit.
+- Hourly telemetry is not an autonomous coding agent; unattended source upgrades require a supported scheduled engineering runner.
 - No strategy optimizer or parameter sweeps; simulations run one at a time.
 - No options, shorting, margin use, or multi-leg orders. Crypto is limited to a small capped sleeve.
 - No app login; the Tailnet plus the CSRF header is the boundary.
@@ -77,6 +79,16 @@ Checks:
 7. Design is recorded in `apps/mobile/DESIGN.md` and the screens use its tokens.
 
 ## Acceptance checks
+
+### Investment-policy R&D pass (2026-10-27)
+
+1. Cover all retained live-session history and distinguish model holds from deterministic risk rejections, with dates and counts.
+2. Risk-reducing sells and protective stops are not trapped by entry-only notional caps; buys, oversells, kill switch and mode-off remain constrained.
+3. The trader reads the owner's current preferences and live limits, distinguishes strategy preferences from engine prohibitions, and does not invent evidence or financial targets.
+4. A read-only hourly health check reports inactivity, repeated risk blocks, stale cycles and protection gaps without messaging the trader or changing orders/settings.
+5. Run focused regression tests and typechecking, publish the change, and report separately what is deployed and what remains unsupported.
+
+### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.
 2. The server starts, `GET /api/status` returns the agent, market clock, settings, and broker state.

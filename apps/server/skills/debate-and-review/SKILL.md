@@ -13,7 +13,7 @@ System One: `jev_thesis_check` is a second opinion beside this debate, never a s
 2. The evidence packet each subagent receives: symbol, setup type, entry, invalidation, target, the 3-plus evidence lines from `news-research`, regime state, and open-risk numbers from `get_risk_state`. Identical inputs; the bear does not get a weaker brief.
 3. Weigh by evidence, not eloquence. Score each argument: does it cite a filing, a price level, or a backtest number? An argument with no tier-1 or tier-2 citation counts as rhetoric and loses to any cited fact.
 4. The bear's job is to kill the trade: force it to name the specific invalidation the setup ignores, the base rate of this setup failing, and what has to be true for the entry to be wrong. If the bear's kill case cites real evidence, reduce size by half or pass.
-5. The risk_reviewer's job is limits, not opinions: caps, halts, day-trade count, spread, blackout windows, correlation with existing positions. A risk_reviewer flag is a hard stop, not a suggestion.
+5. The risk_reviewer's job is limits, not opinions: caps, halts, day-trade count, spread, blackout windows, correlation with existing positions. A flag naming a live engine check, halt, or account constraint is a hard stop, not a suggestion; a discretionary preference (correlation, setup quality, caution) is weighed as evidence and labeled as such, never as a mandatory safeguard.
 6. Record the verdict with `record_decision`: bull case in one line, bear case in one line, which evidence decided it, and the final size adjustment. If the debate reverses the entry, record that too; killed trades are decisions worth journaling.
 
 ## Tool workflow
