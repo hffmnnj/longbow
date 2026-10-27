@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, JournalEntry, OrderRecord, StatusResponse } from "@rh/shared";
-import { addOutbox, applyEvent, emptyState, failOutbox } from "./reducer.ts";
+import type { ChatMessage, JournalEntry, OrderRecord, StatusResponse, SubagentRun } from "@rh/shared";
+import { addOutbox, applyEvent, emptyState, failOutbox, mergeTranscript } from "./reducer.ts";
 import { fixtureOrder, fixtureStatus } from "./mock/fixtures.ts";
 
 const msg = (id: string, at: number, role: ChatMessage["role"], text = id): ChatMessage => ({
@@ -139,5 +139,54 @@ describe("applyEvent: agent work", () => {
     s = applyEvent(s, { type: "message", message: msg("u1", 3, "user", "hello") });
     expect(s.outbox.map((o) => o.id)).toEqual(["o2"]);
     expect(failOutbox(s, "o2").outbox[0]?.failed).toBe(true);
+  });
+});
+
+describe("historical timestamps survive reloads", () => {
+  const firstAt = 1_000_000;
+  const secondAt = 2_000_000;
+  const laterAt = 9_000_000;
+
+  it("keeps distinct server event times when later events arrive", () => {
+    let s = emptyState();
+    s = applyEvent(s, { type: "message", message: msg("m1", firstAt, "user") });
+    s = applyEvent(s, { type: "message", message: msg("m2", secondAt, "assistant") });
+    s = applyEvent(s, { type: "message", message: msg("m3", laterAt, "assistant") });
+    // IDs, order and stored times are untouched by the later arrival.
+    expect(s.messages.map((m) => [m.id, m.at])).toEqual([
+      ["m1", firstAt],
+      ["m2", secondAt],
+      ["m3", laterAt],
+    ]);
+  });
+
+  it("mergeTranscript keeps fetched history distinct from the live clock", () => {
+    let s = applyEvent(emptyState(), { type: "delta", text: "streaming ", conversationId: "c1" });
+    s = mergeTranscript(s, "c1", [msg("h2", secondAt, "assistant"), msg("h1", firstAt, "user")]);
+    expect(s.transcripts["c1"]?.messages.map((m) => [m.id, m.at])).toEqual([
+      ["h1", firstAt],
+      ["h2", secondAt],
+    ]);
+    expect(s.transcripts["c1"]?.draft).toBe("streaming ");
+    // A later live message joins history; it never rewrites it.
+    s = applyEvent(s, { type: "message", message: msg("h3", laterAt, "assistant"), conversationId: "c1" });
+    expect(s.transcripts["c1"]?.messages.map((m) => [m.id, m.at])).toEqual([
+      ["h1", firstAt],
+      ["h2", secondAt],
+      ["h3", laterAt],
+    ]);
+  });
+
+  it("upserts subagent runs by id and keeps stored start/end times", () => {
+    const run = (id: string, startedAt: number, endedAt?: number, status: SubagentRun["status"] = "running"): SubagentRun => ({
+      id, role: "bull", task: "t", startedAt, status, ...(endedAt === undefined ? {} : { endedAt }),
+    });
+    let s = applyEvent(emptyState(), { type: "subagent", run: run("x", firstAt) });
+    s = applyEvent(s, { type: "subagent", run: run("y", secondAt) });
+    s = applyEvent(s, { type: "subagent", run: run("x", firstAt, laterAt, "done") });
+    // Newest start first; the completed run keeps its stored end time.
+    expect(s.subagents.map((r) => [r.id, r.startedAt])).toEqual([["y", secondAt], ["x", firstAt]]);
+    expect(s.subagents.find((r) => r.id === "x")?.endedAt).toBe(laterAt);
+    expect(s.subagents.find((r) => r.id === "x")?.status).toBe("done");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, countdown, durationShort, etClock, etTime, pct, pctSigned, priceFor, qtyFor, qtyUnit, tone, usd, usdSigned } from "./format.ts";
+import { ago, countdown, durationShort, etClock, etStamp, etTime, pct, pctSigned, priceFor, qtyFor, qtyUnit, tone, usd, usdSigned } from "./format.ts";
 
 describe("currency", () => {
   it("formats two decimals with thousands separators", () => {
@@ -68,6 +68,39 @@ describe("countdown and ago", () => {
 describe("durationShort", () => {
   it("scales units", () => {
     expect([412, 1840, 12_400, 65_000].map(durationShort)).toEqual(["412ms", "1.8s", "12s", "1m 05s"]);
+  });
+});
+
+describe("historical feed timestamps", () => {
+  const zone = "America/New_York";
+  // Two distinct historical instants on the same day, an hour apart.
+  const first = Date.UTC(2026, 9, 24, 14, 5, 9);
+  const second = Date.UTC(2026, 9, 24, 15, 5, 9);
+  // A much later reload: history must not collapse onto this clock.
+  const laterNow = Date.UTC(2026, 9, 25, 12, 0, 0);
+
+  it("keeps two historical instants distinct after a reload with a later clock", () => {
+    expect(etClock(first, zone)).toBe("10:05:09 EDT");
+    expect(etClock(second, zone)).toBe("11:05:09 EDT");
+    expect(etClock(laterNow, zone)).toBe("08:00:00 EDT");
+    expect(etTime(first, zone)).toBe("10:05 EDT");
+    expect(etTime(second, zone)).toBe("11:05 EDT");
+    expect(etTime(laterNow, zone)).toBe("08:00 EDT");
+  });
+
+  it("stamps history with its own day, not the reload day", () => {
+    expect(etStamp(first, laterNow, zone)).toBe("Oct 24 10:05 EDT");
+    expect(etStamp(laterNow, laterNow, zone)).toBe("08:00 EDT");
+  });
+
+  it("reads recency from the event time against the given now, not the current clock", () => {
+    expect(ago(laterNow - 5 * 60_000, laterNow)).toBe("5m ago");
+    expect(ago(laterNow - 3 * 3_600_000, laterNow)).toBe("3h ago");
+  });
+
+  it("derives a completed step duration from stored script/result times, not the reload clock", () => {
+    const wall = second - first;
+    expect(durationShort(wall)).toBe("60m 00s");
   });
 });
 

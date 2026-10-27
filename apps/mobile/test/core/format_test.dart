@@ -132,4 +132,36 @@ void main() {
       expect(yieldPct(4.1), '4.10%');
     });
   });
+
+  group('historical feed timestamps', () {
+    test('two historical instants stay distinct after a reload with a later clock', () {
+      final first = DateTime.utc(2026, 10, 24, 14, 5, 9).millisecondsSinceEpoch;
+      final second = DateTime.utc(2026, 10, 24, 15, 5, 9).millisecondsSinceEpoch;
+      final laterNow = DateTime.utc(2026, 10, 25, 12).millisecondsSinceEpoch;
+      expect(etClock(first, zone: _ny), '10:05:09 EDT');
+      expect(etClock(second, zone: _ny), '11:05:09 EDT');
+      expect(etClock(laterNow, zone: _ny), '08:00:00 EDT');
+      expect(etTime(first, zone: _ny), '10:05 EDT');
+      expect(etTime(second, zone: _ny), '11:05 EDT');
+      expect(etTime(laterNow, zone: _ny), '08:00 EDT');
+    });
+
+    test('etStamp uses the event day, not the reload day', () {
+      final first = DateTime.utc(2026, 10, 24, 14, 5, 9).millisecondsSinceEpoch;
+      final laterNow = DateTime.utc(2026, 10, 25, 12).millisecondsSinceEpoch;
+      expect(etStamp(first, now: laterNow, zone: _ny), 'Oct 24 10:05 EDT');
+      expect(etStamp(laterNow, now: laterNow, zone: _ny), '08:00 EDT');
+    });
+
+    test('reads recency from the event time against the given now', () {
+      final laterNow = DateTime.utc(2026, 10, 25, 12).millisecondsSinceEpoch;
+      expect(ago(laterNow - 5 * 60000, now: laterNow), '5m ago');
+      expect(ago(laterNow - 3 * 3600000, now: laterNow), '3h ago');
+    });
+
+    test('derives a completed step duration from stored times, not the reload clock', () {
+      expect(durationShort(3000), '3.0s');
+      expect(durationShort(3600000), '60m 00s');
+    });
+  });
 }
