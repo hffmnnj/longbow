@@ -50,3 +50,20 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
   a billing problem. Either way the tools report unavailable and the agent continues without Jev.
 - Turn it off: `curl -X PATCH -H "x-harness: 1" -H "content-type: application/json" -d '{"systemOne":{"enabled":false}}' http://127.0.0.1:4520/api/settings`.
 - Restarting the service fails running simulations; check for running sims before touching it.
+
+## Hourly R&D diagnostics
+
+`longbow-health.timer` runs a read-only probe on the hour, including while the market is closed. It reads `/api/status` and opens `app.sqlite` read-only. It does not message the trader, submit/cancel orders, change settings, or update source code. Warnings identify repeated holds, rejected reducing exits and incomplete locally recorded stop coverage; they are not buy signals. Local stop records do not verify broker-side protection, and a recent cycle start does not prove completion.
+
+```sh
+cd ~/Documents/robinhood-harness
+install -Dm644 ops/longbow-health.service ~/.config/systemd/user/longbow-health.service
+install -Dm644 ops/longbow-health.timer ~/.config/systemd/user/longbow-health.timer
+systemctl --user daemon-reload
+systemctl --user enable --now longbow-health.timer
+systemctl --user start longbow-health.service
+systemctl --user list-timers longbow-health.timer --no-pager
+journalctl _SYSTEMD_USER_UNIT=longbow-health.service -n 5 --no-pager
+```
+
+Run manually with `node scripts/health-monitor.ts` in `apps/server`. Stop future probes with `systemctl --user disable --now longbow-health.timer`; this does not stop trading. No unattended engineering runner is installed: hourly diagnostics must not be described as autonomous hourly upgrades. Test concrete fixes before deployment; strategy-performance claims require actual informative trades and adequate evidence, not a zero-trade suite.

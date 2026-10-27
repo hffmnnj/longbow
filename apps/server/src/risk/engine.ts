@@ -392,7 +392,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     }
   }
 
-  // 13. notional_cap: fat-finger cap, plus buying power / settled cash for buys.
+  // 13. notional_cap: entry fat-finger cap, plus buying power / settled cash for buys.
   const orderCapUsd = crypto ? Math.min(risk.maxOrderNotionalUsd, cryptoRules.maxOrderNotionalUsd) : risk.maxOrderNotionalUsd;
   // Crypto is cash-only: Robinhood reports its own buying power.
   const buyingPower = crypto ? Math.min(account.buyingPower, account.cryptoBuyingPower ?? account.buyingPower) : account.buyingPower;
@@ -406,7 +406,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
       }
     }
   }
-  if (intent.side === "sell") {
+  if (isExit) {
+    push("notional_cap", true, "exit; the entry notional cap does not apply");
+  } else if (intent.side === "sell") {
     push(
       "notional_cap",
       notional <= orderCapUsd,

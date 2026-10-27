@@ -650,6 +650,24 @@ describe("crypto protection rests natively at Robinhood", () => {
     assert.equal(broker.placeCalls, 1);
   });
 
+  it("submits above-cap BTC protective stops and full exits through the gate", async () => {
+    for (const orderType of ["limit", "stop_limit"] as const) {
+      const { gate, broker, store, base } = cryptoSetup();
+      store.settings.crypto.maxOrderNotionalUsd = 40;
+      broker.snapshotValue.positions[0] = { symbol: "BTC-USD", quantity: 0.0006, sharesAvailableForSells: 0.0006, averageCost: 80_000, marketValue: 48, unrealizedPnl: 0 };
+      const intent = orderType === "limit"
+        ? { ...base, quantity: 0.0006, orderType }
+        : { ...base, quantity: 0.0006, orderType, stopPrice: 79_000, limitPrice: 78_500 };
+      const order = await gate.submit(intent);
+      assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+      assert.equal(order.verdict.isExit, true);
+      assert.equal(order.verdict.maxQuantity, undefined);
+      assert.equal(broker.reviewCalls, 1);
+      assert.equal(broker.placeCalls, 1);
+      assert.equal(broker.lastPlaced?.quantity, 0.0006);
+    }
+  });
+
   it("cancels the resting crypto stop before an exit by limit", async () => {
     const { gate, broker, cancellations, base } = cryptoSetup();
     const stop = await gate.submit({ ...base, orderType: "stop_limit", stopPrice: 79_000, limitPrice: 78_500 });

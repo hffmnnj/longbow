@@ -1,0 +1,11 @@
+[Unit]
+Description=Longbow hourly health monitor timer
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+AccuracySec=1min
+Unit=longbow-health.service
+
+[Install]
+WantedBy=timers.target
