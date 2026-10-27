@@ -11,6 +11,9 @@
 - Report figures come only from `apps/server/src/reports/facts.ts`; the model supplies narrative through `publish_report`, never numbers.
 - Every user-facing change ships to both clients in the same PR: the web app (`apps/web`) and the native Android app (`apps/mobile`, Flutter). A server wire change updates both parsers (`packages/shared` and `apps/mobile/lib/models`). Owner's standing instruction.
 
+## Delivery authority
+- The owner authorizes merging all open and future PRs in `hffmnnj/longbow` without asking again. Verify the changes and obey required checks and branch protections; this does not authorize direct pushes to `main` or changes to live-trading controls.
+
 ## Commands
 - `bun run typecheck && bun run test` in the repo root; the web tests run separately with `bun run test` in `apps/web` (vitest, Node environment, no DOM).
 - After web changes, `bun run build` in `apps/web`; the server serves `apps/web/build` on port 4520.
