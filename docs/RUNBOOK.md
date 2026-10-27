@@ -27,6 +27,7 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 
 ## Operate
 
+- Account balances and positions refresh every five minutes while Robinhood is connected, including outside equity hours for 24/7 crypto fills. `account.at` is the cached snapshot time; a newer fill record does not by itself prove that snapshot has caught up.
 - Logs: `journalctl --user -u robinhood-harness -f`
 - Stop everything now: the kill switch in the UI, or `systemctl --user stop robinhood-harness`.
 - Logs: `journalctl _SYSTEMD_USER_UNIT=robinhood-harness.service -f` (this host does not keep a user journal).
