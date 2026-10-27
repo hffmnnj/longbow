@@ -310,6 +310,8 @@ describe("playbook consistency", () => {
     assert.ok(!body.includes("At most 4 names"), "hard-coded count is gone");
     assert.ok(!body.includes("fifth slot"), "stale fifth-slot wording is gone");
     assert.match(body, /live maxPositions/, "live cap governs");
+    assert.ok(!body.includes("are always allowed"), "skill does not promise that exits bypass all checks");
+    assert.match(body, /live day-trade cap and minimum hold/, "skill uses current hold and day-trade settings");
   });
 
   it("debate_and_review_separates_engine_blocks_from_preferences", async () => {

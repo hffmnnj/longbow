@@ -150,8 +150,18 @@ export function buildHealthReport(input: HealthInput): HealthReport {
   }
 
   const account = input.status?.account ?? null;
+  const brokerConnected = input.status?.broker?.state === "connected";
+  if (input.status !== null && !brokerConnected) {
+    error("BROKER_DISCONNECTED", "broker is not connected; a cached account snapshot does not establish current account health.");
+  }
   if (input.status !== null && account === null) {
     error("ACCOUNT_UNAVAILABLE", "status has no account snapshot; equity, cash and positions are unknown.");
+  }
+  const accountAgeMs = account === null ? undefined : input.now - account.at;
+  const accountFresh = accountAgeMs !== undefined && Number.isFinite(accountAgeMs) &&
+    accountAgeMs >= -5_000 && accountAgeMs <= 2 * cycleMinutes * 60_000 + STALE_GRACE_MS;
+  if (account !== null && !accountFresh) {
+    error("ACCOUNT_STALE", "account snapshot is older than two cycle windows plus grace, invalid, or in the future; current balances and protection are unknown.");
   }
 
   const equity = account?.equity ?? 0;
@@ -226,7 +236,7 @@ export function buildHealthReport(input: HealthInput): HealthReport {
   }
 
   const coverage: HealthCoverage =
-    input.status === null || !input.statusOk ? "unavailable" : !input.dbOk || account === null ? "partial" : "full";
+    input.status === null || !input.statusOk ? "unavailable" : !input.dbOk || account === null || !accountFresh || !brokerConnected ? "partial" : "full";
   const ok = !findings.some((f) => f.severity === "error");
   if (ok && findings.length === 0) {
     findings.push({ code: "HEALTHY", severity: "info", message: "status reachable, cycle fresh, account known, no gaps in local records." });

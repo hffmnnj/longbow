@@ -235,6 +235,28 @@ describe("buildHealthReport", () => {
     assert.equal(report.cashPct, undefined);
   });
 
+  it("a_disconnected_broker_cannot_be_healthy_from_a_cached_account", () => {
+    const status = statusResponse();
+    status.broker = { state: "disconnected", tools: [] };
+    const report = buildHealthReport(baseInput({ status }));
+    assert.equal(report.ok, false);
+    assert.equal(report.coverage, "partial");
+    assert.ok(report.findings.some((f) => f.code === "BROKER_DISCONNECTED"));
+    assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
+  });
+
+  it("a_fresh_cycle_does_not_make_an_old_account_snapshot_current", () => {
+    const status = statusResponse();
+    assert.ok(status.account);
+    status.account.at = NOW - 66 * MIN;
+    const report = buildHealthReport(baseInput({ status }));
+    assert.equal(report.lastCycle.stale, false);
+    assert.equal(report.ok, false);
+    assert.equal(report.coverage, "partial");
+    assert.ok(report.findings.some((f) => f.code === "ACCOUNT_STALE"));
+    assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
+  });
+
   it("stale_cycle_uses_open_cadence_plus_grace", () => {
     const report = buildHealthReport(baseInput({ status: statusResponse({ lastCycleAt: NOW - 60 * MIN }) }));
     assert.equal(report.lastCycle.stale, true);

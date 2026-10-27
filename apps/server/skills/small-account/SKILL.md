@@ -15,7 +15,7 @@ Default to liquid ETFs (SPY, QQQ, DIA, IWM) and mega-cap leaders with average da
 
 ## Position count and sizing
 
-Hold at most the live maxPositions names from the cycle header and `get_risk_state` (usually 1 to 2 at this size). Each slot is scarce, so a new entry must displace the weakest idea on paper, not just clear the gate. Read the live position cap, per-trade risk percent, per-name cap, and entry-order notional cap from the cycle header and `get_risk_state` before every computation; the worked numbers below illustrate method, not current settings. A hard-coded count in older prose never overrides the live cap.
+Hold at most the live maxPositions names from the cycle header and `get_risk_state`. Assess marginal portfolio risk and costs before using a slot; a new entry need not displace an existing holding when the live limits leave room. Read the live position cap, per-trade risk percent, per-name cap, and entry-order notional cap from the cycle header and `get_risk_state` before every computation; the worked numbers below illustrate method, not current settings. A hard-coded count in older prose never overrides the live cap.
 
 Worked example at $1,000 with a one-and-a-half percent per-trade risk ($15) and a 30% per-name cap ($300): a $95 entry with a $4.50 per-share stop gives $15 / $4.50 = 3.33 shares on risk, which cost $316 and breach the name cap, so the cap binds at $300 / $95 = 3.16 shares. Fractional shares are allowed and expected: size to the tighter of the risk constraint and the cap constraint, to the cent, and never round up to a whole share.
 
@@ -27,7 +27,7 @@ Robinhood fills fractional shares only as market orders in regular hours. A frac
 
 ## Day-trade limits
 
-Do not day trade. Opening and closing the same name in one session counts toward the system's day-trade cap (3 in 5 business days), and each round trip burns spread twice on an account that cannot afford it. Every entry is planned as a multi-day swing with a 3- to 15-day horizon: long enough for the thesis to work, short enough that a time stop fires before hope sets in. Stop exits are exempt from the minimum hold and are always allowed; everything else sits overnight at minimum.
+Prefer planned multi-day holdings over costly churn, while distinguishing tactical swings from owner-directed allocation. Read the live day-trade cap and minimum hold from `get_risk_state`; do not substitute an old fixed count or require an overnight hold when the live minimum is zero. A qualifying stop exit is exempt from the minimum hold, not every check: kill switch, mode off, closed equity session, fresh-quote requirements and other applicable exit checks still apply. Crypto has separate rules in `crypto-sleeve`.
 
 ## Cost control
 
@@ -43,7 +43,7 @@ Once a week, post-close: recompute heat per `portfolio-heat`, check realized cos
 
 ## Failure modes
 
-- Overtrading: four entries in a week on a small account is churn, not diversification; each ticket costs spread the account cannot reclaim.
+- Overtrading: evaluate turnover and actual round-trip costs, not an arbitrary weekly trade count; spreading an allocation across names is not automatically churn.
 - Revenge trading after a stop: the next setup does not know about the last loss; halving size for the rest of the day after a down day exists for exactly this impulse.
 - Concentration in one theme: two "different" tech names are one bet; the sector cap and the 0.8 correlation rule in `portfolio-heat` decide, not the tickers.
 - Chasing: entering above the planned limit because the name is running converts edge into slippage; the missed trade costs nothing and the chased one pays spread.
