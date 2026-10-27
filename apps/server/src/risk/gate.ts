@@ -5,6 +5,7 @@ import {
   type HaltReason,
   type OrderIntent,
   type OrderRecord,
+  type Quote,
   type RiskCheck,
   type RiskVerdict,
   type SystemOneGate,
@@ -136,6 +137,17 @@ async function fetchMarketInputs(
 /** True when the order adds exposure (every buy, or a sell larger than the held long). */
 function isEntryOrder(side: OrderIntent["side"], heldQty: number, quantity: number): boolean {
   return !(side === "sell" && heldQty >= quantity);
+}
+
+function checkFractionalMarketability(verdict: RiskVerdict, intent: OrderIntent, quote: Quote): RiskVerdict {
+  if (isCryptoSymbol(intent.symbol) || Number.isInteger(intent.quantity) || intent.orderType !== "limit") return verdict;
+  const buy = intent.side === "buy";
+  const price = buy ? quote.ask : quote.bid;
+  const ok = buy ? price <= intent.limitPrice : price >= intent.limitPrice;
+  const detail = `${intent.symbol} fractional ${intent.side}: ${buy ? "ask" : "bid"} ${price}, ${buy ? "ceiling" : "floor"} ${intent.limitPrice}. ` +
+    (ok ? "Quote is inside the intent limit; market execution is not guaranteed at that price."
+      : `Not placed: a fractional equity limit cannot rest. Reassess the fresh quote, costs, sizing and all risk and owner constraints; only choose a new ${buy ? "ceiling covering the ask" : "floor at or below the bid"} if acceptable, otherwise wait.`);
+  return { ...verdict, approved: verdict.approved && ok, checks: [...verdict.checks, { rule: "fractional_marketable", ok, detail }] };
 }
 
 export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: string): Promise<OrderRecord>; tick(): Promise<void>; sync(): Promise<void> } {
@@ -338,9 +350,9 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
 
       // System One second opinion: entries the engine already approved only, never exits or protective
       // stops. It adds one `system_one` check; only gate "block" lets a concern reject, and an outage passes.
-      let verdict = engineVerdict;
+      let verdict = checkFractionalMarketability(engineVerdict, valid, quote);
       if (
-        engineVerdict.approved &&
+        verdict.approved &&
         !engineVerdict.isExit &&
         valid.side === "buy" &&
         deps.entryReview !== undefined &&
@@ -351,7 +363,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           log.warn("system one entry review failed", { error: shortError(error) });
           return undefined;
         });
-        if (check !== undefined) verdict = { ...engineVerdict, approved: check.ok, checks: [...engineVerdict.checks, check] };
+        if (check !== undefined) verdict = { ...verdict, approved: check.ok, checks: [...verdict.checks, check] };
       }
 
       if (!verdict.approved) {
@@ -530,7 +542,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
       await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
-      const verdict = evaluate({
+      const engineVerdict = evaluate({
         intent: existing.intent,
         settings,
         account: snapshot,
@@ -551,7 +563,8 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now: checkAt,
       });
-      persistDrawdownTrip(settings, verdict, calendar.etDate(checkAt).slice(0, 7));
+      persistDrawdownTrip(settings, engineVerdict, calendar.etDate(checkAt).slice(0, 7));
+      const verdict = checkFractionalMarketability(engineVerdict, existing.intent, quote);
 
       if (!verdict.approved) {
         const order = store.updateOrder(id, {

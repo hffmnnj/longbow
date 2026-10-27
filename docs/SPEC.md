@@ -88,6 +88,16 @@ Checks:
 4. A read-only hourly health check reports inactivity, repeated risk blocks, stale cycles and protection gaps without messaging the trader or changing orders/settings.
 5. Run focused regression tests and typechecking, publish the change, and report separately what is deployed and what remains unsupported.
 
+### Fractional execution and transcript timestamps (2026-10-27)
+
+1. Historical user, assistant, tool, cycle and helper messages retain their original persisted timestamps across reloads; missing times use only an explicit fallback.
+2. Completed helper timestamps use persisted completion state, not the time a status list is viewed; both clients preserve event times and completed durations.
+3. A fractional equity intent whose limit cannot cover the fresh ask/bid fails before placement with actionable diagnostics; no implicit repricing, relaxed price ceilings or uncertain-order retry is added.
+4. Marketable fractional conversion, whole-share resting limits and existing trading controls retain regression coverage; no live test order is placed.
+5. Run server, web and Android checks plus one read-only browser reload check; deploy with the trader idle and simulations inactive, then merge under the owner's standing authorization.
+
+Not doing: no redesign, new order type, numeric limit change, live execution test, or changes to reserved cash.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.

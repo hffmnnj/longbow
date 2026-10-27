@@ -40,11 +40,13 @@
 
 ## Follow-ups
 
+- Fractional execution and timestamps (2026-10-27): deployed persisted message/helper times and fractional marketability preflight with unchanged price ceilings. Root typecheck, 635 server tests, 230 web tests, 69 focused Android tests/analyze and web build passed. Live API matched 200 persisted times across reload; phone QA preserved a historical reply and completed duration. Two distinct visual event IDs were not captured; API coverage supplied that check.
 - Investment-policy R&D (2026-10-27): audited retained live conversations and orders; corrected reducing-exit notional cap and owner/strategy instruction priority. Root typecheck and 619 server tests passed after safety-review corrections; read-only hourly health timer installed and its first run identified repeated holds and missing locally recorded BTC protection. Trader restarted with settings unchanged; PR #10 merged.
-- Unattended hourly engineering upgrades are not implemented: no supported scheduled engineering runner is exposed. The hourly health timer collects diagnostics only; it does not edit or deploy source.
+- The hourly health timer is read-only; user-requested 60-minute background waits drive further R&D while this engineering session is active. No separate unattended coding runner is installed.
 - R&D follow-ups: derive the current lot rather than earliest historical buy; fix minimum-hold trading-day counting and stop lookup beyond seven days; surface loss halts from a fresh account snapshot. Current live minimum hold is zero, so those hold defects did not cause the observed inactivity.
 - Review protection gaps after a failed exit placement and exit spread policy separately; neither is loosened by the entry-cap fix.
 - Health warnings are recorded in journald, not pushed to an unattended engineering runner. Locally recorded stop coverage is not broker verification, and the bounded 5,000-order scan can miss older still-resting protection.
+- Simulation comparability: fractional equity limit intents now need a marketable ask/bid at the shared gate, rather than parking patient fractional limits. Earlier simulation returns are not directly comparable; paper-broker resting-fill physics remains a separate limitation.
 - Join entry reviews to realized P&L to measure Jev's calibration on our own trades.
 - First live `system_one` order check (advise and block) is still unseen; watch the first entry the agent proposes.
 - Free OpenCode Jev tier is quota-limited by IP or pool; production uses TypeSafe direct.

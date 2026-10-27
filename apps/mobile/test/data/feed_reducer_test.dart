@@ -259,6 +259,81 @@ void main() {
       expect(s.transcripts['c1']!.draft, 'x');
     });
   });
+
+  group('historical timestamps survive reloads', () {
+    test('keeps distinct server event times when later events arrive', () {
+      const firstAt = 1000000;
+      const secondAt = 2000000;
+      const laterAt = 9000000;
+      var s = emptyState();
+      s = applyEvent(s, MessageEvent(msg('m1', firstAt, ChatRole.user)));
+      s = applyEvent(s, MessageEvent(msg('m2', secondAt, ChatRole.assistant)));
+      s = applyEvent(s, MessageEvent(msg('m3', laterAt, ChatRole.assistant)));
+      // IDs, order and stored times are untouched by the later arrival.
+      expect(
+          s.messages.map((m) => [m.id, m.at]).toList(),
+          [
+            ['m1', firstAt],
+            ['m2', secondAt],
+            ['m3', laterAt],
+          ]);
+    });
+
+    test('mergeTranscript keeps fetched history distinct from the live clock',
+        () {
+      const firstAt = 1000000;
+      const secondAt = 2000000;
+      const laterAt = 9000000;
+      var s = applyEvent(
+          emptyState(), const DeltaEvent('streaming ', conversationId: 'c1'));
+      s = mergeTranscript(s, 'c1', [
+        msg('h2', secondAt, ChatRole.assistant),
+        msg('h1', firstAt, ChatRole.user),
+      ]);
+      expect(
+          s.transcripts['c1']!.messages.map((m) => [m.id, m.at]).toList(),
+          [
+            ['h1', firstAt],
+            ['h2', secondAt],
+          ]);
+      expect(s.transcripts['c1']!.draft, 'streaming ');
+      // A later live message joins history; it never rewrites it.
+      s = applyEvent(
+          s,
+          MessageEvent(msg('h3', laterAt, ChatRole.assistant),
+              conversationId: 'c1'));
+      expect(
+          s.transcripts['c1']!.messages.map((m) => [m.id, m.at]).toList(),
+          [
+            ['h1', firstAt],
+            ['h2', secondAt],
+            ['h3', laterAt],
+          ]);
+    });
+
+    test('upserts subagent runs by id and keeps stored start/end times', () {
+      const firstAt = 1000000;
+      const secondAt = 2000000;
+      const laterAt = 9000000;
+      var s = emptyState();
+      s = applyEvent(s, SubagentEvent(run('x', firstAt)));
+      s = applyEvent(s, SubagentEvent(run('y', secondAt)));
+      s = applyEvent(
+          s,
+          SubagentEvent(run('x', firstAt, SubagentStatus.done)
+              .copyWith(endedAt: laterAt)));
+      // Newest start first; the completed run keeps its stored end time.
+      expect(
+          s.subagents.map((r) => [r.id, r.startedAt]).toList(),
+          [
+            ['y', secondAt],
+            ['x', firstAt],
+          ]);
+      expect(s.subagents.firstWhere((r) => r.id == 'x').endedAt, laterAt);
+      expect(s.subagents.firstWhere((r) => r.id == 'x').status,
+          SubagentStatus.done);
+    });
+  });
 }
 
 FeedState s0() => emptyState();

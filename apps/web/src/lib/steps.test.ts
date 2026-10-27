@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, JournalEntry, SubagentRun } from "@rh/shared";
-import { buildItems, cycleLabel, helperReport, liveStepKey, matchRuns, withDecisions } from "./steps.ts";
+import { durationShort } from "./format.ts";
+import { buildItems, cycleLabel, helperReport, itemTime, liveStepKey, matchRuns, withDecisions } from "./steps.ts";
 
 const d = (role: string) => ({ name: "delegate", summary: `{"role":"${role}","symbol":"NVDA"}`, durationMs: 100 });
 
@@ -100,5 +101,73 @@ describe("withDecisions", () => {
 
   it("leaves an empty transcript empty rather than showing decisions with no context", () => {
     expect(withDecisions([], [entry("x", 1)])).toEqual([]);
+  });
+});
+
+describe("historical times anchor items", () => {
+  const msg = (id: string, at: number, role: ChatMessage["role"] = "assistant", extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, at, role, text: id, ...extra });
+  const entry = (id: string, at: number, action: JournalEntry["action"] = "buy"): JournalEntry => ({
+    id, at, action, summary: id, rationale: "r", evidence: [],
+  });
+
+  it("itemTime reads the stored event time for every kind", () => {
+    const stepOnly = buildItems([
+      msg("c1", 1_000, "tool", { toolName: "codemode", code: "x" } as Partial<ChatMessage>),
+      msg("r1", 4_000, "tool", { toolName: "codemode", calls: [] } as Partial<ChatMessage>),
+    ]);
+    const helper = buildItems([msg("h1", 2_000, "helper")]);
+    const tools = buildItems([msg("t1", 3_000, "tool", { toolName: "get_quote" } as Partial<ChatMessage>)]);
+    expect(stepOnly.map(itemTime)).toEqual([1_000]);
+    expect(helper.map(itemTime)).toEqual([2_000]);
+    expect(tools.map(itemTime)).toEqual([3_000]);
+    const decisions = withDecisions(buildItems([msg("a", 100)]), [entry("d", 150)]);
+    expect(decisions.map(itemTime)).toEqual([100, 150]);
+  });
+
+  it("keeps a historical script/result pair intact when later messages arrive", () => {
+    const codeAt = 1_000_000;
+    const resultAt = 1_003_000;
+    const items = buildItems([
+      msg("c1", codeAt, "tool", { toolName: "codemode", code: "x" } as Partial<ChatMessage>),
+      msg("a1", codeAt + 500),
+      msg("r1", resultAt, "tool", { toolName: "codemode", calls: [] } as Partial<ChatMessage>),
+      msg("a2", 9_000_000),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["step", "assistant", "assistant"]);
+    const step = items[0];
+    expect(step?.kind === "step" && step.code.at).toBe(codeAt);
+    expect(step?.kind === "step" && step.result?.at).toBe(resultAt);
+  });
+
+  it("derives a completed step duration from stored script/result times, not the reload clock", () => {
+    const codeAt = 1_000_000;
+    const resultAt = 1_003_000;
+    const items = buildItems([
+      msg("c1", codeAt, "tool", { toolName: "codemode", code: "x" } as Partial<ChatMessage>),
+      msg("a1", codeAt + 500),
+      msg("r1", resultAt, "tool", { toolName: "codemode", calls: [] } as Partial<ChatMessage>),
+      msg("a2", 9_000_000),
+    ]);
+    const step = items[0];
+    expect(step?.kind).toBe("step");
+    // The rendered "Worked for …" reads this wall time, which is fixed by the
+    // stored script/result instants no matter how late the reload happens.
+    expect(step?.kind === "step" && step.result?.at - step.code.at).toBe(3_000);
+    expect(step?.kind === "step" && durationShort(step.result!.at - step.code.at)).toBe("3.0s");
+  });
+
+  it("matchRuns matches inside the stored step window even when now is later", () => {
+    const run = (id: string, role: SubagentRun["role"], startedAt: number): SubagentRun => ({
+      id, role, task: "t", startedAt, status: "done",
+    });
+    const from = 100_000;
+    const to = 105_000;
+    const hits = matchRuns(
+      [{ name: "delegate", summary: '{"role":"bull","symbol":"NVDA"}', durationMs: 100 }],
+      [run("old", "bull", 1_000), run("b1", "bull", 100_200)],
+      from,
+      to,
+    );
+    expect(hits.map((h) => h?.id)).toEqual(["b1"]);
   });
 });

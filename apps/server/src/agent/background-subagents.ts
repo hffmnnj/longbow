@@ -97,6 +97,9 @@ function childInstructions(role: SubagentRole, name: string, symbol: string | nu
 
 function toRun(row: BackgroundSubagentRow): SubagentRun {
   const status = row.status === "working" ? "running" : row.status === "failed" ? "failed" : "done";
+  // Terminal runs keep the persisted update time so history does not move on
+  // refresh; an unparseable stored date stays unknown instead of becoming now.
+  const persistedEnd = Date.parse(row.updatedAt);
   return {
     id: String(row.conversationId),
     role: row.role,
@@ -105,7 +108,7 @@ function toRun(row: BackgroundSubagentRow): SubagentRun {
     name: row.name,
     background: true,
     startedAt: Date.parse(row.startedAt),
-    ...(status === "running" ? {} : { endedAt: Date.now() }),
+    ...(status === "running" ? {} : Number.isFinite(persistedEnd) ? { endedAt: persistedEnd } : {}),
     status,
     ...(row.result === null ? {} : { answer: row.result }),
   };

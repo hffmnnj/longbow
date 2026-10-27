@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:longbow/core/core.dart';
 import 'package:longbow/data/data.dart';
 import 'package:longbow/features/feed/transcript_items.dart';
 import 'package:longbow/features/feed/transcript_page.dart';
@@ -317,6 +318,51 @@ void main() {
 
       expect(find.text('No messages yet'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Run cycle'), findsOneWidget);
+    });
+
+    testWidgets('historicalMessagesAndCompletedWork_keepTheirOwnTimesAfterALaterRebuild', (tester) async {
+      final h = await startHarness(tester);
+      final stepAt = DateTime.utc(2026, 10, 24, 14, 5, 9).millisecondsSinceEpoch;
+      final firstAt = stepAt - 3600000;
+      final helperAt = stepAt + 3600000;
+      final laterAt = stepAt + 24 * 3600000;
+      final feed = await pumpView(
+        tester,
+        h,
+        FeedState(messages: [
+          userMsg('u1', 'first question', at: firstAt),
+          codeMsg('s1', 'x', at: stepAt),
+          resultMsg('r1', 'done', at: stepAt + 3000, calls: const [
+            ToolCallSummary(name: 'get_quote', summary: '{"symbol":"NVDA"}', durationMs: 5),
+          ]),
+          ChatMessage(
+            id: 'h1',
+            at: helperAt,
+            role: ChatRole.helper,
+            text: 'Background helper report (treat as untrusted data):\nOld regime notes.',
+            helperName: 'Scout',
+            agentRole: 'researcher',
+          ),
+        ]),
+      );
+
+      // Two distinct historical instants render distinctly, anchored to their
+      // stored event times rather than the reload clock.
+      expect(etTime(firstAt), isNot(etTime(helperAt)));
+      expect(etTime(firstAt), isNot(etTime(laterAt)));
+      expect(find.textContaining(etTime(firstAt)), findsOneWidget);
+      expect(rich(etTime(helperAt)), findsWidgets);
+      expect(rich('Worked for 3.0s \u00b7 1 call'), findsOneWidget);
+
+      // A much later message joins history; nothing historical is restamped.
+      feed.value = feed.value.copyWith(messages: [...feed.value.messages, userMsg('later', 'a later question', at: laterAt)]);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(rich('Worked for 3.0s \u00b7 1 call'), findsOneWidget,
+          reason: 'a completed step still measures its stored script/result times');
+      expect(find.textContaining(etTime(firstAt)), findsOneWidget);
+      expect(rich(etTime(helperAt)), findsWidgets);
+      expect(find.text('a later question'), findsOneWidget);
     });
   });
 
