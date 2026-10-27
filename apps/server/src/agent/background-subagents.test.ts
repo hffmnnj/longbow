@@ -17,10 +17,11 @@ import {
   MemoryStorage,
   watchEvents,
   type ConversationId,
+  type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { SubagentRun } from "@rh/shared";
 import type { Logger } from "../ports.ts";
-import { createBackgroundSubagentExtension } from "./background-subagents.ts";
+import { createBackgroundSubagentExtension, BackgroundSubagentsDoc } from "./background-subagents.ts";
 
 const context = BACKGROUND_CONTEXT;
 
@@ -113,6 +114,25 @@ const probeTool = defineTool({
   },
 });
 
+/** Test probe that returns the persisted helper rows, including their stored timestamps. */
+const readRowsTool = defineTool({
+  name: "readrows",
+  description: "Test probe that returns background helper rows with persisted timestamps",
+  parameters: Type.Object({}),
+  execute: async (_args, api, callContext) => {
+    const state = await api.snapshot(BackgroundSubagentsDoc, callContext);
+    const helpers = Object.values(state?.helpers ?? {}).map((row) => ({
+      name: row.name,
+      status: row.status,
+      startedAt: row.startedAt,
+      updatedAt: row.updatedAt,
+    }));
+    return {
+      output: [{ type: "text" as const, text: JSON.stringify(helpers) }],
+    };
+  },
+});
+
 function lastText(message: Message): string {
   if (message.role === "system") return "";
   if (typeof message.content === "string") return message.content;
@@ -162,11 +182,19 @@ function route(alphaAnswer: string): FauxResponseStep {
     if (text.includes("TRIGGER-STATUS")) {
       return fauxAssistantMessage([fauxToolCall("probe", { action: "status" })], { stopReason: "toolUse" });
     }
+    if (text.includes("TRIGGER-READROWS")) {
+      return fauxAssistantMessage([fauxToolCall("readrows", {})], { stopReason: "toolUse" });
+    }
     return fauxAssistantMessage([fauxText("Nothing to do.")]);
   };
 }
 
-function installTestRegistry(options?: { maxWorking?: number; tokensPerSecond?: number; alphaAnswer?: string }) {
+function installTestRegistry(options?: {
+  maxWorking?: number;
+  tokensPerSecond?: number;
+  alphaAnswer?: string;
+  extraTools?: Array<ToolRegistration>;
+}) {
   const faux = fauxProvider(options?.tokensPerSecond === undefined ? {} : { tokensPerSecond: options.tokensPerSecond });
   faux.setResponses(Array.from({ length: 40 }, () => route(options?.alphaAnswer ?? ANSWER_ALPHA)));
   const models = createModels();
@@ -174,6 +202,9 @@ function installTestRegistry(options?: { maxWorking?: number; tokensPerSecond?: 
   const registry = createRegistry();
   registry.install(defineExtension({ name: "trading", tools: [quoteTool, submitOrderTool, delegateStubTool] }));
   registry.install(defineExtension({ name: "probe-ext", tools: [probeTool] }));
+  if (options?.extraTools !== undefined && options.extraTools.length > 0) {
+    registry.install(defineExtension({ name: "test-probes", tools: options.extraTools }));
+  }
   const runs: SubagentRun[] = [];
   registry.install(
     createBackgroundSubagentExtension({
@@ -252,6 +283,64 @@ async function latestProbeResult(root: Awaited<ReturnType<Harness["root"]>>): Pr
     }
   }
   throw new Error("no probe tool result in the parent transcript");
+}
+
+type HelperRowSnapshot = {
+  name: string;
+  status: string;
+  startedAt: string;
+  updatedAt: string;
+};
+
+async function latestReadRowsResult(root: Awaited<ReturnType<Harness["root"]>>): Promise<HelperRowSnapshot[]> {
+  const pages = await root.entries({ order: "descending" }, 200, undefined, context);
+  for (const entry of pages.items) {
+    for (const message of entry.model ?? []) {
+      if (message.role === "toolResult" && message.toolName === "readrows") {
+        return JSON.parse(lastText(message)) as HelperRowSnapshot[];
+      }
+    }
+  }
+  throw new Error("no readrows tool result in the parent transcript");
+}
+
+/** Waits until the child transcript shows the brief, proving the reporter already snapshotted its row. */
+async function waitForChildBrief(
+  harness: Harness,
+  childId: ConversationId,
+  wanted: string,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const child = await harness.conversation(childId, context);
+    assert.ok(child, "child conversation is reachable");
+    const pages = await child.entries({}, 200, undefined, context);
+    const transcript = pages.items
+      .flatMap((entry) => entry.model ?? [])
+      .map(lastText)
+      .join("\n");
+    if (transcript.includes(wanted)) return;
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for child to include ${JSON.stringify(wanted)}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function waitForTerminalRuns(
+  runs: SubagentRun[],
+  name: string,
+  count: number,
+  timeoutMs: number,
+): Promise<SubagentRun[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const terminal = runs.filter((run) => run.name === name && run.status !== "running");
+    if (terminal.length >= count) return terminal;
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out waiting for ${count} terminal runs for ${JSON.stringify(name)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 describe("background subagent tool", () => {
@@ -419,6 +508,47 @@ describe("background subagent tool", () => {
       assert.equal(probe.ok, false, "the over-cap spawn is refused");
       const text = [...(probe.diagnostics ?? []), probe.error ?? ""].join(" ");
       assert.ok(text.includes("At most 1"), `refusal explains the cap, got: ${JSON.stringify(text)}`);
+    } finally {
+      await harness.close(context);
+    }
+  });
+
+  it("keeps the persisted end time across repeated terminal conversions", async () => {
+    const { models, registry, runs } = installTestRegistry({
+      tokensPerSecond: 1000,
+      alphaAnswer: SLOW_ANSWER,
+      extraTools: [readRowsTool],
+    });
+    const harness = await Harness.open(new MemoryStorage(), { models, registry }, context);
+    try {
+      const root = await harness.root(context, {
+        agent: { model: { provider: "faux", modelId: "faux-1" } },
+      });
+      await (await root.submit({ type: "input", content: "TRIGGER-SPAWN-ALPHA please." }, context)).wait(context);
+      const childId = (await latestProbeResult(root)).details?.conversationId as ConversationId;
+      // The reporter snapshots its row before briefing the child, so a visible
+      // brief proves the stop below lands while the delivery is still in flight.
+      await waitForChildBrief(harness, childId, BRIEF_ALPHA, 30_000);
+
+      await (await root.submit({ type: "input", content: "TRIGGER-STOP-ALPHA please." }, context)).wait(context);
+      // The stop emits one terminal run; the in-flight delivery converts the same
+      // stopped row again after the slow child settles, without touching it.
+      const terminal = await waitForTerminalRuns(runs, "alpha", 2, 60_000);
+      assert.ok(terminal.every((run) => run.status === "done"), "stopped helpers convert to done");
+
+      await (await root.submit({ type: "input", content: "TRIGGER-READROWS please." }, context)).wait(context);
+      await harness.waitForIdle(context);
+      const row = (await latestReadRowsResult(root)).find((candidate) => candidate.name === "alpha");
+      assert.ok(row, "the persisted helper row is readable");
+      assert.equal(row.status, "stopped");
+      const persistedEnd = Date.parse(row.updatedAt);
+      assert.ok(Number.isFinite(persistedEnd), "the persisted update time parses");
+      for (const run of terminal) {
+        assert.equal(run.endedAt, persistedEnd, "a terminal conversion keeps the persisted update time");
+      }
+      for (const run of terminal) {
+        assert.ok(run.startedAt <= persistedEnd, "the persisted end time does not precede the start");
+      }
     } finally {
       await harness.close(context);
     }

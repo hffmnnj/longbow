@@ -134,11 +134,19 @@ function helperTag(entry: EntryRecord, text: string): Pick<ChatMessage, "helperN
   return legacy ? { helperName: legacy[1]!, agentRole: legacy[2]! } : undefined;
 }
 
+/** Display time for one persisted model message: its own timestamp, or the caller fallback when unusable. */
+function messageAt(timestamp: unknown, fallbackAt: number): number {
+  return typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp >= 0
+    ? timestamp
+    : fallbackAt;
+}
+
 /** Map one transcript entry to chat messages for the UI. */
-export function entryToMessages(entry: EntryRecord, at: number): ChatMessage[] {
+export function entryToMessages(entry: EntryRecord, fallbackAt: number): ChatMessage[] {
   const model = entry.model ?? [];
   const out: ChatMessage[] = [];
   for (const message of model) {
+    const at = messageAt((message as { timestamp?: unknown }).timestamp, fallbackAt);
     if (message.role === "user") {
       const text = userText(message);
       const helper = helperTag(entry, text);
