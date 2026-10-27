@@ -40,7 +40,7 @@
 
 ## Follow-ups
 
-- Investment-policy R&D (2026-10-27): audited retained live conversations and orders; corrected reducing-exit notional cap and owner/strategy instruction priority. Root typecheck and 619 server tests passed after safety-review corrections; read-only hourly health timer installed and its first run identified repeated holds and missing locally recorded BTC protection. Trader restarted with settings unchanged; PR #10 open (not merged).
+- Investment-policy R&D (2026-10-27): audited retained live conversations and orders; corrected reducing-exit notional cap and owner/strategy instruction priority. Root typecheck and 619 server tests passed after safety-review corrections; read-only hourly health timer installed and its first run identified repeated holds and missing locally recorded BTC protection. Trader restarted with settings unchanged; PR #10 merged.
 - Unattended hourly engineering upgrades are not implemented: no supported scheduled engineering runner is exposed. The hourly health timer collects diagnostics only; it does not edit or deploy source.
 - R&D follow-ups: derive the current lot rather than earliest historical buy; fix minimum-hold trading-day counting and stop lookup beyond seven days; surface loss halts from a fresh account snapshot. Current live minimum hold is zero, so those hold defects did not cause the observed inactivity.
 - Review protection gaps after a failed exit placement and exit spread policy separately; neither is loosened by the entry-cap fix.
