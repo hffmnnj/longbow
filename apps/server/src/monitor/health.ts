@@ -47,6 +47,14 @@ export interface HealthInput {
   /** Orders created inside the last hour. */
   ordersLastHour: OrderRecord[];
   /**
+   * Locally recorded working plain-limit exits (side sell, orderType limit,
+   * verdict.isExit, brokerOrderId present, status submitted or
+   * partially_filled), collected from the newest-5,000-orders scan regardless
+   * of age. The report applies the staleness threshold. Local records only:
+   * only the broker knows the truth about resting orders.
+   */
+  workingExits: OrderRecord[];
+  /**
    * Locally known open protective sell stop_limit orders (status held,
    * submitted or partially_filled). Local records only: the
    * broker may hold stops this list does not show, and vice versa.
@@ -68,6 +76,19 @@ export interface PositionProtection {
   /** "held": harness-watched stop; "broker": resting stop the broker should hold. */
   source: "held" | "broker";
 }
+
+export interface StaleWorkingExit {
+  orderId: string;
+  symbol: string;
+  status: OrderRecord["status"];
+  createdAt: number;
+  ageMs: number;
+  remainingQuantity: number;
+  limitPrice: number;
+}
+
+/** Working plain-limit exits shown at most this many entries; total is retained. */
+export const STALE_WORKING_EXIT_DISPLAY_LIMIT = 20;
 
 export interface HealthReport {
   generatedAt: number;
@@ -98,6 +119,20 @@ export interface HealthReport {
     localOnly: true;
     note: string;
   };
+  /**
+   * Working plain-limit exits at least HEALTH_WINDOW_MS old, oldest first
+   * (stable by orderId when tied), display bounded to
+   * STALE_WORKING_EXIT_DISPLAY_LIMIT entries with the full detected count in
+   * total. Data only: no intent evidence, account identifiers, or raw broker
+   * responses. Age is wall-clock time since createdAt, not time since last
+   * fill; a resting price is not claimed to be stale.
+   */
+  staleWorkingExits: {
+    /** Always true: these are local records, not broker truth. */
+    localOnly: true;
+    total: number;
+    orders: StaleWorkingExit[];
+  };
   findings: HealthFinding[];
 }
 
@@ -107,6 +142,14 @@ function round1(value: number): number {
 
 function failingRules(order: OrderRecord): string[] {
   return order.verdict.checks.filter((check) => !check.ok).map((check) => check.rule);
+}
+
+function isWorkingExitCandidate(order: OrderRecord): boolean {
+  if (order.intent?.side !== "sell") return false;
+  if (order.intent?.orderType !== "limit") return false;
+  if (order.verdict?.isExit !== true) return false;
+  if (typeof order.brokerOrderId !== "string" || order.brokerOrderId.length === 0) return false;
+  return order.status === "submitted" || order.status === "partially_filled";
 }
 
 export function buildHealthReport(input: HealthInput): HealthReport {
@@ -215,6 +258,45 @@ export function buildHealthReport(input: HealthInput): HealthReport {
     });
   }
 
+  const staleWorkingExitOrders: StaleWorkingExit[] = [];
+  for (const order of input.workingExits) {
+    // Filter defensively: the CLI already collects candidates, but callers
+    // may supply unfiltered rows.
+    if (!isWorkingExitCandidate(order)) continue;
+    const createdAt = order.createdAt;
+    const ageMs = input.now - createdAt;
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs < HEALTH_WINDOW_MS) continue;
+    const remainingQuantity = Math.max(0, order.intent.quantity - (order.filledQuantity ?? 0));
+    if (!Number.isFinite(remainingQuantity) || remainingQuantity <= 0) continue;
+    const limitPrice = order.intent.limitPrice;
+    if (!Number.isFinite(limitPrice)) continue;
+    staleWorkingExitOrders.push({
+      orderId: order.id,
+      symbol: order.intent.symbol,
+      status: order.status,
+      createdAt,
+      ageMs,
+      remainingQuantity,
+      limitPrice,
+    });
+  }
+  staleWorkingExitOrders.sort((a, b) => a.createdAt - b.createdAt || (a.orderId < b.orderId ? -1 : a.orderId > b.orderId ? 1 : 0));
+  const staleWorkingExits = {
+    localOnly: true as const,
+    total: staleWorkingExitOrders.length,
+    orders: staleWorkingExitOrders.slice(0, STALE_WORKING_EXIT_DISPLAY_LIMIT),
+  };
+  if (staleWorkingExits.total > 0) {
+    const symbols = [...new Set(staleWorkingExitOrders.map((o) => o.symbol))].sort();
+    warn(
+      "STALE_WORKING_EXIT",
+      `locally recorded working exits at least 60 minutes old (${staleWorkingExits.total}); ` +
+        "they can be intentionally resting and need broker reconciliation; " +
+        "this does not authorize cancellation or repricing.",
+      { count: staleWorkingExits.total, symbols },
+    );
+  }
+
   const covered: PositionProtection[] = [];
   const uncovered: string[] = [];
   if (account !== null) {
@@ -264,6 +346,7 @@ export function buildHealthReport(input: HealthInput): HealthReport {
     failedRules,
     repeatedHolds,
     rejectedRiskReducingExits,
+    staleWorkingExits,
     protection: {
       covered,
       uncovered,

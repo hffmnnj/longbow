@@ -107,6 +107,15 @@ Not doing: no redesign, new order type, numeric limit change, live execution tes
 
 Not doing: no native-stop replacement, ambiguous-order reconciliation, financial-limit changes, forced trades, client wire changes, or live test orders.
 
+### Hourly R&D: working-exit visibility (2026-10-27)
+
+1. The read-only monitor flags locally recorded plain-limit risk-reducing sells still working at least 60 wall-clock minutes after creation, even when created before the last-hour order window.
+2. Report remaining quantity, original creation time and limit, with local-only provenance; exclude protective stops, buys, oversells, terminal orders and orders with no quantity remaining.
+3. Bound displayed orders to the oldest 20 while retaining the detected count; warn, never instruct cancellation/repricing or change trading state. The existing newest-5,000-record scan limit remains disclosed.
+4. Run focused tests, typechecking and one real read-only probe; merge without restarting the trader.
+
+Not doing: no automatic order management, new broker calls, allocation changes, client UI/wire changes, or service restart. Age is not proof of a broker fault or stale price.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.

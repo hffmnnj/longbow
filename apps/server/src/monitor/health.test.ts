@@ -68,19 +68,36 @@ function orderRecord(overrides: {
   side?: "buy" | "sell";
   isExit?: boolean;
   failedRules?: string[];
+  id?: string;
+  createdAt?: number;
+  orderType?: "limit" | "stop_limit";
+  quantity?: number;
+  filledQuantity?: number;
+  brokerOrderId?: string;
+  limitPrice?: number;
 }): OrderRecord {
-  const { status, symbol = "SPY", side = "sell", isExit = false, failedRules = [] } = overrides;
+  const {
+    status,
+    symbol = "SPY",
+    side = "sell",
+    isExit = false,
+    failedRules = [],
+    createdAt = NOW - 10 * MIN,
+    orderType = "limit",
+    quantity = 1,
+    limitPrice = 500,
+  } = overrides;
   orderSeq += 1;
   return {
-    id: `order-${orderSeq}`,
-    createdAt: NOW - 10 * MIN,
-    updatedAt: NOW - 10 * MIN,
+    id: overrides.id ?? `order-${orderSeq}`,
+    createdAt,
+    updatedAt: createdAt,
     intent: {
       symbol,
       side,
-      quantity: 1,
-      orderType: "limit",
-      limitPrice: 500,
+      quantity,
+      orderType,
+      limitPrice,
       invalidationPrice: 480,
       timeInForce: "day",
       timeStopDate: "2026-11-27",
@@ -97,7 +114,13 @@ function orderRecord(overrides: {
       checks: failedRules.map((rule) => ({ rule, ok: false, detail: `${rule} failed in the test` })),
     },
     status,
+    ...(overrides.brokerOrderId !== undefined ? { brokerOrderId: overrides.brokerOrderId } : {}),
+    ...(overrides.filledQuantity !== undefined ? { filledQuantity: overrides.filledQuantity } : {}),
   };
+}
+
+function workingExit(overrides: Omit<Parameters<typeof orderRecord>[0], "status"> & { status?: OrderRecord["status"] } = {}): OrderRecord {
+  return orderRecord({ status: "submitted", side: "sell", isExit: true, brokerOrderId: "brk-1", ...overrides });
 }
 
 function baseInput(overrides: Partial<HealthInput> = {}): HealthInput {
@@ -107,6 +130,7 @@ function baseInput(overrides: Partial<HealthInput> = {}): HealthInput {
     status: statusResponse(),
     journalLastHour: [],
     ordersLastHour: [],
+    workingExits: [],
     openStops: [
       { symbol: "SPY", status: "held", remainingQuantity: 10 },
       { symbol: "QQQ", status: "submitted", remainingQuantity: 5 },
@@ -284,5 +308,122 @@ describe("buildHealthReport", () => {
     const report = buildHealthReport(baseInput({ status: statusResponse({ lastCycleAt: "omit" }) }));
     assert.equal(report.lastCycle.stale, true);
     assert.ok(report.findings.some((f) => f.code === "NO_CYCLE_RECORDED" && f.severity === "error"));
+  });
+
+  it("an_hours_old_btc_limit_exit_is_flagged_while_last_hour_orders_are_empty", () => {
+    const exit = workingExit({ id: "btc-exit-1", symbol: "BTC", createdAt: NOW - 3 * 60 * MIN, quantity: 0.5, limitPrice: 97_500 });
+    const report = buildHealthReport(baseInput({ ordersLastHour: [], workingExits: [exit] }));
+    assert.equal(report.staleWorkingExits.localOnly, true);
+    assert.equal(report.staleWorkingExits.total, 1);
+    assert.deepEqual(report.staleWorkingExits.orders, [
+      {
+        orderId: "btc-exit-1",
+        symbol: "BTC",
+        status: "submitted",
+        createdAt: NOW - 3 * 60 * MIN,
+        ageMs: 3 * 60 * MIN,
+        remainingQuantity: 0.5,
+        limitPrice: 97_500,
+      },
+    ]);
+    const finding = report.findings.find((f) => f.code === "STALE_WORKING_EXIT");
+    assert.equal(finding?.severity, "warn");
+    assert.equal(finding?.count, 1);
+    assert.deepEqual(finding?.symbols, ["BTC"]);
+    assert.match(finding?.message ?? "", /at least 60 minutes old/);
+    assert.match(finding?.message ?? "", /broker reconciliation/);
+    assert.match(finding?.message ?? "", /does not authorize/);
+  });
+
+  it("stale_threshold_is_inclusive_at_sixty_minutes", () => {
+    const exact = workingExit({ id: "exit-exact", createdAt: NOW - 60 * MIN });
+    const younger = workingExit({ id: "exit-younger", createdAt: NOW - 60 * MIN + 1 });
+    const report = buildHealthReport(baseInput({ workingExits: [exact, younger] }));
+    assert.equal(report.staleWorkingExits.total, 1);
+    assert.deepEqual(report.staleWorkingExits.orders.map((o) => o.orderId), ["exit-exact"]);
+  });
+
+  it("partial_fills_report_remaining_while_fully_filled_exits_are_excluded", () => {
+    const partial = workingExit({ id: "exit-partial", status: "partially_filled", createdAt: NOW - 2 * 60 * MIN, quantity: 10, filledQuantity: 6 });
+    const filled = workingExit({ id: "exit-filled", createdAt: NOW - 2 * 60 * MIN, quantity: 10, filledQuantity: 10 });
+    const report = buildHealthReport(baseInput({ workingExits: [partial, filled] }));
+    assert.equal(report.staleWorkingExits.total, 1);
+    assert.equal(report.staleWorkingExits.orders[0]?.orderId, "exit-partial");
+    assert.equal(report.staleWorkingExits.orders[0]?.remainingQuantity, 4);
+  });
+
+  it("non_candidate_working_rows_are_excluded_from_stale_exits", () => {
+    const staleAt = NOW - 2 * 60 * MIN;
+    const candidate = workingExit({ id: "exit-good", symbol: "KEEP", createdAt: staleAt });
+    const report = buildHealthReport(
+      baseInput({
+        workingExits: [
+          candidate,
+          workingExit({ id: "buy", symbol: "BUY", side: "buy", createdAt: staleAt }),
+          workingExit({ id: "nonexit", symbol: "NONEXIT", isExit: false, createdAt: staleAt }),
+          workingExit({ id: "stop", symbol: "STOP", orderType: "stop_limit", createdAt: staleAt }),
+          workingExit({ id: "held", symbol: "HELD", status: "held", createdAt: staleAt }),
+          workingExit({ id: "filled", symbol: "FILLED", status: "filled", createdAt: staleAt }),
+          workingExit({ id: "cancelled", symbol: "CANCELLED", status: "cancelled", createdAt: staleAt }),
+          workingExit({ id: "rejected", symbol: "REJECTED", status: "rejected_risk", createdAt: staleAt }),
+          orderRecord({ id: "nobroker", status: "submitted", symbol: "NOBROKER", side: "sell", isExit: true, createdAt: staleAt }),
+          workingExit({ id: "future", symbol: "FUTURE", createdAt: NOW + MIN }),
+          workingExit({ id: "zero", symbol: "ZERO", quantity: 5, filledQuantity: 5, createdAt: staleAt }),
+        ],
+      }),
+    );
+    assert.equal(report.staleWorkingExits.total, 1);
+    assert.deepEqual(report.staleWorkingExits.orders.map((o) => o.orderId), ["exit-good"]);
+    const finding = report.findings.find((f) => f.code === "STALE_WORKING_EXIT");
+    assert.deepEqual(finding?.symbols, ["KEEP"]);
+  });
+
+  it("stale_exits_are_reported_after_close_without_trading_action", () => {
+    const exit = workingExit({ id: "btc-exit-closed", symbol: "BTC", createdAt: NOW - 3 * 60 * MIN });
+    const report = buildHealthReport(
+      baseInput({ status: statusResponse({ isOpen: false, lastCycleAt: NOW - 60 * MIN }), workingExits: [exit] }),
+    );
+    assert.ok(report.findings.some((f) => f.code === "STALE_WORKING_EXIT" && f.severity === "warn"));
+    assert.equal(report.staleWorkingExits.total, 1);
+    assert.equal(report.ok, true);
+  });
+
+  it("stale_exits_display_oldest_first_bounded_with_full_total", () => {
+    const exits = Array.from({ length: 25 }, (_, i) =>
+      workingExit({ id: `exit-${String(i).padStart(2, "0")}`, symbol: i % 2 === 0 ? "AAA" : "BBB", createdAt: NOW - (25 - i) * MIN - 60 * MIN }),
+    );
+    const report = buildHealthReport(baseInput({ workingExits: exits }));
+    assert.equal(report.staleWorkingExits.total, 25);
+    assert.equal(report.staleWorkingExits.orders.length, 20);
+    assert.equal(report.staleWorkingExits.orders[0]?.orderId, "exit-00");
+    assert.equal(report.staleWorkingExits.orders[19]?.orderId, "exit-19");
+    const finding = report.findings.find((f) => f.code === "STALE_WORKING_EXIT");
+    assert.equal(finding?.count, 25);
+    assert.deepEqual(finding?.symbols, ["AAA", "BBB"]);
+  });
+
+  it("tied_stale_exits_order_stably_by_id", () => {
+    const at = NOW - 2 * 60 * MIN;
+    const report = buildHealthReport(
+      baseInput({ workingExits: [workingExit({ id: "exit-b", createdAt: at }), workingExit({ id: "exit-a", createdAt: at })] }),
+    );
+    assert.deepEqual(report.staleWorkingExits.orders.map((o) => o.orderId), ["exit-a", "exit-b"]);
+  });
+
+  it("stale_exit_warning_keeps_ok_without_healthy", () => {
+    const exit = workingExit({ createdAt: NOW - 2 * 60 * MIN });
+    const report = buildHealthReport(baseInput({ workingExits: [exit] }));
+    assert.equal(report.ok, true);
+    assert.equal(report.coverage, "full");
+    assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
+    assert.ok(report.findings.some((f) => f.code === "STALE_WORKING_EXIT" && f.severity === "warn"));
+  });
+
+  it("no_stale_exits_means_empty_list_without_warning", () => {
+    const fresh = workingExit({ createdAt: NOW - 10 * MIN });
+    const report = buildHealthReport(baseInput({ workingExits: [fresh] }));
+    assert.deepEqual(report.staleWorkingExits, { localOnly: true, total: 0, orders: [] });
+    assert.equal(report.findings.some((f) => f.code === "STALE_WORKING_EXIT"), false);
+    assert.ok(report.findings.some((f) => f.code === "HEALTHY"));
   });
 });
