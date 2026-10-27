@@ -34,10 +34,10 @@ const submitOrderSchema = Type.Object({
     exclusiveMinimum: 0,
   }),
   orderType: Type.Union([Type.Literal("limit"), Type.Literal("stop_limit")], {
-    description: "Whole-share limits rest at limitPrice. Fractional limits execute as market orders only inside the limit during regular hours. Fractional sell stops are held and watched every minute by the harness. Crypto limits and stop_limit sells rest natively at Robinhood (limits last 90 days) and trade around the clock.",
+    description: "Whole-share limits rest at limitPrice. Fractional equity limits do not rest: they execute as market orders only when the fresh ask is at or below a buy ceiling, or the fresh bid is at or above a sell floor, during regular hours. Market execution does not guarantee the limit price. Fractional sell stops are held and watched every minute by the harness. Crypto limits and stop_limit sells rest natively at Robinhood (limits last 90 days) and trade around the clock.",
   }),
   limitPrice: Type.Number({
-    description: "Limit price in USD. Must sit within maxSlippageBps of the mid price.",
+    description: "Limit price in USD. Must satisfy the applicable maxSlippageBps rule. For a fractional equity limit, deliberately choose a buy ceiling covering the fresh ask or a sell floor at or below the fresh bid only if acceptable after spread, slippage, costs and sizing, within owner constraints and engine limits. Any buffer must be in the original intent; market execution does not guarantee the limit price.",
     exclusiveMinimum: 0,
   }),
   stopPrice: Type.Optional(

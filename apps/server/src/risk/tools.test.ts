@@ -53,6 +53,16 @@ function cannedOrder(status: OrderRecord["status"]): OrderRecord {
 }
 
 describe("risk extension", () => {
+  it("describes fractional price requirements and market execution on submit_order", () => {
+    const ext = createRiskExtension({ gate: {} as OrderGate, store: {} as Store, calendar: createNyseCalendar(), clock: { now: () => NOW }, broker: {} as Broker, currentCycleId: () => undefined });
+    const tool = ext.tools?.find((t) => t.name === "submit_order");
+    assert.ok(tool);
+    const descriptions = JSON.stringify(tool.parameters);
+    assert.match(descriptions, /fresh ask/);
+    assert.match(descriptions, /fresh bid/);
+    assert.match(descriptions, /buffer must be in the original intent/);
+    assert.match(descriptions, /does not guarantee the limit price/);
+  });
   it("cancel_order routes the harness id through the gate and reports the resulting state", async () => {
     let seen: string | undefined;
     const ext = createRiskExtension({

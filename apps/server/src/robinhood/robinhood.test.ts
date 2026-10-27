@@ -212,6 +212,13 @@ test("fractional limits convert only when marketable in regular hours", () => {
   assert.deepEqual(fractionalExecution({ ...fractional, side: "sell", limitPrice: 499 }, quote, true), { market: true });
   assert.throws(() => fractionalExecution({ ...fractional, side: "sell", limitPrice: 500 }, quote, true), /fractional limit not marketable now/);
 });
+test("fractional execution refuses the observed SPY buy ceiling below the ask without repricing", () => {
+  const order = { ...intent, quantity: 0.121, limitPrice: 770.51 };
+  const quote = { symbol: "SPY", bid: 770.51, ask: 770.53, last: 770.51, at: 42 };
+  assert.throws(() => fractionalExecution(order, quote, true), (error) => error instanceof BrokerMappingError && /SPY buy ask 770\.53, ceiling 770\.51/.test(error.message) && /not placed/.test(error.message));
+  assert.equal(order.limitPrice, 770.51);
+  assert.deepEqual(fractionalExecution({ ...order, limitPrice: 770.53 }, quote, true), { market: true });
+});
 test("mutating Robinhood tools are neither exposed nor callable", () => {
   const forbidden = ["exercise_option", "cancel_equity_order", "place_equity_order", "create_alert", "review_option_order", "get_limited_margin_upgrade_info"];
   assert.deepEqual(modelTools([...forbidden, "get_accounts", "search", "review_equity_order"].map(tool)).map((t) => t.name), ["get_accounts", "search", "review_equity_order"]);

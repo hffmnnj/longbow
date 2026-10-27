@@ -127,6 +127,17 @@ describe("trader prompt sections", () => {
     assert.match(text, /Use cancel_order/);
     assert.match(text, /cannot protect while the harness is down/);
   });
+  it("teaches deliberate fractional price limits and distinguishes unplaced rejections from ambiguous errors", async () => {
+    const sections = createTraderPromptExtension().sections ?? [];
+    const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+    assert.match(text, /buy ceiling to cover the fresh ask/);
+    assert.match(text, /sell floor at or below the fresh bid/);
+    assert.match(text, /buffer belongs in that original intent/);
+    assert.match(text, /not guaranteed limit-price protection/);
+    assert.match(text, /fractional_marketable rejection is provably not placed/);
+    assert.match(text, /only failing check/);
+    assert.match(text, /ambiguous: never automatically retry it; reconcile Robinhood orders first/);
+  });
   it("allows_crypto_only_as_the_capped_sleeve_skill", async () => {
     const sections = createTraderPromptExtension().sections ?? [];
     const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");

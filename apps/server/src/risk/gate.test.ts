@@ -20,6 +20,7 @@ import {
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import { watchStops } from "./stops.ts";
+import { fractionalExecution } from "../robinhood/mapping.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 
@@ -263,6 +264,98 @@ function liveSetup() {
   return { ...fixture, broker, executions, cancellations, stop };
 }
 
+describe("fractional equity limit compatibility", () => {
+  it("rejects the observed SPY bid-priced buy before review or placement with an actionable check", async () => {
+    const { gate, broker } = setup({ mode: "auto" });
+    broker.quoteValue = { symbol: "SPY", bid: 770.51, ask: 770.53, last: 770.51, at: NOW };
+    const intent = { ...baseIntent(), symbol: "SPY", quantity: 0.121, limitPrice: 770.51, invalidationPrice: 750 };
+    const order = await gate.submit(intent);
+    assert.equal(order.status, "rejected_risk");
+    assert.deepEqual(order.verdict.checks.filter((c) => !c.ok).map((c) => c.rule), ["fractional_marketable"]);
+    const detail = order.verdict.checks.find((c) => c.rule === "fractional_marketable")?.detail ?? "";
+    assert.match(detail, /buy/);
+    assert.match(detail, /ask 770\.53/);
+    assert.match(detail, /ceiling 770\.51/);
+    assert.match(detail, /not placed/i);
+    assert.equal(broker.reviewCalls, 0);
+    assert.equal(broker.placeCalls, 0);
+  });
+
+  it("reviews and places a marketable fractional buy via market conversion without changing the intent", async () => {
+    const { gate, broker } = setup({ mode: "auto" });
+    const intent = { ...baseIntent(), quantity: 0.5, limitPrice: 150.05 };
+    const executions: unknown[] = [];
+    broker.reviewOrder = async (order) => { broker.reviewCalls++; executions.push(fractionalExecution(order, broker.quoteValue, true)); return "review"; };
+    broker.placeOrder = async (order) => { broker.placeCalls++; executions.push(fractionalExecution(order, broker.quoteValue, true)); broker.lastPlaced = order; return { brokerOrderId: "b1", raw: "{}" }; };
+    const result = await gate.submit(intent);
+    assert.equal(result.status, "submitted", JSON.stringify(result.verdict));
+    assert.deepEqual(executions, [{ market: true }, { market: true }]);
+    assert.deepEqual(broker.lastPlaced, intent);
+    assert.equal(broker.reviewCalls, 1);
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("allows a whole-share buy limit to rest below the ask", async () => {
+    const { gate, broker } = setup({ mode: "auto" });
+    const result = await gate.submit({ ...baseIntent(), limitPrice: 149.95 });
+    assert.equal(result.status, "submitted", JSON.stringify(result.verdict));
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("rejects a fractional sell floor above the bid and allows one at the bid", async () => {
+    const { gate, broker } = setup({ mode: "auto" });
+    const sell = { ...baseIntent(), side: "sell" as const, quantity: 0.5, invalidationPrice: 160 };
+    const rejected = await gate.submit({ ...sell, limitPrice: 150 });
+    assert.equal(rejected.status, "rejected_risk");
+    assert.match(rejected.verdict.checks.find((c) => c.rule === "fractional_marketable")?.detail ?? "", /sell: bid 149\.95, floor 150/);
+    assert.equal(broker.reviewCalls, 0);
+    assert.equal(broker.placeCalls, 0);
+    const accepted = await gate.submit({ ...sell, limitPrice: 149.95 });
+    assert.equal(accepted.status, "submitted", JSON.stringify(accepted.verdict));
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("rechecks the fractional limit when approving an order", async () => {
+    const { gate, broker } = setup({ mode: "approve" });
+    const pending = await gate.submit({ ...baseIntent(), quantity: 0.5, limitPrice: 150.05 });
+    assert.equal(pending.status, "pending_approval");
+    broker.quoteValue = { ...baseQuote(), ask: 150.06 };
+    const result = await gate.approve(pending.id);
+    assert.equal(result.status, "rejected_risk");
+    assert.match(result.verdict.checks.find((c) => c.rule === "fractional_marketable")?.detail ?? "", /ask 150\.06, ceiling 150\.05/);
+    assert.equal(broker.reviewCalls, 0);
+    assert.equal(broker.placeCalls, 0);
+  });
+
+  it("refuses placement if the ask moves outside the ceiling after review", async () => {
+    const { gate, broker } = setup({ mode: "auto" });
+    let remotePlacements = 0;
+    broker.reviewOrder = async (order) => { broker.reviewCalls++; assert.deepEqual(fractionalExecution(order, broker.quoteValue, true), { market: true }); broker.quoteValue = { ...broker.quoteValue, ask: 150.06 }; return "review"; };
+    broker.placeOrder = async (order) => { fractionalExecution(order, broker.quoteValue, true); remotePlacements++; return { brokerOrderId: "b1", raw: "{}" }; };
+    const result = await gate.submit({ ...baseIntent(), quantity: 0.5, limitPrice: 150.05 });
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /ask 150\.06, ceiling 150\.05/);
+    assert.equal(broker.reviewCalls, 1);
+    assert.equal(remotePlacements, 0);
+  });
+
+  it("keeps kill switch, off mode and oversell checks binding on marketable fractional orders", async () => {
+    for (const scenario of ["kill_switch", "mode", "no_short"] as const) {
+      const { gate, broker, store } = setup({ mode: "auto" });
+      if (scenario === "kill_switch") store.settings.killSwitch = true;
+      if (scenario === "mode") store.settings.mode = "off";
+      const intent = scenario === "no_short"
+        ? { ...baseIntent(), side: "sell" as const, quantity: 20.5, limitPrice: 149.95, invalidationPrice: 160 }
+        : { ...baseIntent(), quantity: 0.5, limitPrice: 150.05 };
+      const result = await gate.submit(intent);
+      assert.equal(result.status, "rejected_risk");
+      assert.equal(result.verdict.checks.find((c) => c.rule === scenario)?.ok, false);
+      assert.equal(broker.reviewCalls, 0);
+      assert.equal(broker.placeCalls, 0);
+    }
+  });
+});
+
 describe("sector cap with broker positions that carry no sector", () => {
   it("counts held exposure through the sector directory", async () => {
     const resolved: string[][] = [];
@@ -348,7 +441,7 @@ describe("harness-held fractional protection", () => {
   });
   it("cancels held protection automatically before a plain sell", async () => {
     const f = liveSetup(); const held = await f.gate.submit(f.stop);
-    const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 150, invalidationPrice: 160 });
+    const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
     assert.equal(sell.status, "submitted", JSON.stringify(sell.verdict));
     assert.equal(f.store.getOrder(held.id)?.status, "cancelled"); assert.equal(f.broker.placeCalls, 1);
   });
