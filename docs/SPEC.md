@@ -98,6 +98,15 @@ Checks:
 
 Not doing: no redesign, new order type, numeric limit change, live execution test, or changes to reserved cash.
 
+### Hourly R&D: local exit refusal (2026-10-27)
+
+1. If the fractional execution check refuses a sell before any placement request, restore only the harness-held stops canceled for that attempt, in both automatic and approved exits.
+2. Successful sells still cancel their held protection; ambiguous broker errors, response parsing errors and timeouts never restore stops or retry a possibly placed sell.
+3. Verify the refusal type originates only at the local fractional preflight, and cover quote movement after review, subsequent stop execution and unaffected crypto cancellation behavior.
+4. Run server tests and typechecking, obtain one focused safety review, and deploy only when the trader is idle and simulations are inactive.
+
+Not doing: no native-stop replacement, ambiguous-order reconciliation, financial-limit changes, forced trades, client wire changes, or live test orders.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.

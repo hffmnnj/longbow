@@ -20,6 +20,7 @@
 - Mutating API calls need the header `x-harness: 1` (CSRF guard), for example `curl -X PATCH -H "x-harness: 1" -H "content-type: application/json" -d '{"mode":"auto"}' http://127.0.0.1:4520/api/settings`.
 
 ## Gotchas
+- `FractionalPreflightError` proves refusal before placement and lets the gate restore canceled held stops. Throw it only from local fractional preflight, never for transport, broker-response or parsing errors; ambiguous placement must not restore protection or retry a possible sale.
 - Yahoo, Stooq, and FRED are blocked from this host; market data comes from Nasdaq, CBOE, Treasury, and SEC (`apps/server/src/market/market-data.ts`). Nasdaq ignores past `todate`, so fetch to today and slice.
 - The Playwright MCP browser cannot reach this machine's 127.0.0.1 or the tailnet; for local screenshots use Agent Browser (`web-visual-qa`) or headless `/usr/bin/chromium`.
 - Robinhood positions carry no sector; the sector cap and charts get sectors from `apps/server/src/market/sectors.ts` (SEC SIC codes plus overrides). Add overrides there for misfiled names.
