@@ -50,6 +50,48 @@ describe("nextCycle", () => {
     assert.equal(at.at, etToMs("2026-10-26", 9 * 60));
   });
 
+  it("runs the overnight cycle at 04:00 ET instead of skipping to pre-open", () => {
+    // Observed gap: 2026-10-28T04:48:00Z is 00:48 ET on a trading day, and the
+    // four-hour overnight grid fires at 08:00Z (04:00 ET), well before pre-open.
+    const now = Date.parse("2026-10-28T04:48:00Z");
+    const at = nextCycle(now, fakeCalendar(week), settings);
+    assert.deepEqual(at, { at: etToMs("2026-10-28", 4 * 60), kind: "overnight" });
+    assert.equal(new Date(at.at).toISOString(), "2026-10-28T08:00:00.000Z");
+  });
+
+  it("runs the next overnight interval later the same morning while still before pre-open", () => {
+    // 04:30 ET (08:30Z): the next grid point is 12:00Z (08:00 ET), still before pre-open.
+    const at = nextCycle(etToMs("2026-10-28", 4 * 60 + 30), fakeCalendar(week), settings);
+    assert.deepEqual(at, { at: etToMs("2026-10-28", 8 * 60), kind: "overnight" });
+    assert.equal(new Date(at.at).toISOString(), "2026-10-28T12:00:00.000Z");
+  });
+
+  it("prefers pre-open when the overnight grid lands exactly on 09:00 ET", () => {
+    // 08:00 ET (12:00Z) with an hourly closed cadence aligns exactly onto
+    // pre-open at 13:00Z; the tie goes to pre-open.
+    const hourly = { ...settings, cycleMinutesClosed: 60 };
+    const at = nextCycle(etToMs("2026-10-26", 8 * 60), fakeCalendar(week), hourly);
+    assert.deepEqual(at, { at: etToMs("2026-10-26", 9 * 60), kind: "pre_open" });
+    assert.equal(new Date(at.at).toISOString(), "2026-10-26T13:00:00.000Z");
+  });
+
+  it("runs overnight before pre-open on the first trading day after the fall DST change", () => {
+    // Monday 2026-11-02 is EST (UTC-5): 00:48 ET is 05:48Z, next grid point 08:00Z (03:00 ET).
+    const afterDst = new Set(["2026-11-02"]);
+    const now = Date.parse("2026-11-02T05:48:00Z");
+    const at = nextCycle(now, fakeCalendar(afterDst), settings);
+    assert.deepEqual(at, { at: etToMs("2026-11-02", 3 * 60), kind: "overnight" });
+    assert.equal(new Date(at.at).toISOString(), "2026-11-02T08:00:00.000Z");
+  });
+
+  it("places pre-open at 14:00Z on the first trading day after the fall DST change", () => {
+    // 09:00 EST is 14:00Z (not 13:00Z as under EDT), and the 16:00Z grid point loses to it.
+    const afterDst = new Set(["2026-11-02"]);
+    const at = nextCycle(etToMs("2026-11-02", 8 * 60), fakeCalendar(afterDst), settings);
+    assert.deepEqual(at, { at: etToMs("2026-11-02", 9 * 60), kind: "pre_open" });
+    assert.equal(new Date(at.at).toISOString(), "2026-11-02T14:00:00.000Z");
+  });
+
   it("schedules intraday steps from 09:45 to 15:45", () => {
     const calendar = fakeCalendar(week);
     assert.deepEqual(nextCycle(etToMs("2026-10-26", 9 * 60 + 30), calendar, settings), {

@@ -125,6 +125,15 @@ Not doing: no automatic order management, new broker calls, allocation changes, 
 
 Not doing: no immediate fill-event refresh framework, new timer, forced cycle, live test trade, financial-limit change or order retry.
 
+### Hourly R&D: overnight cadence before pre-open (2026-10-27)
+
+1. Before 09:00 ET on a trading day, choose the earlier of the aligned configured overnight interval and pre-open; pre-open wins a tie.
+2. Preserve daytime intraday/post-close scheduling, holidays/weekends, early closes and strictly future cycle times. Keep the existing single-timer scheduler and all order/session permissions unchanged.
+3. Cover the observed midnight-to-pre-open gap, later overnight intervals, pre-open priority and a daylight-saving boundary with deterministic tests; run root typecheck/tests and one focused safety review.
+4. Deploy only with trader idle and no running simulations; confirm the live next cycle is the nearer overnight run without forcing a cycle or trade.
+
+Not doing: no new scheduler, timer, cadence setting, trading permission, forced cycle, or cycle-history persistence change.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.
