@@ -315,6 +315,72 @@ describe("owner preference priority", () => {
   });
 });
 
+describe("scheduled pacing", () => {
+  async function stablePrompt(): Promise<string> {
+    const sections = createTraderPromptExtension().sections ?? [];
+    return (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+  }
+
+  it("pre_open_finishes_planning_before_open_with_session_recheck", () => {
+    const text = cycleInput(input({ kind: "pre_open" }));
+    assert.match(text, /finish and journal the plan before the regular open/i, "plans before the open");
+    assert.match(text, /re-read get_risk_state to confirm the current session/i, "rechecks the current session");
+    assert.match(text, /finish this plan for a fresh intraday review/i, "hands off to a fresh review");
+    assert.match(text, /instead of expanding it into execution/i, "no scope broadening");
+    assert.ok(!text.includes("open-cycle interval"), "pre-open advertises no open interval");
+  });
+
+  it("intraday_aims_within_the_configured_open_interval", () => {
+    for (const minutes of [30, 45]) {
+      const live = { ...settings, cycleMinutesOpen: minutes };
+      const text = cycleInput(input({ settings: live, kind: "intraday" }));
+      assert.ok(text.includes(`about ${minutes} minutes`), `reflects the ${minutes}-minute setting`);
+      assert.match(text, /configured open-cycle interval/, "names the live interval");
+      assert.match(text, /does not block the next scheduled review/, "aims to leave room for the next review");
+    }
+    const text = cycleInput(input({ kind: "intraday" }));
+    assert.ok(!text.match(/timeout/i), "claims no hard timeout");
+    assert.ok(!text.match(/must finish/i), "pacing stays guidance, not an order");
+  });
+
+  it("manual_open_uses_the_interval_while_manual_closed_stays_research_only", () => {
+    const live = { ...settings, cycleMinutesOpen: 45 };
+    const open = cycleInput(input({ settings: live, kind: "manual", market: market() }));
+    assert.ok(open.includes("about 45 minutes"), "open manual reflects the live interval");
+    const closedMarket = market({ session: "closed", isOpen: false });
+    const closed = cycleInput(input({ settings: live, kind: "manual", market: closedMarket }));
+    assert.match(closed, /orders are impossible/i, "closed manual keeps the research-only restriction");
+    assert.match(closed, /re-read get_risk_state to confirm the current session/i, "closed manual rechecks the session");
+    assert.match(closed, /do not expand research-only scope into execution/i, "closed manual holds its scope");
+    assert.ok(!closed.includes("open-cycle interval"), "closed manual advertises no open interval");
+  });
+
+  it("closed_jobs_keep_restrictions_without_the_open_interval", () => {
+    const closedMarket = market({ session: "closed", isOpen: false });
+    for (const kind of ["overnight", "post_close"] as const) {
+      const text = cycleInput(input({ kind, market: closedMarket }));
+      assert.ok(!text.includes("open-cycle interval"), `${kind} advertises no open interval`);
+    }
+    const overnight = cycleInput(input({ kind: "overnight", market: closedMarket }));
+    assert.match(overnight, /orders are impossible/i, "overnight keeps the research-only restriction");
+    assert.match(overnight, /do not expand research-only scope into execution/i, "overnight holds its scope");
+  });
+
+  it("pacing_keeps_safety_and_ambiguous_order_safeguards", async () => {
+    const text = await stablePrompt();
+    assert.match(text, /do required protection, exits, and order reconciliation first/i, "protection still comes first");
+    assert.match(text, /offload nonessential deep fact gathering/i, "defers nonessential research");
+    assert.match(text, /precise next-research gap for a later cycle/i, "leaves a gap instead of stalling");
+    assert.match(text, /reuse a current validated base-rate analysis/i, "reuses a current base rate");
+    assert.match(text, /source data, method, horizon, and regime are unchanged/i, "reuse stays conditional");
+    assert.match(text, /Never shorten safety, owner, required held-position reviews, or full entry checks/i, "checks are never shortened for pacing");
+    assert.match(text, /journal that exact gap and finish/i, "incomplete evidence ends the cycle honestly");
+    assert.match(text, /never aborted or retried merely for pacing/i, "ambiguous orders keep reconciliation");
+    assert.match(text, /ambiguous: never automatically retry it; reconcile Robinhood orders first/i, "existing ambiguity rule survives");
+    assert.ok(!text.match(/open-cycle interval/), "stable sections carry no numeric interval target");
+  });
+});
+
 describe("playbook consistency", () => {
   it("small_account_uses_the_live_cap_not_a_hardcoded_count", async () => {
     const body = await readFile(new URL("../../skills/small-account/SKILL.md", import.meta.url), "utf8");

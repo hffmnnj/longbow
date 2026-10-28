@@ -134,6 +134,15 @@ Not doing: no immediate fill-event refresh framework, new timer, forced cycle, l
 
 Not doing: no new scheduler, timer, cadence setting, trading permission, forced cycle, or cycle-history persistence change.
 
+### Hourly R&D: scheduled research pacing (2026-10-28)
+
+1. Prompt the trader to finish pre-open planning before the regular open and bound intraday work to the configured open-cycle interval, without skipping required protection, reconciliation, evidence or entry checks.
+2. Defer nonessential deep research to read-only helpers/later cycles; reuse current measured evidence when its validity and market inputs are unchanged rather than repeating the same analysis.
+3. If the market session changes during pre-open planning or a research-only cycle, confirm the live session through get_risk_state, journal and finish that assignment; do not silently broaden its order scope or abort an uncertain order.
+4. Verify the assembled prompts with focused regressions and root checks. Deploy only after the active cycle settles with no running simulations; monitor subsequent durations rather than claiming prompt text guarantees a timeout.
+
+Not doing: no forced trade, lowered thinking level, hard timeout/abort, pending-cycle queue, engine change, live-trader message or strategy threshold change.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.
