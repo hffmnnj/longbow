@@ -35,6 +35,7 @@ const LOOP = [
   "4. Orient: classify the regime from data fetched in this cycle and set today's exposure budget from it (see Portfolio).",
   "5. Enter: only now look for new entries, and only through the entry protocol below. An isolated unresolved protection issue (for example a legacy crypto position without a resting stop) is not an automatic ban on unrelated stock research or entries: do not add to the unprotected name, record the exposure, prioritize a lawful risk-reducing correction, and weigh actual engine halts and material aggregate risk. A broker-wide outage, an unreliable account snapshot, or a genuine portfolio-wide risk failure still blocks new exposure.",
   "6. Record: journal the decision with record_decision and update notes.",
+  "Keep each scheduled decision bounded so research does not block the next review: do required protection, exits, and order reconciliation first; offload nonessential deep fact gathering to existing read-only helpers or leave a precise next-research gap for a later cycle; reuse a current validated base-rate analysis when its source data, method, horizon, and regime are unchanged instead of rerunning it to delay a decision. Never shorten safety, owner, required held-position reviews, or full entry checks to meet a target; when evidence is incomplete, journal that exact gap and finish rather than inventing inputs or forcing a trade. Finish required post-submission reconciliation and protection before ending; an ambiguous order is never aborted or retried merely for pacing.",
 ].join("\n");
 
 const PROTOCOL = [
@@ -269,23 +270,34 @@ function accountSummary(account: AccountSnapshot | null): string {
   return `Account: equity ${money(account.equity)}, cash ${money(account.cash)}, buying power ${money(account.buyingPower)}. Positions: ${positions}.`;
 }
 
-const INTRADAY_JOB =
+const INTRADAY_JOB_BASE =
   "Job: run the operating loop. In one script, read owner-preferences.md (missing means no standing preference), plan.md and the theses of held names, pull quotes, open orders and market_indicators for held symbols and planned candidates in parallel, confirm every position's protective stop, check invalidations, time stops and trailing rules, and check whether a planned trigger has hit. For every held name run jev_thesis_check as a second opinion on its thesis, passing fresh headlines that jev_read_text has screened, and read any review or exit_review before the cycle ends. Enter only through the full entry protocol (debate-and-review, size_position, portfolio_risk); otherwise journal a hold.";
+function intradayJob(cycleMinutesOpen: number): string {
+  return (
+    `${INTRADAY_JOB_BASE} ` +
+    `Aim to finish within about ${cycleMinutesOpen} minutes, the configured open-cycle interval, so research does not block the next scheduled review.`
+  );
+}
 const OVERNIGHT_JOB =
-  "Job: research only — the market is closed, so orders are impossible right now. Read owner-preferences.md (missing means no standing preference), then refresh theses on held names, screen their news with jev_read_text, run market_screen for new candidates and triage them with jev_candidates, measure any untested setup with quant_backtest and record it in edges.md, use analyst subagents in parallel for deeper work, and keep it brief when nothing changed. On weekends, if a rule change is worth testing, run one simulation suite and record what it showed.";
+  "Job: research only — the market is closed, so orders are impossible right now. Read owner-preferences.md (missing means no standing preference), then refresh theses on held names, screen their news with jev_read_text, run market_screen for new candidates and triage them with jev_candidates, measure any untested setup with quant_backtest and record it in edges.md, use analyst subagents in parallel for deeper work, and keep it brief when nothing changed. If the market session changes during this research-only assignment, re-read get_risk_state to confirm the current session, journal and finish this assignment for a fresh intraday review, and do not expand research-only scope into execution. On weekends, if a rule change is worth testing, run one simulation suite and record what it showed.";
 
-function jobFor(kind: CycleKind, isOpen: boolean, isLastTradingDayOfWeek?: boolean): string {
+function jobFor(
+  kind: CycleKind,
+  isOpen: boolean,
+  cycleMinutesOpen: number,
+  isLastTradingDayOfWeek?: boolean,
+): string {
   switch (kind) {
     case "pre_open":
-      return "Job: read owner-preferences.md (notes_read; missing means no standing preference) plus lessons.md and edges.md first and apply them today. Load market-regime, classify the regime from market_volatility, market_yields, and index and sector trends, and set today's exposure budget. Review overnight news, today's market_economic_calendar, and market_earnings for held symbols and the watchlist. Run market_screen with the presets that suit the regime, triage its top names with jev_candidates and take a second regime read with jev_regime beside the skill's rules, check the top names' base rates in edges.md (measure with quant_backtest when missing), and write plan.md with at most two candidate entries, each with its setup, base rate, trigger level, invalidation, time stop and size from size_position. Journal the plan.";
+      return "Job: read owner-preferences.md (notes_read; missing means no standing preference) plus lessons.md and edges.md first and apply them today. Load market-regime, classify the regime from market_volatility, market_yields, and index and sector trends, and set today's exposure budget. Review overnight news, today's market_economic_calendar, and market_earnings for held symbols and the watchlist. Run market_screen with the presets that suit the regime, triage its top names with jev_candidates and take a second regime read with jev_regime beside the skill's rules, check the top names' base rates in edges.md (measure with quant_backtest when missing), and write plan.md with at most two candidate entries, each with its setup, base rate, trigger level, invalidation, time stop and size from size_position. Finish and journal the plan before the regular open. If the market session changes during this planning assignment, re-read get_risk_state to confirm the current session, journal and finish this plan for a fresh intraday review instead of expanding it into execution.";
     case "intraday":
-      return INTRADAY_JOB;
+      return intradayJob(cycleMinutesOpen);
     case "post_close":
       return postCloseJob(isLastTradingDayOfWeek);
     case "overnight":
       return OVERNIGHT_JOB;
     case "manual":
-      return isOpen ? INTRADAY_JOB : OVERNIGHT_JOB;
+      return isOpen ? intradayJob(cycleMinutesOpen) : OVERNIGHT_JOB;
   }
 }
 
@@ -315,7 +327,7 @@ export function cycleInput(input: CycleInput): string {
     `Watchlist: ${settings.watchlist.length > 0 ? settings.watchlist.join(", ") : "(empty)"}.`,
     accountSummary(account),
     "",
-    jobFor(kind, market.isOpen, input.isLastTradingDayOfWeek),
+    jobFor(kind, market.isOpen, settings.cycleMinutesOpen, input.isLastTradingDayOfWeek),
     "End the cycle with the one record_decision call.",
   ].join("\n");
 }
