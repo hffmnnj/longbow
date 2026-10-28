@@ -47,6 +47,6 @@ Once a week, post-close: recompute heat per `portfolio-heat`, check realized cos
 - Revenge trading after a stop: the next setup does not know about the last loss; halving size for the rest of the day after a down day exists for exactly this impulse.
 - Concentration in one theme: two "different" tech names are one bet; the sector cap and the 0.8 correlation rule in `portfolio-heat` decide, not the tickers.
 - Chasing: entering above the planned limit because the name is running converts edge into slippage; the missed trade costs nothing and the chased one pays spread.
-- Borrowing conviction from size: no averaging down, ever; a position against its stop is smaller next time, not bigger this time.
+- Borrowing conviction from size: no averaging down to rescue a loss; a position against its stop is smaller next time, not bigger this time. For an independently supported owner-directed diversified-equity-ETF allocation, follow the trader prompt OWNER section with all checks, sizing and protection intact. A below-cost-basis lot or slightly negative hypothetical liquidation there is disclosed risk/cost evidence, not an automatic veto, and never a reason to widen a stop, move a time stop outward, or buy to rescue a loss or fill a quota.
 
 Crypto is not an extra stock slot: crypto pairs live in the separate capped sleeve, so load `crypto-sleeve` before sizing any crypto order.
