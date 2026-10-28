@@ -78,9 +78,13 @@ const INTRADAY_LAST_MIN = 15 * 60 + 45;
  * The next cycle after `now`, all in America/New_York. On a trading day the
  * day schedule wins while any of it is still ahead (pre-open 09:00, intraday
  * every cycleMinutesOpen from 09:45, post-close 16:10 or 13:10 on early-close
- * days); at all other times an overnight cycle aligned to cycleMinutesClosed.
+ * days); before 09:00 ET an overnight cycle aligned to cycleMinutesClosed
+ * still fires when it falls earlier than pre-open (pre-open wins an exact
+ * tie); at all other times an overnight cycle aligned to cycleMinutesClosed.
  */
 export function nextCycle(now: number, calendar: MarketCalendar, settings: { cycleMinutesOpen: number; cycleMinutesClosed: number }): CyclePoint {
+  const closedMs = Math.max(30, Math.floor(settings.cycleMinutesClosed)) * 60_000;
+  const overnight: CyclePoint = { at: alignUp(now, closedMs), kind: "overnight" };
   const today = etParts(now).date;
   // Probe midday to learn whether `today` trades and whether it closes early.
   const probe = calendar.clock(etToMs(today, 12 * 60));
@@ -89,15 +93,17 @@ export function nextCycle(now: number, calendar: MarketCalendar, settings: { cyc
     const postMin = closeMin + 10;
     const intradayLast = Math.min(INTRADAY_LAST_MIN, closeMin - 15);
     const at = (minutes: number): number => etToMs(today, minutes);
-    if (now < at(PRE_OPEN_MIN)) return { at: at(PRE_OPEN_MIN), kind: "pre_open" };
+    if (now < at(PRE_OPEN_MIN)) {
+      if (overnight.at < at(PRE_OPEN_MIN)) return overnight;
+      return { at: at(PRE_OPEN_MIN), kind: "pre_open" };
+    }
     const step = Math.max(5, Math.floor(settings.cycleMinutesOpen));
     for (let m = INTRADAY_FIRST_MIN; m <= intradayLast; m += step) {
       if (now < at(m)) return { at: at(m), kind: "intraday" };
     }
     if (now < at(postMin)) return { at: at(postMin), kind: "post_close" };
   }
-  const closedMs = Math.max(30, Math.floor(settings.cycleMinutesClosed)) * 60_000;
-  return { at: alignUp(now, closedMs), kind: "overnight" };
+  return overnight;
 }
 
 /**
