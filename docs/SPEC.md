@@ -143,6 +143,15 @@ Not doing: no new scheduler, timer, cadence setting, trading permission, forced 
 
 Not doing: no forced trade, lowered thinking level, hard timeout/abort, pending-cycle queue, engine change, live-trader message or strategy threshold change.
 
+### Hourly R&D: owner-directed ETF additions (2026-10-28)
+
+1. Distinguish unplanned loss-recovery averaging down from an independently supported owner-directed long-horizon allocation to a diversified equity ETF. Existing-lot cost basis or hypothetical liquidation P&L alone is not a universal entry veto.
+2. Preserve explicit owner price constraints, cash reserves, all deterministic engine/entry checks, honest current costs/EV, aggregate-position risk and full-quantity protection. Never add to an invalidated, overdue or unprotected position, or buy merely to reduce average cost.
+3. Align the system prompt, small-account and sizing/exit playbooks; old self-authored generic profit-before-add rules cannot masquerade as owner or engine constraints. Crypto and single-stock averaging-down restrictions are not broadened.
+4. Run prompt/playbook regressions, root typechecking/tests and one focused safety review; deploy only while trader idle with no running simulations and verify settings unchanged. No live test order or return-improvement claim.
+
+Not doing: no automatic ETF purchase, changed stop/target/deadline, new numeric risk limit, forced probability, account-control bypass, crypto-policy change or trading-model change.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.

@@ -398,3 +398,66 @@ describe("playbook consistency", () => {
     assert.match(body, /never as a mandatory safeguard/, "preferences stay labeled as preferences");
   });
 });
+
+describe("owner-directed diversified ETF allocation exception", () => {
+  async function fullPrompt(): Promise<string> {
+    const sections = createTraderPromptExtension().sections ?? [];
+    return (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+  }
+
+  it("names_the_narrow_exception_and_stale_preference_hierarchy", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /independently supported long-horizon allocation to a diversified equity ETF/, "exception is narrowly scoped");
+    assert.match(text, /supersedes older self-authored generic profit-before-add or no-average-down preferences/, "latest owner request outranks stale self-authored preferences");
+    assert.match(text, /explicit owner price, size, or position restrictions still bind/, "owner restrictions stay binding");
+  });
+
+  it("treats_below_cost_basis_as_evidence_not_an_automatic_veto", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /existing lot below its cost basis/, "names the below-cost-basis lot");
+    assert.match(text, /hypothetical liquidation.*slightly negative after costs/, "names hypothetical liquidation costs");
+    assert.match(text, /risk and cost evidence to weigh and disclose, not an automatic veto/, "cost basis alone is not a veto");
+    assert.match(text, /never add to a loser except for the narrow owner-directed diversified-ETF allocation/, "EXITS carries the same exception, not a blanket ban");
+    assert.match(text, /Never average down to rescue a loss\./, "SMALL keeps an unconditional rescue ban");
+    assert.match(text, /allocation in OWNER is distinct from loss rescue/, "an independent allocation is not a loss-rescue exception");
+  });
+
+  it("keeps_independent_entry_risk_and_protection_checks_binding", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /full entry protocol/, "entry protocol still binds");
+    assert.match(text, /truthful costs and EV/, "truthful costs and EV still bind");
+    assert.match(text, /size_position/, "sizing still binds");
+    assert.match(text, /combined-position and portfolio risk/, "aggregate risk still binds");
+    assert.match(text, /full-quantity protection/, "protection still binds");
+    assert.match(text, /owner reserve/, "reserve still binds");
+    assert.match(text, /every engine check still bind/, "engine checks still bind");
+    assert.match(text, /missing evidence still means hold/, "missing evidence still holds");
+    assert.match(text, /no automatic purchase/, "no automatic purchase");
+    assert.match(text, /Never invent probabilities, base rates, targets, or evidence/, "no fabricated inputs");
+  });
+
+  it("excludes_invalidated_overdue_unprotected_and_rescue_quota_buys", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /never permission to add to an invalidated, overdue, or unprotected position/, "invalidated, overdue, and unprotected adds stay excluded");
+    assert.match(text, /to widen a stop/, "widening stops stays excluded");
+    assert.match(text, /to move a time stop outward/, "moving time stops stays excluded");
+    assert.match(text, /to reset a failed deadline/, "resetting deadlines stays excluded");
+    assert.match(text, /merely to lower average cost, rescue a loss, or fill a quota/, "rescue and quota buys stay excluded");
+  });
+
+  it("keeps_both_playbooks_consistent_without_broadening_crypto", async () => {
+    const small = await readFile(new URL("../../skills/small-account/SKILL.md", import.meta.url), "utf8");
+    assert.match(small, /no averaging down to rescue a loss/, "small account keeps the rescue ban");
+    assert.match(small, /For an independently supported owner-directed diversified-equity-ETF allocation, follow the trader prompt OWNER section/, "small account carries the same narrow allocation policy");
+    assert.match(small, /never a reason to widen a stop, move a time stop outward/, "small account keeps stop and time-stop exclusions");
+    const sizing = await readFile(new URL("../../skills/position-sizing-and-exits/SKILL.md", import.meta.url), "utf8");
+    assert.match(sizing, /never average down to rescue a loss/, "sizing keeps the rescue ban");
+    assert.match(sizing, /For an independently supported owner-directed diversified-equity-ETF allocation, follow the trader prompt OWNER section/, "sizing carries the same narrow allocation policy");
+    assert.match(sizing, /not stop, deadline or loss-rescue prohibitions/, "the allowance cannot weaken the absolute risk prohibitions");
+    assert.match(sizing, /never permits adding to an invalidated, overdue, or unprotected position/, "sizing keeps the exclusions");
+    assert.match(sizing, /or buying to lower average cost, rescue a loss, or fill a quota/, "sizing keeps the rescue and quota exclusions");
+    const crypto = await readFile(new URL("../../skills/crypto-sleeve/SKILL.md", import.meta.url), "utf8");
+    assert.match(crypto, /never averaging down/, "crypto blanket ban is unchanged");
+    assert.ok(!crypto.includes("only exception is the narrow owner-directed"), "crypto ban is not broadened");
+  });
+});
