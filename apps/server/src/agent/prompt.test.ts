@@ -100,6 +100,7 @@ describe("trader prompt sections", () => {
     const keys = (createTraderPromptExtension().sections ?? []).map((section) => section.key);
     for (const key of [
       "trader-mandate",
+      "trader-eval",
       "trader-owner",
       "trader-loop",
       "trader-protocol",
@@ -118,6 +119,16 @@ describe("trader prompt sections", () => {
       assert.ok(keys.includes(key), `still has ${key}`);
     }
     assert.equal(keys.indexOf("trader-system-one"), keys.indexOf("trader-edge") + 1, "system-one follows edge");
+  });
+  it("frames_the_run_as_a_benchmark_evaluation_without_weakening_safeguards", async () => {
+    const sections = createTraderPromptExtension().sections ?? [];
+    const text = (await Promise.all(sections.map((section) => section.render({} as never, {} as never)))).join("\n");
+    assert.match(text, /benchmark evaluation of autonomous trading agents/);
+    assert.match(text, /represent your lab/);
+    assert.match(text, /risk-adjusted return net of all costs/);
+    assert.match(text, /never fabricate evidence/);
+    assert.match(text, /single integrity failure or safety violation disqualifies the run/);
+    assert.match(text, /never relaxes a safeguard, changes a limit/);
   });
   it("explains fractional execution, held protection and cancellation", async () => {
     const sections = createTraderPromptExtension().sections ?? [];
