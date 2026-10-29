@@ -35,6 +35,7 @@ export const CYCLE_ENTRY_KIND = "trader.cycle";
 
 const CTX = BACKGROUND_CONTEXT;
 const MAX_TOOL_TEXT = 2000;
+const CYCLE_KINDS: readonly CycleKind[] = ["pre_open", "intraday", "post_close", "overnight", "manual"];
 
 /** Tool groups for the Code Mode prompt section and `searchTools()`, by name prefix. */
 const CODEMODE_NAMESPACES: CodemodeNamespace[] = [
@@ -139,6 +140,33 @@ function messageAt(timestamp: unknown, fallbackAt: number): number {
   return typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp >= 0
     ? timestamp
     : fallbackAt;
+}
+
+/** Recover telemetry only: a persisted cycle input is not proof of completion or an active run. */
+export async function readLastCycle(conversation: Pick<Conversation, "entries">): Promise<{ at: number; kind: CycleKind } | undefined> {
+  let cursor: import("@earendil-works/pi-durable").Cursor | undefined;
+  let scanned = 0;
+  while (scanned < 1000) {
+    const limit = Math.min(100, 1000 - scanned);
+    const page = await conversation.entries({ order: "descending" }, limit, cursor, CTX);
+    if (page.items.length === 0) return undefined;
+    for (const entry of page.items.slice(0, limit)) {
+      scanned += 1;
+      if (entry.kind !== CYCLE_ENTRY_KIND || !isRecord(entry.data)) continue;
+      const cycleId = entry.data["cycleId"];
+      if (typeof cycleId !== "string") continue;
+      const kind = CYCLE_KINDS.find((candidate) => cycleId.startsWith(`${candidate}-`));
+      if (kind === undefined) continue;
+      for (const message of entry.model ?? []) {
+        if (message.role !== "user") continue;
+        const at = message.timestamp;
+        if (typeof at === "number" && Number.isFinite(at) && at >= 0) return { at, kind };
+      }
+    }
+    if (page.next === undefined) return undefined;
+    cursor = page.next;
+  }
+  return undefined;
 }
 
 /** Map one transcript entry to chat messages for the UI. */
@@ -279,6 +307,15 @@ export class TradingAgent implements AgentControl {
       CTX,
     );
     this.conversation = conversation;
+    try {
+      const cycle = await readLastCycle(conversation);
+      if (cycle !== undefined) {
+        this.lastCycleAt = cycle.at;
+        this.lastCycleKind = cycle.kind;
+      }
+    } catch {
+      log.warn("could not restore cycle status from history; last cycle remains unknown");
+    }
     await this.watchConversation(conversation);
     harness.resume();
     log.info("agent open", { model: `${main.provider}/${main.modelId}#${main.thinkingLevel}` });

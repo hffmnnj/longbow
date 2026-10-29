@@ -58,6 +58,8 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 
 `STALE_WORKING_EXIT` distinguishes plain-limit reducing sells still locally recorded as working after 60 wall-clock minutes from protective stops. `staleWorkingExits` shows the oldest 20 candidates and the total found within the newest 5,000 order records. These orders may be intentionally resting; creation age is not time since the last fill or proof of a stale limit. Reconcile broker status before interpreting the warning. It never authorizes or triggers cancellation, repricing or a replacement sale.
 
+At startup, cycle status restores the newest valid tagged cycle-input timestamp from up to 1,000 root-conversation entries. This preserves history, not proof of successful completion or an active run. `NO_CYCLE_RECORDED` still applies if no usable history is found or the read fails; genuinely old/future timestamps still trigger the existing stale/clock-skew checks.
+
 ```sh
 cd ~/Documents/robinhood-harness
 install -Dm644 ops/longbow-health.service ~/.config/systemd/user/longbow-health.service

@@ -152,6 +152,15 @@ Not doing: no forced trade, lowered thinking level, hard timeout/abort, pending-
 
 Not doing: no automatic ETF purchase, changed stop/target/deadline, new numeric risk limit, forced probability, account-control bypass, crypto-policy change or trading-model change.
 
+### Hourly R&D: cycle telemetry across restarts (2026-10-28)
+
+1. On opening the root conversation, restore lastCycleAt/lastCycleKind from the newest valid trader.cycle entry's original user-message timestamp and tagged cycleId, not a prompt body, helper report, compaction summary or restart clock.
+2. Use a bounded descending history read of at most 1,000 entries, stopping at the first usable cycle; missing/malformed history remains unknown and read failure logs a warning without preventing startup. Future stored times remain visible to existing clock-skew diagnostics.
+3. Do not mark a restored cycle active, call settlement hooks, submit/resume an extra cycle, or change scheduler, trading or status wire semantics. Both clients receive the existing fields.
+4. Reuse existing timestamp coverage and add only focused recovery regressions, run root checks and one safety review, then restart while idle/no simulations. Confirm the live time matches the persisted cycle, not the deployment time, with settings and next cycle unchanged.
+
+Not doing: no new persistence table, metadata writer, recovery ledger, forced cycle, scheduler change or live test trade.
+
 ### Original v1 checks
 
 1. `bun run typecheck` and `bun run test` pass.
