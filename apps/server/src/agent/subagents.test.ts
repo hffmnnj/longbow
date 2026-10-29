@@ -194,6 +194,8 @@ describe("subagent delegate tool", () => {
         assert.deepEqual(agent.model, { provider: "faux", modelId: "faux-1" }, "child runs on the fleet model");
         assert.ok(agent.instructions?.includes("analyst"), "child instructions carry the role brief");
         assert.ok(agent.instructions?.includes("SPY"), "child instructions carry the symbol");
+        assert.ok(agent.instructions?.includes("benchmark evaluation"), "child instructions carry the evaluation framing");
+        assert.ok(agent.instructions?.includes("represent your lab"), "child instructions carry the lab framing");
 
         const pages = await child.entries({}, 100, undefined, context);
         const transcript = pages.items
