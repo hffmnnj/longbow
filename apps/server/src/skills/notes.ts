@@ -20,8 +20,9 @@ import type { Clock, EventBus, Notes } from "../ports.ts";
 
 const PATH_PATTERN = /^[A-Za-z0-9._/-]+$/;
 const MAX_SEGMENTS = 4;
-const MAX_FILE_BYTES = 200 * 1024;
-const MAX_FILES = 500;
+// Notes are reread every cycle, so the caps keep them to working memory rather than archives.
+const MAX_FILE_BYTES = 24 * 1024;
+const MAX_FILES = 150;
 
 const README = [
   "# Workspace",
@@ -104,7 +105,12 @@ export function createNotes(deps: { dir: string; bus: EventBus; clock: Clock }):
   async function writeNote(path: string, content: string): Promise<NoteFile> {
     const valid = validateNotePath(path);
     const bytes = Buffer.byteLength(content, "utf8");
-    if (bytes > MAX_FILE_BYTES) throw new Error(`note too large: ${valid}`);
+    if (bytes > MAX_FILE_BYTES) {
+      throw new Error(
+        `note too large: ${valid} is ${bytes} bytes, the limit is ${MAX_FILE_BYTES}. ` +
+          "Rewrite it shorter, keeping only current facts; do not split it across files.",
+      );
+    }
     const full = join(dir, valid);
     let exists = true;
     try {
@@ -113,7 +119,7 @@ export function createNotes(deps: { dir: string; bus: EventBus; clock: Clock }):
       exists = false;
     }
     if (!exists && countFiles(dir) >= MAX_FILES) {
-      throw new Error(`workspace file limit reached (${MAX_FILES})`);
+      throw new Error(`workspace file limit reached (${MAX_FILES}); update an existing note instead of creating a new one`);
     }
     mkdirSync(dirname(full), { recursive: true, mode: 0o700 });
     const tmp = join(dirname(full), `.tmp-${process.pid}-${tmpCounter++}`);
