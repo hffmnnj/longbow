@@ -32,6 +32,10 @@ Treasury curve points, 2s10s and 3m10y spreads, 20-day change in the 10-year. Li
 
 CIK, recent filings with links, and 8 periods of revenue, net income, EPS, shares, cash, and long-term debt. Limits: 8 periods only; cash-flow statements are absent, so burn estimates are rough; always open the linked filings for going-concern or restatement language rather than trusting the numbers alone.
 
+## web_search({ query, scope?, allowed_domains? }), open_page({ url }), find_in_page({ url, pattern })
+
+Exa-backed web discovery and research, not market data. Scope: web (default general search; allowed_domains pins web results to named domains), stocks (stock-library context for a ticker), filings (SEC indexed filings discovery). Results are URLs with untrusted text: note the result date, open the source before citing it, and treat long-page extracts as possibly incomplete. Limits: never authoritative for prices, fundamentals, or risk inputs; confirm every cited figure against its primary filing, sec_company, or a market_* tool, and never put account holdings, order details, or other sensitive data in a query.
+
 ## General rule
 
 Every numeric input that gates an entry must have a null check. A missing value fails closed: no indicator, no setup, no trade.

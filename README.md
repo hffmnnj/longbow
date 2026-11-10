@@ -91,12 +91,12 @@ flowchart LR
   AG --> SUB
   AG -->|structured order intent| RISK
   RISK -->|review, then place| RH[Robinhood MCP]
-  AG --> MD[Nasdaq, CBOE, Treasury, SEC, web search]
+  AG --> MD[Nasdaq, CBOE, Treasury, SEC, Exa web search]
   SIM -.paper broker.-> RISK
   AG <--> DB
 ```
 
-- `apps/server`: Node 26 and Hono. The agent runs on `@earendil-works/pi-durable` with SQLite storage and a Code Mode tool: the model writes JavaScript that calls every other tool (`rh_*` read tools, `market_*`, `sec_company`, web search, skills, notes, risk, journal, `delegate`) in parallel.
+- `apps/server`: Node 26 and Hono. The agent runs on `@earendil-works/pi-durable` with SQLite storage and a Code Mode tool: the model writes JavaScript that calls every other tool (`rh_*` read tools, `market_*`, `sec_company`, Exa-backed web search, skills, notes, risk, journal, `delegate`) in parallel.
 - `apps/web`: a SvelteKit static single-page app with shadcn-svelte, Tailwind 4, and dithered charts. Installable as a PWA.
 - `apps/mobile`: the native Android app in Flutter (see below): models, a Riverpod data layer with tailnet auto-connect, a design system with dithered charts, and one folder per feature.
 - `packages/shared`: the wire contract (types and zod schemas) used by every client.
@@ -130,7 +130,7 @@ The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning throu
 | `HARNESS_LIVE_TRADING` | `1` lets orders reach Robinhood. Anything else keeps the broker read-only |
 | `DATA_DIR` | State directory (default `~/.local/share/robinhood-harness`) |
 | `MAIN_MODEL`, `SUBAGENT_MODEL` | Model specs |
-| `WEBSEARCH_CONFIG_FILE` | MCP config holding the web search endpoint |
+| `EXA_API_KEY`, `EXA_KEY_FILE` | Exa key directly, or a file holding it (default `~/.config/robinhood-harness/exa.key`, mode 0600, never committed) |
 | `SEC_CONTACT` | `Your Name you@example.com`, required by SEC EDGAR's fair-access policy |
 | `SIM_CONCURRENCY` | Parallel simulations, 1 to 4 (default 2) |
 

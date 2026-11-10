@@ -62,8 +62,8 @@ export interface Config {
   SIM_CONCURRENCY: number;
   /** Muse CLI auth file to seed the Meta credential from, default ~/.config/muse/auth.json. */
   MUSE_AUTH_FILE: string;
-  /** OpenCode config holding mcp.servers.openai_websearch {url, headers}, default ~/.config/opencode-v2/opencode.json. */
-  WEBSEARCH_CONFIG_FILE: string;
+  /** Exa key file, default ~/.config/robinhood-harness/exa.key; EXA_API_KEY overrides it. */
+  EXA_KEY_FILE: string;
   /** System One endpoint, SYSTEMONE_URL, default TypeSafe's https://api.typesafe.ai/v1/systemone. For development use OpenCode's https://opencode.ai/inference/systemone/v1/systemone with model jev-1.13-free. */
   SYSTEMONE_URL: string;
   /** Model id sent to System One, SYSTEMONE_MODEL, default jev-latest. */
