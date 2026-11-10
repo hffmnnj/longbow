@@ -45,6 +45,7 @@ export function cycleLabel(text: string): string {
 
 export type FeedItem =
   | { kind: "cycle" | "user" | "assistant"; key: string; message: ChatMessage }
+  | { kind: "compaction"; key: string; message: ChatMessage }
   | { kind: "helper"; key: string; message: ChatMessage }
   | { kind: "step"; key: string; code: ChatMessage; result?: ChatMessage }
   | { kind: "tools"; key: string; messages: ChatMessage[] }
@@ -75,6 +76,10 @@ export function buildItems(messages: readonly ChatMessage[]): FeedItem[] {
       else out.push({ kind: "tools", key: m.id, messages: [m] });
     } else if (m.role === "helper") {
       out.push({ kind: "helper", key: m.id, message: m });
+    } else if (m.role === "compaction") {
+      // Historical compaction marker: the server already stripped the summary
+      // payload, so the card renders a fixed label and never this text.
+      out.push({ kind: "compaction", key: m.id, message: m });
     } else {
       out.push({ kind: m.role, key: m.id, message: m });
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:longbow/core/core.dart';
 import 'package:longbow/data/data.dart';
+import 'package:longbow/features/feed/compaction_card.dart';
 import 'package:longbow/features/feed/transcript_items.dart';
 import 'package:longbow/features/feed/transcript_page.dart';
 import 'package:longbow/models/models.dart';
@@ -310,6 +311,67 @@ void main() {
 
       expect(find.byType(WorkingIndicator), findsOneWidget);
       expect(find.text('Working'), findsOneWidget);
+    });
+
+    testWidgets('compactionHistory_showsFixedLabelAndTimeNeverThePayload', (tester) async {
+      final h = await startHarness(tester);
+      await pumpView(
+        tester,
+        h,
+        FeedState(messages: [
+          assistantMsg('a', 'Working on it', at: 1000),
+          const ChatMessage(id: 'k1', at: 7000, role: ChatRole.compaction, text: 'summary blob that must never render'),
+          userMsg('u', 'Context compacted is what I call it', at: 8000),
+        ]),
+      );
+
+      expect(find.byType(CompactionCard), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(CompactionCard), matching: find.textContaining('Context compacted')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(CompactionCard), matching: find.textContaining(etTime(7000))),
+        findsOneWidget,
+      );
+      expect(find.textContaining('summary blob'), findsNothing);
+      expect(find.text('Context compacted is what I call it'), findsOneWidget,
+          reason: 'the owner message stays a user bubble');
+      expect(find.byType(CompactionCard), findsOneWidget);
+      await shutDown(tester, h);
+    });
+
+    testWidgets('compactionLive_compactingReplacesWorkingIndicator', (tester) async {
+      final h = await startHarness(tester);
+      await pumpView(
+        tester,
+        h,
+        FeedState(status: testStatus(agentState: AgentState.running), messages: [userMsg('u', 'go')]),
+        compaction: AgentCompaction.compacting,
+      );
+
+      expect(find.byType(CompactionCard), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(CompactionCard), matching: find.textContaining('Context compacting')),
+        findsOneWidget,
+      );
+      expect(find.byType(WorkingIndicator), findsNothing, reason: 'the live card replaces the generic indicator');
+      expect(find.byType(UserBubble), findsOneWidget, reason: 'the owner message stays a bubble');
+      await shutDown(tester, h);
+    });
+
+    testWidgets('compactionLive_failedShowsHonestCardNeverAUserBubble', (tester) async {
+      final h = await startHarness(tester);
+      await pumpView(tester, h, const FeedState(), compaction: AgentCompaction.failed);
+
+      expect(find.byType(CompactionCard), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(CompactionCard), matching: find.textContaining('Context compaction failed')),
+        findsOneWidget,
+      );
+      expect(find.byType(UserBubble), findsNothing);
+      expect(find.textContaining('You \u00b7'), findsNothing);
+      await shutDown(tester, h);
     });
 
     testWidgets('empty_showsMessageAndAction', (tester) async {

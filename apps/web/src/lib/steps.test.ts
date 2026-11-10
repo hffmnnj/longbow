@@ -81,6 +81,32 @@ describe("buildItems", () => {
   });
 });
 
+describe("compaction", () => {
+  const msg = (id: string, at: number, role: ChatMessage["role"] = "assistant", extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, at, role, text: id, ...extra });
+
+  it("maps a compaction message to a compaction item that keeps its stored time", () => {
+    const items = buildItems([msg("k1", 7_000, "compaction", { text: "<redacted summary payload>" })]);
+    expect(items.map((i) => i.kind)).toEqual(["compaction"]);
+    const item = items[0];
+    expect(item?.key).toBe("k1");
+    expect(item && itemTime(item)).toBe(7_000);
+  });
+
+  it("never groups or bubbles a compaction marker as a tool result or assistant prose", () => {
+    const items = buildItems([
+      msg("t1", 100, "tool", { toolName: "get_quote" } as Partial<ChatMessage>),
+      msg("k1", 200, "compaction"),
+      msg("t2", 300, "tool", { toolName: "get_quote" } as Partial<ChatMessage>),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["tools", "compaction", "tools"]);
+  });
+
+  it("leaves an owner message quoting compaction words as a user bubble", () => {
+    const items = buildItems([msg("u1", 100, "user", { text: "Context compacted, here is what I meant by that summary" })]);
+    expect(items.map((i) => i.kind)).toEqual(["user"]);
+  });
+});
+
 describe("withDecisions", () => {
   const msg = (id: string, at: number, role: ChatMessage["role"] = "assistant"): ChatMessage => ({ id, at, role, text: id });
   const entry = (id: string, at: number, action: JournalEntry["action"] = "buy"): JournalEntry => ({

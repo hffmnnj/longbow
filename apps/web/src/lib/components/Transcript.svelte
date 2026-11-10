@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChatMessage, JournalEntry, OrderRecord, ToolCallSummary } from "@rh/shared";
+  import CompactionCard from "./CompactionCard.svelte";
   import CycleDivider from "./CycleDivider.svelte";
   import DecisionCard from "./DecisionCard.svelte";
   import HelperReport from "./HelperReport.svelte";
@@ -13,7 +14,7 @@
   import { harness } from "$lib/store.svelte";
   import type { OutboxItem } from "$lib/reducer";
 
-  let { messages, draft = "", calls, running = false, outbox = [], agentLabel = "Agent", decisions = [], orders = [] }: {
+  let { messages, draft = "", calls, running = false, outbox = [], agentLabel = "Agent", decisions = [], orders = [], compaction }: {
     /** Journal entries to show in place among the messages. */
     decisions?: JournalEntry[];
     orders?: OrderRecord[];
@@ -24,6 +25,8 @@
     running?: boolean;
     outbox?: OutboxItem[];
     agentLabel?: string;
+    /** Live lead compaction state from the root status; child transcripts leave this unset. */
+    compaction?: "compacting" | "failed";
   } = $props();
 
   const items = $derived(withDecisions(buildItems(messages), decisions));
@@ -43,6 +46,8 @@
     <div class="rise-in"><ToolTrace messages={item.messages} /></div>
   {:else if item.kind === "helper"}
     <HelperReport message={item.message} />
+  {:else if item.kind === "compaction"}
+    <div class="rise-in"><CompactionCard kind="compacted" at={item.message.at} /></div>
   {:else if item.kind === "user"}
     <div class="rise-in flex flex-col items-end gap-1">
       <div class="bg-accent max-w-[85%] rounded-xl rounded-br-sm px-3.5 py-2 text-[14px] leading-relaxed break-words whitespace-pre-wrap">
@@ -77,12 +82,18 @@
   </div>
 {/each}
 
+{#if compaction === "compacting"}
+  <div class="rise-in"><CompactionCard kind="compacting" /></div>
+{:else if compaction === "failed"}
+  <div class="rise-in"><CompactionCard kind="failed" /></div>
+{/if}
+
 {#if draft}
   <article class="flex flex-col gap-1" aria-label={`${agentLabel} is writing`}>
     <span class="text-live text-[11px]">{agentLabel} · writing</span>
     <div class="stream-caret text-[14px]"><Markdown text={draft} /></div>
   </article>
-{:else if running && !lastIsLiveStep}
+{:else if running && !lastIsLiveStep && compaction !== "compacting"}
   <div class="text-live flex items-center gap-1.5 text-[12px]">
     <Icon icon={Loading03Icon} class="size-3.5 animate-spin" /> Working
   </div>
