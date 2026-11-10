@@ -93,6 +93,62 @@ export function upsertNote(list: readonly NoteFile[], note: NoteFile): NoteFile[
 const endsLiveCalls = (m: ChatMessage) =>
   (m.role === "tool" && m.toolName === "codemode" && m.code === undefined) || m.role === "assistant";
 
+/**
+ * Reconcile a REST snapshot against a request baseline and the live feed.
+ * `baseline` is the list as it was when the request started; `current` is
+ * the list now (it may include SSE that arrived mid-flight); `fetched` is
+ * the authoritative response.
+ *
+ * The fetch wins for records that did not change during the flight, so a
+ * missed event can never freeze stale data: an old cached pending order
+ * becomes the fetched filled order when nothing streamed for it. A record
+ * that WAS replaced mid-flight (different reference than the baseline)
+ * keeps the live copy, because the SSE event is newer than a fetch that
+ * started before it. Entries only on one side are kept.
+ */
+function reconcile<T>(
+  baseline: readonly T[],
+  current: readonly T[],
+  fetched: readonly T[],
+  key: (t: T) => string,
+  upsertOne: (list: T[], item: T) => T[],
+): T[] {
+  const baseByKey = new Map(baseline.map((e) => [key(e), e]));
+  const currentByKey = new Map(current.map((e) => [key(e), e]));
+  const out = fetched.map((f) => {
+    const live = currentByKey.get(key(f));
+    return live !== undefined && live !== baseByKey.get(key(f)) ? live : f;
+  });
+  const fetchedKeys = new Set(fetched.map(key));
+  let res = out;
+  for (const c of current) if (!fetchedKeys.has(key(c))) res = upsertOne(res, c);
+  return res;
+}
+
+export const reconcileMessages = (
+  baseline: readonly ChatMessage[],
+  current: readonly ChatMessage[],
+  fetched: readonly ChatMessage[],
+): ChatMessage[] => reconcile(baseline, current, fetched, (m) => m.id, upsertMessage);
+
+export const reconcileJournal = (
+  baseline: readonly JournalEntry[],
+  current: readonly JournalEntry[],
+  fetched: readonly JournalEntry[],
+): JournalEntry[] => reconcile(baseline, current, fetched, (e) => e.id, upsertJournal);
+
+export const reconcileOrders = (
+  baseline: readonly OrderRecord[],
+  current: readonly OrderRecord[],
+  fetched: readonly OrderRecord[],
+): OrderRecord[] => reconcile(baseline, current, fetched, (o) => o.id, upsertOrder);
+
+export const reconcileNotes = (
+  baseline: readonly NoteFile[],
+  current: readonly NoteFile[],
+  fetched: readonly NoteFile[],
+): NoteFile[] => reconcile(baseline, current, fetched, (n) => n.path, upsertNote);
+
 /** Merge a fetched subagent transcript with whatever streamed in meanwhile. */
 export function mergeTranscript(state: FeedState, id: string, fetched: readonly ChatMessage[]): FeedState {
   const cur = state.transcripts[id] ?? emptyTranscript();

@@ -228,7 +228,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
                 child: DraftBubble(text: feed.draft, label: widget.agentLabel),
               )
             : _built.showWorking
-                ? const Padding(padding: EdgeInsets.only(bottom: 12), child: WorkingIndicator())
+                ? Padding(padding: const EdgeInsets.only(bottom: 12), child: WorkingIndicator(label: _built.workingLabel))
                 : const SizedBox.shrink();
         return Stack(
           children: [

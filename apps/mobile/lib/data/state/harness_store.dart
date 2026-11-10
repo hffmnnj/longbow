@@ -167,6 +167,9 @@ class HarnessStore extends Notifier<HarnessState> {
   HarnessApi? _api;
   EventFeedHandle? _handle;
   int _outSeq = 0;
+  // Explicit connection generation: the same API object can reattach after
+  // stop/start, so identity alone cannot tell connections apart.
+  int _connection = 0;
   final List<Timer> _timers = [];
 
   ToastQueue get _toasts => ref.read(toastQueueProvider);
@@ -214,11 +217,22 @@ class HarnessStore extends Notifier<HarnessState> {
     if (identical(_api, api) && _handle != null) return;
     _detach();
     _api = api;
+    _connection += 1;
+    final gen = _connection;
     _handle = ref.read(eventStreamFactoryProvider)(
       api.baseUrl,
-      onEvent: _onEvent,
-      onOpen: _onOpen,
-      onClose: _onClose,
+      onEvent: (event) {
+        if (_connection != gen) return;
+        _onEvent(event);
+      },
+      onOpen: () {
+        if (_connection != gen) return;
+        _onOpen();
+      },
+      onClose: () {
+        if (_connection != gen) return;
+        _onClose();
+      },
     );
   }
 
@@ -226,6 +240,8 @@ class HarnessStore extends Notifier<HarnessState> {
     _handle?.dispose();
     _handle = null;
     _api = null;
+    // Invalidate in-flight refresh work: ownership now requires the next generation.
+    _connection += 1;
   }
 
   /// Attaches to the current API (if any) and refreshes. Called once by the
@@ -294,59 +310,130 @@ class HarnessStore extends Notifier<HarnessState> {
   Future<void> refresh() async {
     final api = _api;
     if (api == null) return;
-    // Status first and on its own: an offline launch still shows the last
-    // known equity. Each fetch settles independently, like Promise.allSettled.
-    final feed = state.feed;
-    StatusResponse? status;
-    List<ChatMessage>? messages;
-    List<JournalEntry>? journal;
-    List<OrderRecord>? orders;
-    Object? firstError;
-    try {
-      status = await api.status();
-    } catch (e) {
-      firstError ??= e;
+    final gen = _connection;
+    if (_refreshing != null && identical(_refreshApi, api) && _refreshGen == gen) {
+      return _refreshing;
     }
+    final task = _doRefresh(api, gen);
+    _refreshing = task;
+    _refreshApi = api;
+    _refreshGen = gen;
     try {
-      messages = await api.messages(200);
-    } catch (e) {
-      firstError ??= e;
+      await task;
+    } finally {
+      if (identical(_refreshing, task) && _refreshGen == gen) {
+        _refreshing = null;
+        _refreshApi = null;
+        _refreshGen = null;
+      }
     }
-    try {
-      journal = await api.journal(100);
-    } catch (e) {
-      firstError ??= e;
+  }
+
+  Future<void>? _refreshing;
+  HarnessApi? _refreshApi;
+  int? _refreshGen;
+
+  bool _owns(HarnessApi api, int gen) =>
+      identical(_api, api) && _connection == gen;
+
+  /// Reconcile REST with the live stream. Each fetch reconciles against the
+  /// request baseline as it settles instead of replacing the feed: an SSE
+  /// message that arrives mid-refresh survives, while the fetch still updates
+  /// records nothing touched, so a slow fetch never blocks (or wipes)
+  /// visible messages. Primary history (messages) marks the feed loaded
+  /// without waiting for slow orders/journal/status reads. A status event
+  /// that lands mid-refresh is newer than a fetch that started before it, so
+  /// the event wins. Late responses for a stopped or replaced API are
+  /// dropped, never published.
+  Future<void> _doRefresh(HarnessApi api, int gen) async {
+    final base = state.feed;
+    Object? messagesError;
+    Object? otherError;
+    Future<void> guard(Future<void> Function() fn, {bool primary = false}) async {
+      try {
+        await fn();
+      } catch (e) {
+        if (!_owns(api, gen)) return;
+        if (primary) {
+          messagesError ??= e;
+          // Surface primary history failure at once so Retry works while
+          // slow orders/journal/status reads are still pending.
+          _update(state.copyWith(
+            loaded: true,
+            loadError: () => _message(e),
+          ));
+        } else {
+          otherError ??= e;
+        }
+      }
     }
-    try {
-      orders = await api.orders(100);
-    } catch (e) {
-      firstError ??= e;
-    }
-    StatusResponse? Function()? statusFn;
-    // A final local stays promoted inside the closure.
-    final liveStatus = status;
-    if (liveStatus != null) statusFn = () => liveStatus;
-    _update(state.copyWith(
-      feed: feed.copyWith(
-        status: statusFn,
-        messages: messages ?? feed.messages,
-        journal: journal ?? feed.journal,
-        orders: orders ?? feed.orders,
+
+    await Future.wait([
+      guard(() async {
+        final value = await api.status();
+        if (!_owns(api, gen)) return;
+        // An SSE status that landed mid-refresh is newer than a fetch that
+        // started before it, so the event wins; either way the fetch proves
+        // connectivity and clears the offline-cache flag.
+        final keepFetched = identical(state.feed.status, base.status);
+        _update(state.copyWith(
+          feed: keepFetched
+              ? state.feed.copyWith(status: () => value)
+              : state.feed,
+          cachedAt: () => null,
+        ));
+      }),
+      guard(
+        () async {
+          final messages = await api.messages(200);
+          if (!_owns(api, gen)) return;
+          _update(state.copyWith(
+              feed: state.feed.copyWith(
+                  messages: reconcileMessages(
+                      base.messages, state.feed.messages, messages)),
+              loaded: true));
+        },
+        primary: true,
       ),
-      cachedAt: status != null ? () => null : null,
-      loadError: () =>
-          firstError == null ? null : _message(firstError),
+      guard(() async {
+        final journal = await api.journal(100);
+        if (!_owns(api, gen)) return;
+        _update(state.copyWith(
+            feed: state.feed.copyWith(
+                journal:
+                    reconcileJournal(base.journal, state.feed.journal, journal))));
+      }),
+      guard(() async {
+        final orders = await api.orders(100);
+        if (!_owns(api, gen)) return;
+        _update(state.copyWith(
+            feed: state.feed.copyWith(
+                orders:
+                    reconcileOrders(base.orders, state.feed.orders, orders))));
+      }),
+    ]);
+    if (!_owns(api, gen)) return;
+    _update(state.copyWith(
+      loadError: () => messagesError != null
+          ? _message(messagesError)
+          : otherError != null
+              ? _message(otherError)
+              : null,
       loaded: true,
     ));
-    if (firstError == null) unawaited(_refreshExtras(api));
+    if (messagesError == null && otherError == null) {
+      unawaited(_refreshExtras(api, gen));
+    }
     unawaited(ref.read(simProvider.notifier).loadRuns());
   }
 
   /// Subagents, notes and skills fail soft: the feed works without them.
-  Future<void> _refreshExtras(HarnessApi api) async {
+  Future<void> _refreshExtras(HarnessApi api, int gen) async {
+    final base = state.feed;
     final runs = await _settled(api.subagents);
     final notes = await _settled(api.notes);
     final skills = await _settled(api.skills);
+    if (!_owns(api, gen)) return;
     var subagents = state.feed.subagents;
     var noteFiles = state.feed.notes;
     if (runs != null) {
@@ -358,8 +445,7 @@ class HarnessStore extends Notifier<HarnessState> {
         ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     }
     if (notes != null) {
-      noteFiles = List<NoteFile>.of(notes)
-        ..sort((a, b) => a.path.compareTo(b.path));
+      noteFiles = reconcileNotes(base.notes, state.feed.notes, notes);
     }
     _update(state.copyWith(
       feed: state.feed.copyWith(subagents: subagents, notes: noteFiles),

@@ -154,4 +154,19 @@ void main() {
     expect(isRunning(const ToolCallSummary(name: 'x', durationMs: 5)), isFalse);
     expect(isRunning(const ToolCallSummary(name: 'x', isError: true)), isFalse);
   });
+
+  test('steps_isStepFailedMarksResultErrorEvenWithNoCalls', () {
+    const failed = ChatMessage(id: 'r', at: 2, role: ChatRole.tool, text: 'boom', toolName: 'codemode', isError: true);
+    expect(isStepFailed(const [], failed), isTrue);
+    expect(stepStatus(false, const [], failed), StepStatus.error);
+  });
+
+  test('steps_stepStatusKeepsRunningLiveAndFlagsCallFailures', () {
+    const ok = ToolCallSummary(name: 'get_quote', durationMs: 5);
+    const bad = ToolCallSummary(name: 'web_search', durationMs: 9, isError: true);
+    expect(stepStatus(true, const [ok]), StepStatus.running);
+    expect(stepStatus(false, const [bad]), StepStatus.error);
+    expect(stepStatus(false, const [ok]), StepStatus.none);
+    expect(stepStatus(false, const []), StepStatus.none);
+  });
 }

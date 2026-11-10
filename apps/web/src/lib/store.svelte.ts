@@ -24,6 +24,10 @@ import {
   dropOutbox,
   emptyState,
   failOutbox,
+  reconcileJournal,
+  reconcileMessages,
+  reconcileNotes,
+  reconcileOrders,
   mergeTranscript,
   type FeedState,
 } from "./reducer.ts";
@@ -102,13 +106,31 @@ class Harness {
     return this.#api;
   }
   #unsubscribe: (() => void) | null = null;
+  /**
+   * In-flight refresh and the connection it belongs to: start() and the stream's
+   * onOpen overlap, so a second caller on the same connection joins the first
+   * instead of racing it. A fresh connection never joins the old one's task.
+   * loadApi returns a singleton, so the API identity alone cannot tell
+   * connections apart: the explicit generation does.
+   */
+  #refreshTask: Promise<void> | null = null;
+  #refreshApi: Api | null = null;
+  #connection = 0;
+  #refreshGen: number | null = null;
 
   async start(): Promise<void> {
     if (this.#api) return;
-    this.#api = await loadApi();
+    // Reserve the generation before awaiting so a stop() during loadApi
+    // invalidates this pending connection.
+    const gen = this.#connection + 1;
+    this.#connection = gen;
+    const api = await loadApi();
+    if (this.#connection !== gen) return;
+    this.#api = api;
     sim.attach(this.#api);
     this.#unsubscribe = this.#api.subscribe({
       onEvent: (e) => {
+        if (this.#connection !== gen) return;
         if (e.type === "sim" || e.type === "sim_suite" || ("simRunId" in e && e.simRunId)) {
           sim.apply(e);
           return;
@@ -118,11 +140,13 @@ class Harness {
         if (e.type === "report") this.#reportArrived(e.report);
       },
       onOpen: () => {
+        if (this.#connection !== gen) return;
         const wasOffline = this.connection === "offline";
         this.connection = "live";
         if (wasOffline || !this.loaded) void this.refresh();
       },
       onClose: () => {
+        if (this.#connection !== gen) return;
         this.connection = "offline";
       },
     });
@@ -133,43 +157,124 @@ class Harness {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#api = null;
+    // Invalidate in-flight refresh work: ownership now requires this generation.
+    this.#connection += 1;
     sim.attach(null);
   }
 
   async refresh(): Promise<void> {
     const api = this.#api;
     if (!api) return;
-    // Status first and on its own: an offline launch still shows the last known equity.
-    const [status, messages, journal, orders] = await Promise.allSettled([
-      api.status(),
-      api.messages(200),
-      api.journal(100),
-      api.orders(100),
+    const gen = this.#connection;
+    if (this.#refreshTask && this.#refreshApi === api && this.#refreshGen === gen)
+      return this.#refreshTask;
+    const task = this.#doRefresh(api, gen);
+    this.#refreshTask = task;
+    this.#refreshApi = api;
+    this.#refreshGen = gen;
+    try {
+      await task;
+    } finally {
+      if (this.#refreshTask === task && this.#refreshGen === gen) {
+        this.#refreshTask = null;
+        this.#refreshApi = null;
+        this.#refreshGen = null;
+      }
+    }
+  }
+
+  /**
+   * Reconcile REST with the live stream. Each fetch reconciles against the
+   * request baseline as it settles instead of replacing the feed, so an SSE
+   * message, delta or call that arrives mid-refresh survives while the fetch
+   * still updates records nothing touched: a slow fetch never blocks (or
+   * wipes) visible messages. A status event that lands mid-refresh is newer
+   * than a fetch that started before it, so the event wins. Late responses
+   * for a stopped or replaced API are dropped, never published.
+   */
+  async #doRefresh(api: Api, gen: number): Promise<void> {
+    const base = this.feed;
+    const owned = () => this.#api === api && this.#connection === gen;
+    let messagesError: unknown;
+    let otherError: unknown;
+    const noteOther = (e: unknown) => {
+      otherError ??= e;
+    };
+    await Promise.all([
+      api.status().then(
+        (value) => {
+          if (!owned()) return;
+          if (this.feed.status === base.status) {
+            this.cachedAt = apiMeta.statusCachedAt;
+            this.feed = { ...this.feed, status: value };
+          } else {
+            // Live event already showed newer state; the fetch only proves connectivity.
+            this.cachedAt = null;
+          }
+        },
+        (e) => {
+          if (owned()) noteOther(e);
+        },
+      ),
+      api.messages(200).then(
+        (value) => {
+          if (!owned()) return;
+          this.feed = { ...this.feed, messages: reconcileMessages(base.messages, this.feed.messages, value) };
+          // Primary history is ready: the transcript shows without waiting
+          // for slow orders/journal/status reads.
+          this.loaded = true;
+        },
+        (e) => {
+          if (!owned()) return;
+          messagesError ??= e;
+          this.loaded = true;
+          // Surface primary history failure at once so Retry works while
+          // slow orders/journal/status reads are still pending.
+          this.loadError = message(e);
+        },
+      ),
+      api.journal(100).then(
+        (value) => {
+          if (!owned()) return;
+          this.feed = { ...this.feed, journal: reconcileJournal(base.journal, this.feed.journal, value) };
+        },
+        (e) => {
+          if (owned()) noteOther(e);
+        },
+      ),
+      api.orders(100).then(
+        (value) => {
+          if (!owned()) return;
+          this.feed = { ...this.feed, orders: reconcileOrders(base.orders, this.feed.orders, value) };
+        },
+        (e) => {
+          if (owned()) noteOther(e);
+        },
+      ),
     ]);
-    this.cachedAt = status.status === "fulfilled" ? apiMeta.statusCachedAt : this.cachedAt;
-    const next = { ...this.feed };
-    if (status.status === "fulfilled") next.status = status.value;
-    if (messages.status === "fulfilled") next.messages = messages.value;
-    if (journal.status === "fulfilled") next.journal = journal.value;
-    if (orders.status === "fulfilled") next.orders = orders.value;
-    this.feed = next;
-    const failed = [status, messages, journal, orders].find((r) => r.status === "rejected");
-    this.loadError = failed && failed.status === "rejected" ? message(failed.reason) : null;
-    this.loaded = true;
-    if (!failed) void this.#refreshExtras(api);
+    if (!owned()) return;
+    this.loadError =
+      messagesError !== undefined
+        ? message(messagesError)
+        : otherError !== undefined
+          ? message(otherError)
+          : null;
+    if (messagesError === undefined && otherError === undefined) void this.#refreshExtras(api, gen);
     void sim.loadRuns();
   }
 
   /** Subagents, notes and skills fail soft: the feed works without them. */
-  async #refreshExtras(api: Api): Promise<void> {
+  async #refreshExtras(api: Api, gen: number): Promise<void> {
+    const base = this.feed;
     const [runs, notes, skills] = await Promise.allSettled([api.subagents(), api.notes(), api.skills()]);
+    if (this.#api !== api || this.#connection !== gen) return;
     const next = { ...this.feed };
     if (runs.status === "fulfilled") {
       const byId = new Map(runs.value.map((r) => [r.id, r]));
       for (const r of this.feed.subagents) if (!byId.has(r.id)) byId.set(r.id, r);
       next.subagents = [...byId.values()].sort((a, b) => b.startedAt - a.startedAt);
     }
-    if (notes.status === "fulfilled") next.notes = notes.value.slice().sort((a, b) => a.path.localeCompare(b.path));
+    if (notes.status === "fulfilled") next.notes = reconcileNotes(base.notes, this.feed.notes, notes.value);
     this.feed = { ...this.feed, subagents: next.subagents, notes: next.notes };
     if (skills.status === "fulfilled") this.skills = skills.value;
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:longbow/data/data.dart';
 import 'package:longbow/domain/steps.dart';
+import 'package:longbow/domain/tool_meta.dart';
 import 'package:longbow/models/models.dart';
 
 import 'decision_card.dart';
@@ -49,12 +50,17 @@ class FeedRowsInput {
 }
 
 /// Result of [buildFeedRows]: the rows plus whether a "Working" indicator is
-/// owed while no draft streams (the running step already shows its own).
+/// owed while no draft streams (the running step already shows its own), and
+/// the newest running call's title for that indicator when there is one.
 class FeedRows {
-  const FeedRows(this.rows, {required this.showWorking});
+  const FeedRows(this.rows, {required this.showWorking, this.workingLabel});
 
   final List<FeedRow> rows;
   final bool showWorking;
+
+  /// Readable current-call label for the tail indicator, if the stream has
+  /// live nested calls but no live step owns them.
+  final String? workingLabel;
 }
 
 Widget _gap(Widget child, {double top = 0}) => Padding(padding: EdgeInsets.only(top: top, bottom: 12), child: child);
@@ -118,5 +124,18 @@ FeedRows buildFeedRows(FeedRowsInput input) {
       )),
     ));
   }
-  return FeedRows(rows, showWorking: input.running && !lastIsLiveStep);
+  final showWorking = input.running && !lastIsLiveStep;
+  String? workingLabel;
+  if (showWorking && input.calls.isNotEmpty) {
+    ToolCallSummary? current;
+    for (var i = input.calls.length - 1; i >= 0; i--) {
+      if (isRunning(input.calls[i])) {
+        current = input.calls[i];
+        break;
+      }
+    }
+    current ??= input.calls.last;
+    workingLabel = toolTitle(current.name, current.summary);
+  }
+  return FeedRows(rows, showWorking: showWorking, workingLabel: workingLabel);
 }

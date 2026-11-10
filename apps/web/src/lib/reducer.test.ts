@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, JournalEntry, OrderRecord, StatusResponse, SubagentRun } from "@rh/shared";
-import { addOutbox, applyEvent, emptyState, failOutbox, mergeTranscript } from "./reducer.ts";
+import { addOutbox, applyEvent, emptyState, failOutbox, reconcileJournal, reconcileMessages, reconcileNotes, reconcileOrders, mergeTranscript } from "./reducer.ts";
 import { fixtureOrder, fixtureStatus } from "./mock/fixtures.ts";
 
 const msg = (id: string, at: number, role: ChatMessage["role"], text = id): ChatMessage => ({
@@ -188,5 +188,47 @@ describe("historical timestamps survive reloads", () => {
     expect(s.subagents.map((r) => [r.id, r.startedAt])).toEqual([["y", secondAt], ["x", firstAt]]);
     expect(s.subagents.find((r) => r.id === "x")?.endedAt).toBe(laterAt);
     expect(s.subagents.find((r) => r.id === "x")?.status).toBe("done");
+  });
+});
+
+describe("refresh-vs-stream reconciliation", () => {
+  it("reconcileMessages keeps an SSE message that arrived after the fetch snapshot", () => {
+    const fetched = [msg("m1", 100, "user"), msg("m2", 200, "assistant")];
+    const streamed = msg("m3", 300, "user");
+    expect(reconcileMessages(fetched, [...fetched, streamed], fetched).map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("reconcileMessages prefers the mid-flight replacement when an id collides", () => {
+    const base = msg("m1", 100, "user", "before");
+    const live = msg("m1", 100, "user", "edited live");
+    const stale = msg("m1", 100, "user", "before");
+    expect(reconcileMessages([base], [live], [stale])[0]?.text).toBe("edited live");
+  });
+
+  it("reconcileOrders lets an untouched fetch update an old cached record", () => {
+    const cached = { ...fixtureOrder("o1", "pending_approval"), createdAt: 1 };
+    const filled = { ...cached, status: "filled" as const };
+    // Same reference as the baseline: nothing streamed for it, so the fetch wins.
+    expect(reconcileOrders([cached], [cached], [filled])[0]?.status).toBe("filled");
+  });
+
+  it("reconcileOrders keeps a mid-flight SSE replacement over an older response", () => {
+    const cached = { ...fixtureOrder("o1", "pending_approval"), createdAt: 1 };
+    const streamed = { ...cached, status: "rejected_user" as const };
+    const stale = { ...cached, status: "submitted" as const };
+    // Different reference than the baseline: the SSE event is newer than the
+    // fetch that started before it, so the live copy wins.
+    expect(reconcileOrders([cached], [streamed], [stale])[0]?.status).toBe("rejected_user");
+  });
+
+  it("reconcileJournal and reconcileNotes keep current-only entries and fetch updates", () => {
+    const j1 = entry("j1", 100);
+    const j2 = entry("j2", 200);
+    expect(reconcileJournal([j2], [j2, j1], [j2]).map((j) => j.id)).toEqual(["j2", "j1"]);
+    const cached = { path: "plan.md", size: 1, updatedAt: 1 };
+    const fetched = { path: "plan.md", size: 2, updatedAt: 2 };
+    expect(reconcileNotes([cached], [cached], [fetched])).toEqual([fetched]);
+    const live = { path: "plan.md", size: 9, updatedAt: 3 };
+    expect(reconcileNotes([cached], [live], [fetched])).toEqual([live]);
   });
 });

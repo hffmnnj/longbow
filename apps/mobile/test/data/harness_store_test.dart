@@ -12,6 +12,169 @@ import 'model_builders.dart';
 
 void main() {
   group('HarnessStore', () {
+    test('refresh merges REST with SSE that arrives mid-refresh instead of wiping it', () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      h.api.on('messages', () async => [testMessage('m1')]);
+      await h.start();
+
+      final gate = Completer<List<ChatMessage>>();
+      h.api.handlers['messages'] = (_) => gate.future;
+      final refreshing = h.notifier.refresh();
+      // Let the gated fetch stay in flight while the event stream delivers.
+      await h.pump(5);
+      h.events.onEvent(MessageEvent(testMessage('sse-1', at: 2)));
+      await h.pump();
+      expect(h.state.feed.messages.map((m) => m.id), contains('sse-1'));
+
+      // The snapshot predates the SSE event; the reconcile must keep both.
+      gate.complete([testMessage('m1')]);
+      await refreshing;
+      await h.pump();
+      expect(h.state.feed.messages.map((m) => m.id), containsAll(['m1', 'sse-1']));
+    });
+
+    test('refresh lets the fetch update records nothing touched mid-flight', () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      h.api.on('orders',
+          () async => [testOrder('o1', status: OrderStatus.pendingApproval)]);
+      await h.start();
+      expect(h.state.feed.orders.single.status, OrderStatus.pendingApproval);
+
+      h.api.on('orders',
+          () async => [testOrder('o1', status: OrderStatus.filled)]);
+      await h.notifier.refresh();
+      await h.pump();
+      expect(h.state.feed.orders.single.status, OrderStatus.filled);
+    });
+
+    test('refresh keeps a mid-flight SSE order update over the older response', () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      h.api.on('orders',
+          () async => [testOrder('o1', status: OrderStatus.pendingApproval)]);
+      await h.start();
+
+      final gate = Completer<List<OrderRecord>>();
+      h.api.handlers['orders'] = (_) => gate.future;
+      final refreshing = h.notifier.refresh();
+      await h.pump(5);
+      // The stream replaces the order while the older snapshot is in flight.
+      h.events.onEvent(OrderEvent(
+          testOrder('o1', status: OrderStatus.rejectedUser, createdAt: 1)));
+      await h.pump();
+      gate.complete([testOrder('o1', status: OrderStatus.submitted)]);
+      await refreshing;
+      await h.pump();
+      expect(h.state.feed.orders.single.status, OrderStatus.rejectedUser);
+    });
+
+    test('refresh marks loaded once messages settle while other reads hang', () async {
+      final api = FakeApi()..defaults();
+      final gate = Completer<List<OrderRecord>>();
+      api.handlers['orders'] = (_) => gate.future;
+      api.on('messages', () async => [testMessage('m1')]);
+      final h = await StoreHarness.create(api: api);
+      addTearDown(h.dispose);
+      // The provider listener starts the first refresh on its own; only the
+      // gated orders fetch is still in flight.
+      await h.pump(10);
+
+      expect(h.state.loaded, isTrue);
+      expect(h.state.feed.messages.map((m) => m.id), contains('m1'));
+
+      gate.complete(const []);
+      await h.pump(10);
+      expect(h.state.loadError, isNull);
+      expect(h.state.loaded, isTrue);
+    });
+
+    test('stopped refresh drops its late response', () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      h.api.on('messages', () async => [testMessage('m1')]);
+      await h.start();
+
+      final gate = Completer<List<ChatMessage>>();
+      h.api.handlers['messages'] = (_) => gate.future;
+      final refreshing = h.notifier.refresh();
+      await h.pump(5);
+      h.notifier.stop();
+      gate.complete([testMessage('m2')]);
+      await refreshing;
+      await h.pump();
+      expect(h.state.feed.messages.map((m) => m.id), ['m1']);
+    });
+
+    test('same API reattachment does not join the old refresh or publish its late response',
+        () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      h.api.on('messages', () async => [testMessage('m1')]);
+      await h.start();
+      expect(h.state.feed.messages.map((m) => m.id), ['m1']);
+
+      final gate = Completer<List<ChatMessage>>();
+      h.api.handlers['messages'] = (_) => gate.future;
+      final stale = h.notifier.refresh();
+      await h.pump(5);
+      final callsBefore = h.api.count('messages');
+
+      // Stop and reattach the SAME FakeApi object: the old task must not be
+      // joined and its late response must not leak into the new connection.
+      h.notifier.stop();
+      h.api.on('messages', () async => [testMessage('m2')]);
+      await h.notifier.start();
+      await h.pump();
+      expect(h.state.feed.messages.map((m) => m.id), contains('m2'));
+      expect(h.api.count('messages'), greaterThan(callsBefore));
+
+      gate.complete([testMessage('stale')]);
+      await stale;
+      await h.pump();
+      expect(h.state.feed.messages.map((m) => m.id), contains('m2'));
+      expect(h.state.feed.messages.map((m) => m.id), isNot(contains('stale')));
+    });
+
+    test('primary messages failure surfaces loadError while orders still hang',
+        () async {
+      final api = FakeApi()..defaults();
+      final ordersGate = Completer<List<OrderRecord>>();
+      api.handlers['orders'] = (_) => ordersGate.future;
+      api.fail('messages', const ApiError(500, 'history down'));
+      final h = await StoreHarness.create(api: api);
+      addTearDown(h.dispose);
+      await h.pump(10);
+
+      expect(h.state.loaded, isTrue);
+      expect(h.state.loadError, 'history down');
+
+      ordersGate.complete(const []);
+      await h.pump(10);
+      expect(h.state.loaded, isTrue);
+      expect(h.state.loadError, 'history down');
+    });
+
+    test('overlapping refreshes join instead of racing', () async {
+      final h = await StoreHarness.create();
+      addTearDown(h.dispose);
+      await h.start();
+      final gate = Completer<List<ChatMessage>>();
+      h.api.handlers['messages'] = (_) => gate.future;
+      // A second refresh while the first is still in flight joins it: the
+      // messages endpoint is hit once, not once per caller.
+      final first = h.notifier.refresh();
+      final second = h.notifier.refresh();
+      await h.pump(5);
+      gate.complete([testMessage('m1')]);
+      await first;
+      await second;
+      await h.pump();
+      expect(h.api.count('messages'), 2);
+      expect(h.state.feed.messages.map((m) => m.id), ['m1']);
+    });
+
     test('initial refresh populates the feed and loads sim runs', () async {
       final h = await StoreHarness.create();
       addTearDown(h.dispose);

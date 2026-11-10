@@ -37,6 +37,7 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 - Models: the main agent runs `MAIN_MODEL` (default `openai-codex/gpt-6.1-sol#xhigh`, ChatGPT sign-in) and subagents
   run `SUBAGENT_MODEL` (default `meta/muse-spark-1.3-contributor#xhigh`). Without a ChatGPT login the main agent falls
   back to the subagent model and logs a warning.
+- This installation currently overrides the main model to `openai-codex/gpt-6.1-sol#high` in the local env file as a responsiveness trial. Compare observed cycle latency and decision quality before retaining it; an initial SSE frame is not a measurement of model or browser latency. Risk settings and live-trading controls are unchanged by this trial.
 - ChatGPT sign-in (missing or expired): in `apps/server`, run `node scripts/codex-login.ts`, open the URL and code it
   writes to `codex-login-status.txt` in the system temp directory, then `systemctl --user restart robinhood-harness`. It is
   the harness's own login, separate from OpenCode's, because OpenAI refresh tokens are single use.
@@ -71,4 +72,10 @@ systemctl --user list-timers longbow-health.timer --no-pager
 journalctl _SYSTEMD_USER_UNIT=longbow-health.service -n 5 --no-pager
 ```
 
-Run manually with `node scripts/health-monitor.ts` in `apps/server`. Stop future probes with `systemctl --user disable --now longbow-health.timer`; this does not stop trading. No unattended engineering runner is installed: hourly diagnostics must not be described as autonomous hourly upgrades. Test concrete fixes before deployment; strategy-performance claims require actual informative trades and adequate evidence, not a zero-trade suite.
+Run manually with `node scripts/health-monitor.ts` in `apps/server`. Stop future probes with `systemctl --user disable --now longbow-health.timer`; this does not stop trading. This timer is diagnostic only, not an engineering agent.
+
+## Autonomous maintenance
+
+The owner's checkout loads the local-only `INTERNAL_AGENTS.md` mandate through its local OpenCode configuration. Native OpenCode schedules run one daily analysis every 24 hours and brief hourly operational-health triage. Inspect those existing schedules before changing cadence or adding work; do not duplicate them or confuse them with the systemd diagnostic timer above. The daily review covers the latest day and a longer baseline; hourly triage handles actionable reliability issues without forcing trader cycles or tuning strategy from hourly noise.
+
+The schedules authorize evidence-backed maintenance under the owner's mandate, not unrestricted brokerage actions. Keep technical changes tested and PR-first, never place test trades, and defer restarts while agent work, simulations or order protection make them unsafe. Strategy-performance claims require actual informative trades and adequate evidence, not a zero-trade suite. Keep the mandate and local loader out of Git.

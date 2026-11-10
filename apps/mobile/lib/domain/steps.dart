@@ -8,6 +8,29 @@ import 'tool_meta.dart';
 bool isRunning(ToolCallSummary c) =>
     c.durationMs == null && c.isError != true;
 
+/// A step fails when any nested call errored OR the script result itself is
+/// marked failed. The result flag matters most for empty-call failures (a
+/// script that died before reporting calls): without it a red result would
+/// render a green "completed" header.
+bool isStepFailed(
+  List<ToolCallSummary> calls, [
+  ChatMessage? result,
+]) {
+  if (result?.isError == true) return true;
+  return calls.any((c) => c.isError == true);
+}
+
+/// Header status for one activity group: still streaming, failed, or done.
+StepStatus stepStatus(bool live, List<ToolCallSummary> calls,
+    [ChatMessage? result]) {
+  if (live) return StepStatus.running;
+  return isStepFailed(calls, result) ? StepStatus.error : StepStatus.none;
+}
+
+/// Header state for one activity group, named in the pure domain layer so
+/// widgets map it to [TraceStatus] without the domain importing Flutter.
+enum StepStatus { running, error, none }
+
 /// Match a step's delegate calls, in order, to subagent runs of the same role
 /// that started inside the step's window. Returns one run (or null) per
 /// delegate call.
