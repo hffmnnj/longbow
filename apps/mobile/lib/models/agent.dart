@@ -40,6 +40,8 @@ enum ChatRole {
   cycle,
   @JsonValue('helper')
   helper,
+  @JsonValue('compaction')
+  compaction,
 }
 
 // Unknown subagent roles read as analyst, the generic research role.
@@ -66,11 +68,29 @@ enum SubagentStatus {
   failed,
 }
 
+// Unknown compaction states read as absent: the feed shows no live card
+// rather than a wrong one. Only the two known wire values map to a state.
+enum AgentCompaction {
+  @JsonValue('compacting')
+  compacting,
+  @JsonValue('failed')
+  failed,
+}
+
+/// Reads the nullable `compaction` status field: missing, null or unknown
+/// wire values mean no live compaction, never an error.
+AgentCompaction? agentCompactionFromJson(Object? value) => switch (value) {
+  'compacting' => AgentCompaction.compacting,
+  'failed' => AgentCompaction.failed,
+  _ => null,
+};
+
 @JsonSerializable(createToJson: false)
 class AgentStatus {
   const AgentStatus({
     required this.state,
     required this.model,
+    this.compaction,
     this.lastCycleAt,
     this.lastCycleKind,
     this.nextCycleAt,
@@ -84,6 +104,8 @@ class AgentStatus {
   @JsonKey(unknownEnumValue: AgentState.idle)
   final AgentState state;
   final String model;
+  @JsonKey(fromJson: agentCompactionFromJson)
+  final AgentCompaction? compaction;
   final int? lastCycleAt;
   @JsonKey(unknownEnumValue: CycleKind.manual)
   final CycleKind? lastCycleKind;
@@ -95,6 +117,7 @@ class AgentStatus {
   AgentStatus copyWith({
     AgentState? state,
     String? model,
+    AgentCompaction? Function()? compaction,
     int? lastCycleAt,
     CycleKind? lastCycleKind,
     int? nextCycleAt,
@@ -104,6 +127,7 @@ class AgentStatus {
     return AgentStatus(
       state: state ?? this.state,
       model: model ?? this.model,
+      compaction: compaction != null ? compaction() : this.compaction,
       lastCycleAt: lastCycleAt ?? this.lastCycleAt,
       lastCycleKind: lastCycleKind ?? this.lastCycleKind,
       nextCycleAt: nextCycleAt ?? this.nextCycleAt,

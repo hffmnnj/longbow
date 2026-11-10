@@ -13,6 +13,7 @@ import {
   type EntryRecord,
   type Extension,
   type Harness as HarnessType,
+  type LiveState,
   type Registry,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -174,6 +175,14 @@ export async function readLastCycle(conversation: Pick<Conversation, "entries">)
 /** Map one transcript entry to chat messages for the UI. */
 export function entryToMessages(entry: EntryRecord, fallbackAt: number): ChatMessage[] {
   const model = entry.model ?? [];
+  if (entry.kind === "pi.compaction") {
+    return [{
+      id: String(entry.id),
+      at: messageAt(model[0]?.timestamp, fallbackAt),
+      role: "compaction",
+      text: "Context compacted",
+    }];
+  }
   const out: ChatMessage[] = [];
   for (const message of model) {
     const at = messageAt((message as { timestamp?: unknown }).timestamp, fallbackAt);
@@ -237,7 +246,10 @@ export class TradingAgent implements AgentControl {
   private lastError: string | undefined;
   private authFailed: string | undefined;
   private activeModel: ModelSpec | undefined;
-  private lastPublishedState: AgentStatus["state"] | undefined;
+  private compaction: AgentStatus["compaction"];
+  private statusPublication: Pick<AgentStatus, "state" | "compaction"> | undefined;
+  private statusPublicationGeneration = 0;
+  private closed = false;
   private statusSnapshot: (() => Omit<StatusResponse, "agent"> | Promise<Omit<StatusResponse, "agent">>) | undefined;
   private sandbox: CodemodeSandbox | undefined;
   private readonly watched = new Set<string>();
@@ -391,6 +403,7 @@ export class TradingAgent implements AgentControl {
     return {
       state,
       model: (this.activeModel ?? this.deps.config.MAIN_MODEL).modelId,
+      ...(this.compaction !== undefined ? { compaction: this.compaction } : {}),
       ...(this.lastCycleAt !== undefined ? { lastCycleAt: this.lastCycleAt } : {}),
       ...(this.lastCycleKind !== undefined ? { lastCycleKind: this.lastCycleKind } : {}),
       ...(this.nextCycleAt !== undefined ? { nextCycleAt: this.nextCycleAt } : {}),
@@ -401,23 +414,33 @@ export class TradingAgent implements AgentControl {
   }
 
   private maybePublishStatus(): void {
-    const current = this.status().state;
-    if (current === this.lastPublishedState) return;
-    this.lastPublishedState = current;
-    if (this.statusSnapshot === undefined) return;
+    const current = this.status();
+    if (this.closed || this.statusSnapshot === undefined) return;
+    if (current.state === this.statusPublication?.state && current.compaction === this.statusPublication.compaction) return;
+    const generation = ++this.statusPublicationGeneration;
+    this.statusPublication = { state: current.state, compaction: current.compaction };
+    const failed = (): void => {
+      if (generation === this.statusPublicationGeneration) this.statusPublication = undefined;
+    };
     try {
       const snapshot = this.statusSnapshot();
       const publish = (rest: Omit<StatusResponse, "agent">): void => {
+        if (this.closed || generation !== this.statusPublicationGeneration) return;
+        const latest = this.status();
+        if (latest.state !== current.state || latest.compaction !== current.compaction) {
+          failed();
+          return;
+        }
         try {
-          this.deps.bus.publish({ type: "status", status: { ...rest, agent: this.status() } });
+          this.deps.bus.publish({ type: "status", status: { ...rest, agent: latest } });
         } catch {
-          // Publishing is best-effort; the HTTP layer always builds status fresh.
+          failed();
         }
       };
-      if (snapshot instanceof Promise) void snapshot.then(publish).catch(() => {});
+      if (snapshot instanceof Promise) void snapshot.then(publish, failed);
       else publish(snapshot);
     } catch {
-      // Publishing is best-effort; the HTTP layer always builds status fresh.
+      failed();
     }
   }
 
@@ -588,6 +611,14 @@ export class TradingAgent implements AgentControl {
     const watch = await conversation.watch(CTX);
     // Baseline: committed entries already in the transcript need no replay.
     for (const entry of watch.value.entries) seenEntryIds.add(String(entry.id));
+    const updateCompaction = (live: LiveState | undefined): void => {
+      if (childId !== undefined) return;
+      this.compaction = (live?.compactions?.length ?? 0) > 0
+        ? "compacting"
+        : live?.compactionFailure !== undefined ? "failed" : undefined;
+      this.maybePublishStatus();
+    };
+    updateCompaction(watch.value.docs["pi.live"] as LiveState | undefined);
     watch.start(async (value) => {
       for (const entry of value.entries) {
         const id = String(entry.id);
@@ -597,15 +628,10 @@ export class TradingAgent implements AgentControl {
           this.deps.bus.publish({ type: "message", message, ...scope });
         }
       }
-      const live = value.docs["pi.live"] as
-        | {
-            generation?: { message?: { content?: { type?: string; text?: string }[] } };
-            nestedTools?: { name: string; status: string; arguments?: unknown; summary?: { isError: boolean; durationMs?: number; error?: string } }[];
-          }
-        | undefined;
+      const live = value.docs["pi.live"] as LiveState | undefined;
+      updateCompaction(live);
       const text = live?.generation?.message?.content
-        ?.filter((part) => part.type === "text" && typeof part.text === "string")
-        .map((part) => part.text as string)
+        ?.flatMap((part) => part.type === "text" && typeof part.text === "string" ? [part.text] : [])
         .join("") ?? "";
       if (text.startsWith(seenDelta) && text.length > seenDelta.length) {
         this.deps.bus.publish({ type: "delta", text: text.slice(seenDelta.length), ...scope });
@@ -630,6 +656,8 @@ export class TradingAgent implements AgentControl {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    this.statusPublicationGeneration += 1;
     const harness = this.harness;
     this.harness = undefined;
     this.conversation = undefined;

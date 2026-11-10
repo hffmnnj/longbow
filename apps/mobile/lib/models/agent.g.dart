@@ -13,6 +13,7 @@ AgentStatus _$AgentStatusFromJson(Map<String, dynamic> json) => AgentStatus(
     unknownValue: AgentState.idle,
   ),
   model: json['model'] as String,
+  compaction: agentCompactionFromJson(json['compaction']),
   lastCycleAt: (json['lastCycleAt'] as num?)?.toInt(),
   lastCycleKind: $enumDecodeNullable(
     _$CycleKindEnumMap,
@@ -77,6 +78,7 @@ const _$ChatRoleEnumMap = {
   ChatRole.tool: 'tool',
   ChatRole.cycle: 'cycle',
   ChatRole.helper: 'helper',
+  ChatRole.compaction: 'compaction',
 };
 
 SubagentRun _$SubagentRunFromJson(Map<String, dynamic> json) => SubagentRun(

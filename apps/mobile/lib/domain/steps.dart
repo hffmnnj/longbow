@@ -69,7 +69,7 @@ String cycleLabel(String text) {
 }
 
 /// Which slot of the transcript a feed item came from.
-enum FeedKind { cycle, user, assistant, helper, step, tools, decision }
+enum FeedKind { cycle, user, assistant, helper, compaction, step, tools, decision }
 
 /// One row of the agent feed: a transcript message, a Code Mode step pairing a
 /// script with its result, a group of other tool calls, or a journal decision
@@ -93,6 +93,7 @@ class FeedMessage extends FeedItem {
     ChatRole.user => FeedKind.user,
     ChatRole.assistant => FeedKind.assistant,
     ChatRole.helper => FeedKind.helper,
+    ChatRole.compaction => FeedKind.compaction,
     ChatRole.tool => FeedKind.tools,
   };
 }
