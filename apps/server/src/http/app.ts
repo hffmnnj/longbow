@@ -142,6 +142,17 @@ function describeSettingsChange(before: Settings, after: Settings): string | und
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
 
+  app.onError((error, c) => {
+    deps.log.error("HTTP request failed", { method: c.req.method, path: c.req.path, error: error.message });
+    return c.json({ error: "internal error" }, 500);
+  });
+  app.use(async (c, next) => {
+    await next();
+    if (["POST", "PATCH", "DELETE"].includes(c.req.method) && c.res.status >= 400) {
+      deps.log.warn("HTTP request rejected", { method: c.req.method, path: c.req.path, status: c.res.status });
+    }
+  });
+
   // The node adapter exposes the socket; in-process test requests have none and are local by construction.
   app.use(async (c, next) => {
     const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket;

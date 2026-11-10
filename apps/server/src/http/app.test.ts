@@ -190,6 +190,25 @@ function deps(overrides: Partial<AppDeps> = {}): AppDeps & {
 
 const CSRF = { "x-harness": "1" };
 
+it("logs failed mutations and unexpected errors without request bodies or query strings", async () => {
+  const warnings: unknown[] = [];
+  const errors: unknown[] = [];
+  const logger: Logger = { ...log, warn: (msg, fields) => warnings.push({ msg, fields }), error: (msg, fields) => errors.push({ msg, fields }) };
+  const d = deps({ log: logger });
+  d.agent.sendMessage = async () => { throw new Error("message service unavailable"); };
+  const app = createApp(d);
+  const res = await app.request("/api/messages?token=private", {
+    method: "POST", headers: { ...CSRF, "content-type": "application/json" }, body: JSON.stringify({ text: "private message" }),
+  });
+  assert.equal(res.status, 500);
+  assert.deepEqual(await res.json(), { error: "internal error" });
+  assert.deepEqual(errors, [{ msg: "HTTP request failed", fields: { method: "POST", path: "/api/messages", error: "message service unavailable" } }]);
+  assert.deepEqual(warnings, [{ msg: "HTTP request rejected", fields: { method: "POST", path: "/api/messages", status: 500 } }]);
+  const forbidden = await app.request("/api/cycles?secret=value", { method: "POST" });
+  assert.equal(forbidden.status, 403);
+  assert.deepEqual(warnings[1], { msg: "HTTP request rejected", fields: { method: "POST", path: "/api/cycles", status: 403 } });
+});
+
 describe("app CSRF and origin rules", () => {
   let d: ReturnType<typeof deps>;
   beforeEach(() => {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, stat, unlink, rmdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createRegistry, type ToolRegistration } from "@earendil-works/pi-durable";
-import { startAuthorization, type McpOAuthState, type OAuthClientProvider } from "@earendil-works/pi-mcp/oauth";
+import { authorizeMcp, startAuthorization, type McpOAuthState, type OAuthClientProvider } from "@earendil-works/pi-mcp/oauth";
 import type { Tool } from "@earendil-works/pi-mcp";
 import type { OrderIntent } from "@rh/shared";
 import { TokenStore } from "./token-store.ts";
@@ -81,6 +81,36 @@ test("OAuth expires pending state after ten minutes", async () => {
   advance(600_000);
   await assert.rejects(oauth.completeConnect(new URLSearchParams({ state: url.searchParams.get("state")!, code: "private-code" })), /Invalid or expired/);
   assert.equal(exchanges(), 0);
+});
+
+test("transient OAuth refresh failures preserve the stored refresh token", async () => {
+  let stored: McpOAuthState | undefined = { serverUrl: MCP_URL, tokens: { access_token: "access", refresh_token: "refresh", token_type: "Bearer" } };
+  const oauth = new RobinhoodOAuth({ redirectUrl: "http://127.0.0.1/callback", clock: { now: () => 1000 },
+    store: { load: () => stored, save: (state) => { stored = structuredClone(state); } },
+    authorize: async () => { throw new TypeError("network unavailable"); },
+  });
+  await assert.rejects(oauth.refresh(), { name: "RobinhoodRefreshUnavailableError" });
+  assert.equal((await oauth.provider.tokens())?.refresh_token, "refresh");
+});
+
+test("real OAuth flow preserves a grant on server_error and clears it on invalid_grant", async () => {
+  for (const code of ["server_error", "invalid_grant"] as const) {
+    let stored: McpOAuthState | undefined = { serverUrl: MCP_URL, clientInformation: { client_id: "fake-client" },
+      tokens: { access_token: "access", refresh_token: "refresh", token_type: "Bearer" } };
+    const oauth = new RobinhoodOAuth({ redirectUrl: "http://127.0.0.1/callback", clock: { now: () => 1000 },
+      store: { load: () => stored, save: (state) => { stored = structuredClone(state); } },
+      authorize: (provider, options) => authorizeMcp(provider, { ...options,
+        fetch: async () => new Response(JSON.stringify({ error: code }), { status: code === "server_error" ? 500 : 400, headers: { "content-type": "application/json" } }),
+      }),
+    });
+    if (code === "server_error") {
+      await assert.rejects(oauth.refresh(), { name: "RobinhoodRefreshUnavailableError" });
+      assert.equal((await oauth.provider.tokens())?.refresh_token, "refresh");
+    } else {
+      await assert.rejects(oauth.refresh(), { message: "Robinhood sign-in required" });
+      assert.equal(await oauth.provider.tokens(), undefined);
+    }
+  }
 });
 
 function tool(name: string): Tool { return { name, inputSchema: { type: "object", properties: {} } }; }
