@@ -16,7 +16,7 @@ describe("loadConfig", () => {
     assert.equal(config.ROBINHOOD_MCP_URL, "https://agent.robinhood.com/mcp/trading");
     assert.match(config.DATA_DIR, /robinhood-harness$/);
     assert.match(config.MUSE_AUTH_FILE, /muse\/auth\.json$/);
-    assert.match(config.WEBSEARCH_CONFIG_FILE, /opencode\.json$/);
+    assert.match(config.EXA_KEY_FILE, /robinhood-harness\/exa\.key$/);
     assert.match(config.WEB_DIR, /apps\/web\/build$/);
   });
 
@@ -32,7 +32,7 @@ describe("loadConfig", () => {
       DATA_DIR: "/tmp/rh-data",
       MAIN_MODEL: "meta/other-model#low",
       MUSE_AUTH_FILE: "/tmp/auth.json",
-      WEBSEARCH_CONFIG_FILE: "/tmp/opencode.json",
+      EXA_KEY_FILE: "/tmp/exa.key",
       ROBINHOOD_MCP_URL: "https://example.com/mcp",
       WEB_DIR: "/tmp/web",
     });
@@ -41,7 +41,7 @@ describe("loadConfig", () => {
     assert.equal(config.DATA_DIR, "/tmp/rh-data");
     assert.deepEqual(config.MAIN_MODEL, { provider: "meta", modelId: "other-model", thinkingLevel: "low" });
     assert.equal(config.MUSE_AUTH_FILE, "/tmp/auth.json");
-    assert.equal(config.WEBSEARCH_CONFIG_FILE, "/tmp/opencode.json");
+    assert.equal(config.EXA_KEY_FILE, "/tmp/exa.key");
     assert.equal(config.ROBINHOOD_MCP_URL, "https://example.com/mcp");
     assert.equal(config.WEB_DIR, "/tmp/web");
   });

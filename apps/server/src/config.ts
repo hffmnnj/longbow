@@ -41,11 +41,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     MAIN_MODEL: parseModelSpec(str(env, "MAIN_MODEL", "openai-codex/gpt-6.1-sol#xhigh")),
     SUBAGENT_MODEL: parseModelSpec(str(env, "SUBAGENT_MODEL", "meta/muse-spark-1.3-contributor#xhigh")),
     MUSE_AUTH_FILE: str(env, "MUSE_AUTH_FILE", join(home, ".config", "muse", "auth.json")),
-    WEBSEARCH_CONFIG_FILE: str(
-      env,
-      "WEBSEARCH_CONFIG_FILE",
-      join(home, ".config", "opencode-v2", "opencode.json"),
-    ),
+    EXA_KEY_FILE: str(env, "EXA_KEY_FILE", join(home, ".config", "robinhood-harness", "exa.key")),
     SYSTEMONE_URL: str(env, "SYSTEMONE_URL", "https://api.typesafe.ai/v1/systemone"),
     SYSTEMONE_MODEL: str(env, "SYSTEMONE_MODEL", "jev-latest"),
     SYSTEMONE_KEY_FILE: str(env, "SYSTEMONE_KEY_FILE", join(home, ".config", "opencode-v2", "secrets", "typesafe.env")),

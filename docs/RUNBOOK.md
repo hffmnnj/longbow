@@ -53,6 +53,19 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 - Turn it off: `curl -X PATCH -H "x-harness: 1" -H "content-type: application/json" -d '{"systemOne":{"enabled":false}}' http://127.0.0.1:4520/api/settings`.
 - Restarting the service fails running simulations; check for running sims before touching it.
 
+## Web search (Exa)
+
+`web_search`, `open_page`, and `find_in_page` are backed by Exa for discovery and research: they return URLs with untrusted text, not authoritative market data or risk inputs. The agent picks a scope per call (`web` default, `stocks` stock library, `filings` SEC indexed filings; `allowed_domains` pins `web` results to named domains).
+
+The key comes from `EXA_API_KEY` or the file at `EXA_KEY_FILE` (default `~/.config/robinhood-harness/exa.key`). Keep the file at mode 0600 and never commit the key:
+
+```sh
+(umask 077; printf '%s' "$EXA_KEY" > ~/.config/robinhood-harness/exa.key)
+chmod 600 ~/.config/robinhood-harness/exa.key
+```
+
+Search queries stay public: never put account holdings, order details, or other sensitive data in them.
+
 ## Hourly R&D diagnostics
 
 `longbow-health.timer` runs a read-only probe on the hour, including while the market is closed. It reads `/api/status` and opens `app.sqlite` read-only. It does not message the trader, submit/cancel orders, change settings, or update source code. Warnings identify repeated holds, rejected reducing exits and incomplete locally recorded stop coverage; they are not buy signals. Local stop records do not verify broker-side protection, and a recent cycle start does not prove completion.
