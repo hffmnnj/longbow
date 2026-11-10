@@ -3,7 +3,7 @@ import type { Extension, Registry } from "@earendil-works/pi-durable";
 import type { BrokerStatus, OrderIntent, OrderRecord, Quote } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";
 import type { Broker, Config, Logger, Clock } from "../ports.ts";
-import { RobinhoodOAuth, MCP_URL } from "./oauth.ts";
+import { RobinhoodOAuth, MCP_URL, type Authorize } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
 import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
 import { BrokerMappingError, cryptoOrderMapping, findTool, orderMapping, orderRef, parseCryptoOrder, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
@@ -28,22 +28,85 @@ export function liveTradingLockedMessage(tool: string): string {
   return `Live trading is locked: ${tool} was not sent to Robinhood (set HARNESS_LIVE_TRADING=1 to unlock)`;
 }
 
-export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock: Clock }): RobinhoodBroker {
+type BrokerClient = Pick<McpClient, "connect" | "close" | "listTools" | "callTool" | "onClose" | "onNotification">;
+
+export function createRobinhoodBroker(deps: {
+  config: Config; log: Logger; clock: Clock;
+  authorize?: Authorize;
+  createClient?: () => BrokerClient;
+  scheduleReconnect?: (callback: () => void, delayMs: number) => () => void;
+}): RobinhoodBroker {
   const { config, log, clock } = deps;
   if (config.ROBINHOOD_MCP_URL !== MCP_URL) throw new Error("Robinhood MCP endpoint must be the verified trading endpoint");
   const store = new TokenStore(config.DATA_DIR);
-  const oauth = new RobinhoodOAuth({ store, clock, redirectUrl: `${config.PUBLIC_URL.replace(/\/$/, "")}/api/robinhood/callback` });
+  const oauth = new RobinhoodOAuth({ store, clock, authorize: deps.authorize, redirectUrl: `${config.PUBLIC_URL.replace(/\/$/, "")}/api/robinhood/callback` });
   const listeners = new Set<() => void>();
   const registries = new Set<Registry>();
   let state: BrokerStatus = { state: "connecting", tools: [] };
   let tools: Tool[] = [];
-  let client: McpClient | undefined;
+  let client: BrokerClient | undefined;
   let accountId: string | undefined;
   let rhsAccountId: string | undefined;
   let refresh: Promise<void> | undefined;
   let lifecycle: Promise<unknown> = Promise.resolve();
   let generation = 0;
+  let retryGeneration = 0;
+  let cancelRetry: (() => void) | undefined;
+  let retryDelay = 15_000;
   const calendar = createNyseCalendar();
+
+  function cancelReconnect() {
+    retryGeneration++;
+    cancelRetry?.();
+    cancelRetry = undefined;
+  }
+  function scheduleReconnect(): number {
+    if (cancelRetry) return 0;
+    const delay = Math.min(600_000, Math.round(retryDelay * (0.9 + Math.random() * 0.2)));
+    retryDelay = Math.min(600_000, retryDelay * 2);
+    const retry = retryGeneration;
+    const version = generation;
+    const schedule = deps.scheduleReconnect ?? ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms);
+      timer.unref();
+      return () => clearTimeout(timer);
+    });
+    cancelRetry = schedule(() => {
+      if (retry !== retryGeneration || version !== generation) return;
+      cancelRetry = undefined;
+      void serial(async () => {
+        if (retry !== retryGeneration || version !== generation) return;
+        try { await connect(); } catch { /* connect already published and scheduled the failure */ }
+      });
+    }, delay);
+    return delay;
+  }
+  function safeError(error: unknown): { name: string; code?: string } {
+    let current: unknown = error;
+    let name = "Error";
+    let code: string | undefined;
+    for (let i = 0; i < 4 && current instanceof Error; i++) {
+      if (/^(Error|TypeError|AbortError|TimeoutError|OAuthError|OAuthInsecureEndpointError|OAuthIssuerMismatchError|McpHttpError|McpAuthRequiredError|McpSessionExpiredError|BrokerMappingError|RobinhoodRefreshUnavailableError)$/.test(current.name)) name = current.name;
+      const candidate = (current as Error & { code?: unknown }).code;
+      if (typeof candidate === "string" && /^(invalid_grant|invalid_client|unauthorized_client|server_error|temporarily_unavailable)$/.test(candidate)) code = candidate;
+      current = current.cause;
+    }
+    return { name, ...(code ? { code } : {}) };
+  }
+  async function connectionFailure(error: unknown) {
+    let hasRefreshToken: boolean;
+    try { hasRefreshToken = Boolean((await oauth.provider.tokens())?.refresh_token); }
+    catch { hasRefreshToken = true; } // An unreadable store is not evidence that credentials are absent.
+    if (!hasRefreshToken) {
+      cancelReconnect();
+      publish({ state: "needs_auth", tools: [], error: "Robinhood sign-in required" });
+      log.warn("Robinhood connection failed", { ...safeError(error) });
+      return;
+    }
+    publish({ state: "error", tools: tools.map((tool) => tool.name), error: "Robinhood unreachable; retrying" });
+    const retryDelayMs = scheduleReconnect();
+    log.warn("Robinhood connection failed", { ...safeError(error), retryDelayMs });
+  }
 
   function publish(next: BrokerStatus) {
     state = next;
@@ -61,8 +124,14 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
     return result;
   }
   async function refreshTokens() {
+    const version = generation;
     refresh ??= oauth.refresh().catch((error: unknown) => {
-      publish({ state: "needs_auth", tools: tools.map((tool) => tool.name), error: "Robinhood sign-in required" });
+      if (state.state === "connected") void serial(async () => {
+        if (version !== generation) return;
+        await close();
+        setTools([]);
+        await connectionFailure(error);
+      });
       throw error;
     }).finally(() => { refresh = undefined; });
     await refresh;
@@ -78,8 +147,21 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   async function connect() {
     await close();
     publish({ state: "connecting", tools: [] });
-    const current = new McpClient({ name: "robinhood-harness", version: "1.0.0", requestTimeoutMs: 30_000 });
+    const current = deps.createClient?.() ?? new McpClient({ name: "robinhood-harness", version: "1.0.0", requestTimeoutMs: 30_000 });
     const version = generation;
+    let closed = false;
+    current.onClose(() => {
+      closed = true;
+      if (version === generation) {
+        client = undefined;
+        void serial(async () => {
+          if (version !== generation) return;
+          await close();
+          setTools([]);
+          await connectionFailure(new Error("Robinhood connection closed"));
+        });
+      }
+    });
     try {
       await current.connect(new StreamableHttpTransport({ url: MCP_URL, authProvider: {
         async token() {
@@ -99,15 +181,11 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
       setTools(discovered);
       const accountsTool = findTool(discovered, ["get_accounts"]);
       const identifiedConnect = tradingAccount(responseObject(await current.callTool(accountsTool.name, validateArguments(accountsTool, {}))));
+      if (closed) throw new Error("Robinhood connection closed");
       accountId = identifiedConnect.accountId;
       rhsAccountId = identifiedConnect.rhsAccountId;
       publish({ state: "connected", tools: discovered.map((tool) => tool.name) });
-      current.onClose(() => {
-        if (version === generation) {
-          client = undefined;
-          publish({ state: "error", tools: tools.map((tool) => tool.name), error: "Robinhood connection closed; reconnect required" });
-        }
-      });
+      retryDelay = 15_000;
       let toolUpdate: Promise<void> = Promise.resolve();
       current.onNotification("notifications/tools/list_changed", () => {
         toolUpdate = toolUpdate.then(async () => {
@@ -119,12 +197,12 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
           setTools(next);
         }).catch(() => { log.warn("Robinhood tool discovery failed"); });
       });
-    } catch {
+    } catch (error) {
       await current.close().catch(() => {});
       await close();
       setTools([]);
-      publish({ state: "needs_auth", tools: [], error: "Robinhood connection unavailable; sign-in may be required" });
-      throw new Error("Robinhood connection unavailable");
+      await connectionFailure(error);
+      throw new Error("Robinhood connection unavailable", { cause: error });
     }
   }
   async function call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
@@ -179,16 +257,18 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   const broker: RobinhoodBroker = {
     status: () => ({ ...state, tools: [...state.tools] }),
     beginConnect: () => serial(() => oauth.beginConnect()),
-    completeConnect: (params) => serial(async () => {
+    completeConnect: (params) => { cancelReconnect(); return serial(async () => {
+      cancelReconnect();
       await oauth.completeConnect(params);
       await connect();
-    }),
-    disconnect: () => serial(async () => {
+    }); },
+    disconnect: () => { cancelReconnect(); return serial(async () => {
+      cancelReconnect();
       await close();
       await oauth.clear();
       setTools([]);
       publish({ state: "needs_auth", tools: [] });
-    }),
+    }); },
     async snapshot() {
       await identifyAccount();
       return fetchSnapshot(mappedCall, accountId!, clock.now(), rhsAccountId);
@@ -279,11 +359,11 @@ export function createRobinhoodBroker(deps: { config: Config; log: Logger; clock
   };
   void serial(async () => {
     try {
-      if (await oauth.provider.tokens()) await connect();
-      else publish({ state: "needs_auth", tools: [] });
-    } catch {
-      publish({ state: "needs_auth", tools: [], error: "Robinhood sign-in required" });
-      log.warn("Robinhood startup requires sign-in");
+      if ((await oauth.provider.tokens())?.refresh_token) await connect();
+      else { publish({ state: "needs_auth", tools: [] }); log.warn("Robinhood startup requires sign-in"); }
+    } catch (error) {
+      if (state.state === "connecting") await connectionFailure(error);
+      if (state.state === "needs_auth") log.warn("Robinhood startup requires sign-in");
     }
   });
   return broker;

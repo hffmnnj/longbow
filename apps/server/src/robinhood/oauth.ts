@@ -30,6 +30,12 @@ class EphemeralProvider extends McpOAuthProvider {
 }
 
 export type Authorize = typeof authorizeMcp;
+export class RobinhoodRefreshUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("Robinhood refresh unavailable", { cause });
+    this.name = "RobinhoodRefreshUnavailableError";
+  }
+}
 export class RobinhoodOAuth {
   readonly provider: EphemeralProvider;
   private readonly pending = new Map<string, { verifier: string; expires: number }>();
@@ -102,9 +108,9 @@ export class RobinhoodOAuth {
     return this.exclusive(async () => {
       try {
         if (!(await this.provider.tokens())?.refresh_token || await this.run() !== "AUTHORIZED") throw new Error("No refresh grant");
-      } catch {
-        await this.provider.invalidateCredentials("tokens");
-        throw new Error("Robinhood sign-in required");
+      } catch (cause) {
+        if ((await this.provider.tokens())?.refresh_token) throw new RobinhoodRefreshUnavailableError(cause);
+        throw new Error("Robinhood sign-in required", { cause });
       } finally { this.provider.clearVerifier(); }
     });
   }
