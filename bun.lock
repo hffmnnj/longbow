@@ -21,6 +21,7 @@
         "@hono/node-server": "2.1.5",
         "@rh/shared": "workspace:*",
         "hono": "4.13.13",
+        "pi-muse-code-adapter": "file:vendor/pi-muse-code-adapter-1.0.0.tgz",
         "web-push": "3.6.7",
         "zod": "4.6.7",
       },
@@ -519,6 +520,8 @@
     "partial-json": ["partial-json@0.1.7", "", {}, "sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA=="],
 
     "path-key": ["path-key@3.1.1", "", {}, "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="],
+
+    "pi-muse-code-adapter": ["pi-muse-code-adapter@vendor/pi-muse-code-adapter-1.0.0.tgz", { "peerDependencies": { "@earendil-works/pi-ai": ">=1.3.0 <2", "@earendil-works/pi-coding-agent": ">=1.3.0 <2", "@earendil-works/pi-durable": ">=1.3.0 <2" }, "optionalPeers": ["@earendil-works/pi-coding-agent", "@earendil-works/pi-durable"] }, "sha512-qImTyJuzlqgN9f0pmbfsQml/KAz+FbjpjCXhFG4AjeuXtP+MwA9byDqKT0fenurkPy4990iuZYxwJVDx9I92Ww=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 

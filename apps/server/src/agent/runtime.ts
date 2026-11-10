@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
+import { createMuseProvider } from "pi-muse-code-adapter";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import {
@@ -258,7 +258,7 @@ export class TradingAgent implements AgentControl {
     const storage = await openNodeSqliteStorage(join(config.DATA_DIR, "durable.sqlite"));
     const credentials = new FileCredentialStore(this.deps.credentialFile ?? credentialFilePath(config.DATA_DIR));
     const models = createModels({ credentials });
-    models.setProvider(withCompactionReplay(metaProvider()));
+    models.setProvider(withCompactionReplay(createMuseProvider({ providerId: "meta", useCliAuth: false })));
     models.setProvider(withCompactionReplay(openaiCodexProvider()));
     const main = await this.resolveMainModel(credentials);
     this.activeModel = main;
