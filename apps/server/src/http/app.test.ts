@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type OrderRecord } from "@rh/shared";
-import { createApp, type AppDeps } from "./app.ts";
+import { buildStatus, createApp, type AppDeps } from "./app.ts";
 import { loadConfig } from "../config.ts";
 import { createEventBus } from "../events.ts";
 import type {
@@ -403,6 +403,75 @@ describe("app routes", () => {
     assert.match(text, /^data: /);
     const first = JSON.parse(text.split("\n")[0]?.slice("data: ".length) ?? "{}") as { type: string };
     assert.equal(first.type, "status");
+  });
+
+  it("streams events while the initial status is still being built", async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    d.gate.halts = async () => {
+      started.resolve();
+      await release.promise;
+      return [];
+    };
+    const response = await createApp(d).request("/api/events");
+    const reader = response.body!.getReader();
+    await started.promise;
+    const event = { type: "delta", text: "streaming" } as const;
+    d.bus.publish(event);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("event was not delivered while status was pending")), 250); }),
+      ]);
+      assert.equal(new TextDecoder().decode(chunk.value), `data: ${JSON.stringify(event)}\n\n`);
+    } finally {
+      clearTimeout(timeout);
+      release.resolve();
+      await reader.cancel();
+    }
+  });
+
+  it("does not replace a newer status with a delayed initial snapshot", async () => {
+    const status = await buildStatus(d);
+    const release = Promise.withResolvers<void>();
+    d.gate.halts = async () => { await release.promise; return []; };
+    const response = await createApp(d).request("/api/events");
+    const reader = response.body!.getReader();
+    const newer = { type: "status", status: { ...status, agent: { ...status.agent, state: "running" } } } as const;
+    try {
+      d.bus.publish(newer);
+      assert.equal(new TextDecoder().decode((await reader.read()).value), `data: ${JSON.stringify(newer)}\n\n`);
+      release.resolve();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const delta = { type: "delta", text: "next" } as const;
+      d.bus.publish(delta);
+      assert.equal(new TextDecoder().decode((await reader.read()).value), `data: ${JSON.stringify(delta)}\n\n`);
+    } finally {
+      release.resolve();
+      await reader.cancel();
+    }
+  });
+
+  it("unsubscribes when disconnected before the initial status resolves", async () => {
+    const release = Promise.withResolvers<void>();
+    d.gate.halts = async () => { await release.promise; return []; };
+    const bus = d.bus;
+    let subscribers = 0;
+    d.bus = {
+      publish: (event) => bus.publish(event),
+      subscribe: (listener) => {
+        subscribers += 1;
+        const off = bus.subscribe(listener);
+        return () => { subscribers -= 1; off(); };
+      },
+    };
+    const reader = (await createApp(d).request("/api/events")).body!.getReader();
+    assert.equal(subscribers, 1);
+    await reader.cancel();
+    release.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(subscribers, 0);
   });
 });
 
