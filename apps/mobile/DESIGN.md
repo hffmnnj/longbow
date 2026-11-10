@@ -133,6 +133,7 @@ Feed (live transcript with decision cards and tool traces, composer, approvals, 
 
 ## Decisions
 
+- 2026-11-10: Context compaction reads as one quiet timeline card, never chat. A committed `compaction` message renders `CompactionCard.completed` ("Context compacted" plus its stored time; the payload text is never shown, and owner messages quoting those words stay untouched user bubbles). The lead feed alone shows one live card from `status.agent.compaction` (`CompactionCard.compacting` with the running pulse, `failed` without any raw payload), which replaces the generic Working indicator while active; child and simulation transcripts render history only.
 - 2026-10-26: Replace the WebView shell with a fully native Flutter app; the web app stays as the browser and PWA client. Why: the owner wants native feel, gestures, and performance.
 - Material 3 base with a custom ThemeExtension instead of a third-party kit, because Material is mature on Android and the brand lives in tokens.
 - Riverpod for state, `http` for REST and SSE, `json_serializable` for models, custom painters for charts. No chart package so the dithered signature matches the web.

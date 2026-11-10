@@ -329,6 +329,8 @@ export type CycleKind = "pre_open" | "intraday" | "post_close" | "overnight" | "
 
 export interface AgentStatus {
   state: "idle" | "running" | "error" | "needs_login";
+  /** Presentation of the lead conversation's native compaction lifecycle, never its summary payload. */
+  compaction?: "compacting" | "failed";
   model: string;
   lastCycleAt?: number;
   lastCycleKind?: CycleKind;
@@ -337,8 +339,8 @@ export interface AgentStatus {
   lastError?: string;
 }
 
-/** "helper" is a long-running subagent's report delivered to the lead agent, never something the user wrote. */
-export type ChatRole = "user" | "assistant" | "tool" | "cycle" | "helper";
+/** Helpers and compaction entries are runtime activity, never owner-authored instructions. */
+export type ChatRole = "user" | "assistant" | "tool" | "cycle" | "helper" | "compaction";
 
 /** One tool call a Code Mode script made, shown nested under the script. */
 export interface ToolCallSummary {

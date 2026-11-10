@@ -133,6 +133,7 @@ class _TranscriptRegion extends ConsumerWidget {
     return FeedTranscriptView(
       feed: feed,
       loadTranscript: store.loadTranscript,
+      compaction: feed.status?.agent.compaction,
       emptyAction: Consumer(
         builder: (context, ref, _) {
           final busy = ref.watch(harnessProvider.select((s) => s.busy['cycle'] ?? false));

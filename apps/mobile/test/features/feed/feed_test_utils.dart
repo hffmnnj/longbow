@@ -146,11 +146,12 @@ SubagentRun run(String id, {SubagentStatus status = SubagentStatus.running, int 
 /// A [FeedTranscriptView] driven by [feed] that tests can swap to simulate
 /// stream updates.
 class ViewHost extends StatelessWidget {
-  const ViewHost({super.key, required this.feed, this.loaded, this.running, this.emptyAction});
+  const ViewHost({super.key, required this.feed, this.loaded, this.running, this.compaction, this.emptyAction});
 
   final ValueNotifier<FeedState> feed;
   final List<String>? loaded;
   final bool? running;
+  final AgentCompaction? compaction;
   final Widget? emptyAction;
 
   @override
@@ -161,6 +162,7 @@ class ViewHost extends StatelessWidget {
         builder: (context, state, _) => FeedTranscriptView(
           feed: state,
           running: running,
+          compaction: compaction,
           emptyAction: emptyAction,
           loadTranscript: (id) async => loaded?.add(id),
         ),
@@ -175,6 +177,7 @@ Future<ValueNotifier<FeedState>> pumpView(
   FeedState initial, {
   List<String>? loaded,
   bool? running,
+  AgentCompaction? compaction,
   Size size = const Size(360, 800),
   double textScale = 1.0,
   Widget? emptyAction,
@@ -183,7 +186,7 @@ Future<ValueNotifier<FeedState>> pumpView(
   addTearDown(feed.dispose);
   await pumpScreen(
     tester,
-    ViewHost(feed: feed, loaded: loaded, running: running, emptyAction: emptyAction),
+    ViewHost(feed: feed, loaded: loaded, running: running, compaction: compaction, emptyAction: emptyAction),
     harness: h,
     size: size,
     textScale: textScale,

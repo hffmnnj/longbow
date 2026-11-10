@@ -22,7 +22,7 @@
       <Empty text="No messages yet. Run a cycle or say something." />
     {/if}
     {#if harness.loaded}
-      <Transcript messages={harness.messages} draft={harness.draft} running={harness.running} outbox={harness.outbox} decisions={harness.journal} orders={harness.orders} />
+      <Transcript messages={harness.messages} draft={harness.draft} running={harness.running} outbox={harness.outbox} decisions={harness.journal} orders={harness.orders} compaction={harness.status?.agent.compaction} />
     {/if}
   </StickyScroll>
   <AgentsLane />

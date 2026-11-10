@@ -121,6 +121,39 @@ void main() {
     );
   });
 
+  test('steps_compactionMapsToItsOwnKindAndKeepsStoredTime', () {
+    final items = buildItems([
+      _m('k1', ChatRole.compaction, at: 7000),
+    ]);
+
+    expect(items.map((i) => i.kind), [FeedKind.compaction]);
+    expect(items.single.key, 'k1');
+    expect(itemTime(items.single), 7000);
+  });
+
+  test('steps_compactionIsNeverGroupedAsAToolResult', () {
+    final items = buildItems([
+      _m('t1', ChatRole.tool, toolName: 'get_quote'),
+      _m('k1', ChatRole.compaction, at: 200),
+      _m('t2', ChatRole.tool, toolName: 'get_quote'),
+    ]);
+
+    expect(items.map((i) => i.kind), [FeedKind.tools, FeedKind.compaction, FeedKind.tools]);
+  });
+
+  test('steps_ownerMessageQuotingCompactionWordsStaysAUserBubble', () {
+    final items = buildItems([
+      const ChatMessage(
+        id: 'u1',
+        at: 100,
+        role: ChatRole.user,
+        text: 'Context compacted, here is what I meant by that summary',
+      ),
+    ]);
+
+    expect(items.map((i) => i.kind), [FeedKind.user]);
+  });
+
   test('steps_withDecisionsInterleavesOldestFirst', () {
     final items = buildItems([
       _m('a', ChatRole.assistant, at: 100),

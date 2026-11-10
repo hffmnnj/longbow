@@ -36,6 +36,33 @@ void main() {
     expect(run.answer, contains('VIX'));
   });
 
+  test('agent_parsesCompactionRoleAndStatus', () {
+    const compacting = {
+      'id': 'k1',
+      'at': 7000,
+      'role': 'compaction',
+      'text': 'Context compacted',
+    };
+    expect(ChatMessage.fromJson(compacting).role, ChatRole.compaction);
+
+    AgentStatus status(Map<String, dynamic> agent) => AgentStatus.fromJson(agent);
+    final base = Map<String, dynamic>.from(
+      jsonDecode(File('test/fixtures/status.json').readAsStringSync())['agent'] as Map,
+    );
+    expect(status({...base}).compaction, isNull, reason: 'absent field reads as no live compaction');
+    expect(status({...base, 'compaction': 'compacting'}).compaction, AgentCompaction.compacting);
+    expect(status({...base, 'compaction': 'failed'}).compaction, AgentCompaction.failed);
+    expect(status({...base, 'compaction': 'summarizing'}).compaction, isNull);
+    expect(status({...base, 'compaction': null}).compaction, isNull);
+  });
+
+  test('agent_compactionCopyWithClearsAndKeeps', () {
+    const live = AgentStatus(state: AgentState.running, model: 'm', compaction: AgentCompaction.compacting);
+
+    expect(live.copyWith(compaction: () => null).compaction, isNull);
+    expect(live.copyWith(state: AgentState.idle).compaction, AgentCompaction.compacting);
+  });
+
   test('agent_copyWithKeepsIdentity', () {
     final list =
         jsonDecode(File('test/fixtures/subagents.json').readAsStringSync())

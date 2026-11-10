@@ -4,6 +4,7 @@ import 'package:longbow/domain/steps.dart';
 import 'package:longbow/domain/tool_meta.dart';
 import 'package:longbow/models/models.dart';
 
+import 'compaction_card.dart';
 import 'decision_card.dart';
 import 'tool_calls.dart';
 import 'transcript_items.dart';
@@ -28,6 +29,7 @@ class FeedRowsInput {
     this.calls = const [],
     this.outbox = const [],
     this.running = false,
+    this.compaction,
     this.simRunId,
     this.agentLabel = 'Agent',
     this.onRetry,
@@ -43,6 +45,10 @@ class FeedRowsInput {
   final List<ToolCallSummary> calls;
   final List<OutboxItem> outbox;
   final bool running;
+
+  /// Live lead compaction from the root status; child and sim transcripts
+  /// leave this unset so the lead card never leaks into another feed.
+  final AgentCompaction? compaction;
   final String? simRunId;
   final String agentLabel;
   final void Function(OutboxItem item)? onRetry;
@@ -89,6 +95,9 @@ FeedRows buildFeedRows(FeedRowsInput input) {
           ChatRole.cycle => _gap(CycleDivider(message: message), top: 8),
           ChatRole.user => _gap(UserBubble(text: message.text, at: message.at)),
           ChatRole.helper => _gap(HelperReportCard(message: message)),
+          // The committed compaction marker: fixed label and timestamp, never
+          // the stored text (the server strips summaries from API chat).
+          ChatRole.compaction => _gap(CompactionCard.completed(at: message.at)),
           ChatRole.assistant => _gap(AssistantMessage(text: message.text, at: message.at, label: input.agentLabel)),
           ChatRole.tool => _gap(ToolTrace(messages: [message], orders: input.orders, simRunId: input.simRunId)),
         };
@@ -124,7 +133,9 @@ FeedRows buildFeedRows(FeedRowsInput input) {
       )),
     ));
   }
-  final showWorking = input.running && !lastIsLiveStep;
+  // A live compaction card replaces the generic Working indicator: showing
+  // both would read as two agents working.
+  final showWorking = input.running && !lastIsLiveStep && input.compaction != AgentCompaction.compacting;
   String? workingLabel;
   if (showWorking && input.calls.isNotEmpty) {
     ToolCallSummary? current;

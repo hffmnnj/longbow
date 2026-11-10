@@ -111,6 +111,20 @@ void main() {
     expect(run.status, SubagentStatus.failed);
   });
 
+  test('enums_unknownCompactionAndRoleFallBack', () {
+    final agent = fixture('status.json')['agent'] as Map<String, dynamic>;
+    expect(AgentStatus.fromJson(withUnknown(agent, 'compaction', 'summarizing')).compaction, isNull);
+    final message = ChatMessage.fromJson(
+      withUnknown(
+        (jsonDecode(File('test/fixtures/messages.json').readAsStringSync()) as List).first,
+        'role',
+        'narrator',
+      ),
+    );
+
+    expect(message.role, ChatRole.assistant);
+  });
+
   test('enums_unknownHaltBlocksEntries', () {
     final status = StatusResponse.fromJson(
       withUnknown(fixture('status.json'), 'halts', ['solar_flare']),

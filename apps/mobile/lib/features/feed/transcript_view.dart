@@ -8,6 +8,7 @@ import 'package:longbow/data/data.dart';
 import 'package:longbow/models/models.dart';
 
 import 'agents_lane.dart';
+import 'compaction_card.dart';
 import 'feed_rows.dart';
 import 'transcript_items.dart';
 
@@ -29,6 +30,7 @@ class FeedTranscriptView extends ConsumerStatefulWidget {
     required this.loadTranscript,
     this.simRunId,
     this.running,
+    this.compaction,
     this.agentLabel = 'Agent',
     this.showLane = true,
     this.emptyTitle = 'No messages yet',
@@ -49,6 +51,10 @@ class FeedTranscriptView extends ConsumerStatefulWidget {
   /// Whether the agent is working. Defaults to the feed's agent status or any
   /// live nested calls.
   final bool? running;
+
+  /// Live lead compaction from the root status. Child and sim transcripts
+  /// leave this unset; completed history renders from committed messages.
+  final AgentCompaction? compaction;
 
   /// Name above assistant messages.
   final String agentLabel;
@@ -107,7 +113,9 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
         old.simRunId != widget.simRunId ||
         old.agentLabel != widget.agentLabel ||
         old.running != widget.running ||
-        (a.status?.agent.state != b.status?.agent.state);
+        old.compaction != widget.compaction ||
+        (a.status?.agent.state != b.status?.agent.state) ||
+        (a.status?.agent.compaction != b.status?.agent.compaction);
     if (changed) _rebuildRows();
   }
 
@@ -122,6 +130,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
       calls: feed.calls,
       outbox: feed.outbox,
       running: _running,
+      compaction: widget.compaction,
       simRunId: widget.simRunId,
       agentLabel: widget.agentLabel,
       onRetry: (o) => ref.read(harnessProvider.notifier).send(o.text, retryId: o.id),
@@ -195,7 +204,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
   @override
   Widget build(BuildContext context) {
     final feed = widget.feed;
-    final empty = _built.rows.isEmpty && feed.draft.isEmpty && !_built.showWorking && widget.footer == null;
+    final empty = _built.rows.isEmpty && feed.draft.isEmpty && !_built.showWorking && widget.compaction == null && widget.footer == null;
     final Widget body;
     if (empty) {
       body = Empty(
@@ -222,14 +231,31 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
     return LayoutBuilder(
       builder: (context, box) {
         final side = math.max(widget.sidePadding, (box.maxWidth - kTranscriptMaxWidth) / 2);
-        final tail = feed.draft.isNotEmpty
-            ? Padding(
+        // The live compaction card replaces the generic Working indicator
+        // (suppressed in [buildFeedRows] while compacting); a streaming draft
+        // still renders beneath it.
+        final tailChildren = <Widget>[
+          if (widget.compaction == AgentCompaction.compacting) const CompactionCard.compacting(),
+          if (widget.compaction == AgentCompaction.failed) const CompactionCard.failed(),
+          if (feed.draft.isNotEmpty)
+            DraftBubble(text: feed.draft, label: widget.agentLabel)
+          else if (_built.showWorking)
+            WorkingIndicator(label: _built.workingLabel),
+        ];
+        final tail = tailChildren.isEmpty
+            ? const SizedBox.shrink()
+            : Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: DraftBubble(text: feed.draft, label: widget.agentLabel),
-              )
-            : _built.showWorking
-                ? Padding(padding: const EdgeInsets.only(bottom: 12), child: WorkingIndicator(label: _built.workingLabel))
-                : const SizedBox.shrink();
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < tailChildren.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      tailChildren[i],
+                    ],
+                  ],
+                ),
+              );
         return Stack(
           children: [
             Semantics(
