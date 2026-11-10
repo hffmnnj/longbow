@@ -85,6 +85,17 @@ describe("store journal", () => {
   });
 });
 
+describe("owner messages", () => {
+  it("persists received text and time separately and filters by receipt time", () => {
+    const store = openStore(dbPath(), clock);
+    const old = store.addOwnerMessage({ at: 99, text: "Earlier message" });
+    const recent = store.addOwnerMessage({ at: 100, text: "Buy 7 shares" });
+    assert.notEqual(old.id, recent.id);
+    assert.deepEqual(openStore(dbPath(), clock).ownerMessagesSince(100), [recent]);
+    assert.deepEqual(store.ownerMessagesSince(0), [recent, old]);
+  });
+});
+
 describe("store orders", () => {
   const order = (at: number): Omit<OrderRecord, "id"> => ({
     createdAt: at,

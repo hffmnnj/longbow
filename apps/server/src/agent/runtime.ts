@@ -79,6 +79,8 @@ export interface TradingAgentDeps {
   credentialFile?: string;
   onRegistry?: (registry: Registry) => void;
   cycleInput: (kind: CycleKind, cycleId: string) => Promise<string>;
+  /** Record actual chat input independently of transcript entries such as compaction summaries. */
+  recordOwnerMessage?: (message: { text: string; at: number }) => void;
   /** Called after a cycle's run settles (success or failure); used for safety nets. Never in simulations. */
   onSettled?: (kind: CycleKind, cycleId: string) => void;
 }
@@ -473,6 +475,7 @@ export class TradingAgent implements AgentControl {
 
   async sendMessage(text: string): Promise<void> {
     const conversation = this.requireConversation();
+    this.deps.recordOwnerMessage?.({ text, at: this.clock.now() });
     this.runningCount += 1;
     this.maybePublishStatus();
     try {

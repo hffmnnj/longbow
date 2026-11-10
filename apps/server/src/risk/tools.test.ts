@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Context } from "@earendil-works/chord";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
-import { DEFAULT_SETTINGS, type HaltReason, type OrderRecord } from "@rh/shared";
+import { DEFAULT_SETTINGS, type HaltReason, type OrderIntent, type OrderRecord } from "@rh/shared";
 import { createRiskExtension } from "./tools.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import type { Broker, Clock, OrderGate, Store } from "../ports.ts";
@@ -102,9 +102,11 @@ describe("risk extension", () => {
 
   it("submit_order reports the id, status, failed checks, and max quantity", async () => {
     let seenCycleId: string | undefined;
+    let seenInstruction: string | undefined;
     const gate = {
-      submit: async (_intent: unknown, cycleId?: string) => {
+      submit: async (intent: OrderIntent, cycleId?: string) => {
         seenCycleId = cycleId;
+        seenInstruction = intent.ownerInstruction;
         return cannedOrder("pending_approval");
       },
       approve: async () => cannedOrder("submitted"),
@@ -136,12 +138,14 @@ describe("risk extension", () => {
         expectedGainPct: 10,
         expectedLossPct: 5,
         estimatedCostPct: 0.5,
+        ownerInstruction: "Buy 100 shares of AAPL",
         evidence: ["robinhood quote showed tight spread this morning"],
       },
       undefined as unknown as ToolExecutionApi,
       undefined as unknown as Context,
     );
     assert.equal(seenCycleId, "cycle-9");
+    assert.equal(seenInstruction, "Buy 100 shares of AAPL");
     const text = outputText(result);
     assert.match(text, /order-7/);
     assert.match(text, /pending_approval/);

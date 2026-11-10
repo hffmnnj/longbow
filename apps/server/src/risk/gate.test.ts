@@ -209,6 +209,7 @@ function setup(options?: {
   sectors?: SectorDirectory;
   systemOne?: Settings["systemOne"];
   entryReview?: Parameters<typeof createOrderGate>[0]["entryReview"];
+  ownerMessages?: { id: string; at: number; text: string }[];
 }) {
   const store = new FakeStore();
   if (options?.mode !== undefined) store.settings = { ...store.settings, mode: options.mode };
@@ -240,9 +241,74 @@ function setup(options?: {
     ...(market === null ? {} : { market }),
     ...(options?.sectors === undefined ? {} : { sectors: options.sectors }),
     ...(options?.entryReview === undefined ? {} : { entryReview: options.entryReview }),
+    ...(options?.ownerMessages === undefined ? {} : { ownerMessagesSince: (since: number) => options.ownerMessages!.filter((message) => message.at >= since) }),
   });
   return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
 }
+
+describe("owner-routed orders", () => {
+  const ownerMessages = [{ id: "owner-1", at: NOW - 1000, text: "Please BUY 100 shares of AAPL" }];
+  const intent = (): OrderIntent => ({ ...baseIntent(), quantity: 100, ownerInstruction: "buy 100   shares of AAPL" });
+
+  it("waives strategy checks but requires human approval in auto mode, then places once", async () => {
+    let reviewGate: string | undefined;
+    const f = setup({ mode: "auto", market: null, ownerMessages,
+      systemOne: { ...DEFAULT_SETTINGS.systemOne, enabled: true, gate: "block" },
+      entryReview: async (_intent, gate) => { reviewGate = gate; return { rule: "system_one", ok: false, detail: "concern" }; },
+    });
+    f.store.settings.risk.maxOrderNotionalUsd = 100;
+    f.store.settings.risk.maxPositionPct = 1;
+    const order = await f.gate.submit(intent());
+    assert.equal(order.status, "pending_approval");
+    assert.equal(order.ownerMessageId, "owner-1");
+    assert.equal(f.broker.placeCalls, 0);
+    assert.equal(reviewGate, "advise");
+    for (const rule of ["position_size", "earnings_blackout", "liquidity"]) {
+      assert.deepEqual(order.verdict.checks.find((c) => c.rule === rule), { rule, ok: true, detail: "owner order: waived" });
+    }
+    assert.match(order.verdict.checks.find((c) => c.rule === "notional_cap")!.detail, /cap waived/);
+    const submitted = await f.gate.approve(order.id);
+    assert.equal(submitted.status, "submitted");
+    assert.equal(submitted.ownerMessageId, "owner-1");
+    assert.equal(f.broker.placeCalls, 1);
+    await assert.rejects(f.gate.approve(order.id), /not pending approval/);
+  });
+
+  it("refuses unmatched or expired message quotes without reaching the broker", async () => {
+    for (const messages of [[], [{ ...ownerMessages[0]!, at: NOW - 14 * 86_400_000 - 1 }]]) {
+      const f = setup({ mode: "auto", ownerMessages: messages });
+      const order = await f.gate.submit(intent());
+      assert.equal(order.status, "rejected_risk");
+      assert.equal(order.verdict.checks[0]?.rule, "owner_instruction");
+      assert.equal(f.broker.snapshotCalls, 0);
+    }
+  });
+
+  it("rechecks hard safety constraints on submission and approval", async () => {
+    for (const change of ["kill", "mode", "buyingPower", "settledCash", "price"] as const) {
+      const f = setup({ mode: "auto", ownerMessages });
+      if (change === "kill") f.store.settings.killSwitch = true;
+      if (change === "mode") f.store.settings.mode = "off";
+      if (change === "buyingPower") f.broker.snapshotValue.buyingPower = 100;
+      if (change === "settledCash") f.broker.snapshotValue.settledCash = 100;
+      if (change === "price") f.broker.quoteValue = { ...baseQuote(), bid: 140, ask: 141 };
+      const order = await f.gate.submit(intent());
+      assert.equal(order.status, "rejected_risk", change);
+      assert.equal(f.broker.placeCalls, 0);
+    }
+    for (const change of ["kill", "price"] as const) {
+      const f = setup({ mode: "auto", ownerMessages });
+      const pending = await f.gate.submit(intent());
+      assert.equal(pending.status, "pending_approval");
+      if (change === "kill") f.store.settings.killSwitch = true;
+      else f.broker.quoteValue = { ...baseQuote(), bid: 140, ask: 141 };
+      const rejected = await f.gate.approve(pending.id);
+      assert.equal(rejected.status, "rejected_risk", change);
+      assert.equal(rejected.verdict.checks.find((c) => c.rule === (change === "kill" ? "kill_switch" : "limit_vs_mid"))?.ok, false);
+      assert.equal(f.broker.placeCalls, 0);
+    }
+  });
+});
 
 function liveSetup() {
   const fixture = setup({ mode: "auto" });

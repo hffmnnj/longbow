@@ -115,6 +115,22 @@ function failedRules(input: RiskInput): string[] {
   return evaluate(input).checks.filter((c) => !c.ok).map((c) => c.rule);
 }
 
+it("owner-routed orders retain hard checks and a two-percent sell floor", () => {
+  const input = passingInput();
+  input.ownerDirected = true;
+  input.market.isOpen = false;
+  input.quote.at = NOW - 61_000;
+  input.intent = { ...input.intent, side: "sell", quantity: 2, limitPrice: 140 };
+  const failures = failedRules(input);
+  for (const rule of ["market_hours", "quote_fresh", "no_short", "limit_vs_mid"]) assert.ok(failures.includes(rule), rule);
+
+  const crypto = passingInput();
+  crypto.ownerDirected = true;
+  crypto.intent = { ...crypto.intent, symbol: "BTC-USD" };
+  crypto.settings.crypto.enabled = false;
+  assert.ok(failedRules(crypto).includes("crypto_allowed"));
+});
+
 describe("risk engine", () => {
   it("approves a well-formed entry with maxQuantity from the tightest sizing rule", () => {
     const verdict = evaluate(passingInput());
