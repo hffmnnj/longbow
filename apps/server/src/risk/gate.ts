@@ -31,6 +31,8 @@ export interface OrderGateDeps {
   clock: Clock;
   bus: EventBus;
   log: Logger;
+  /** Actual owner chat messages; never sourced from the model transcript. */
+  ownerMessagesSince?: (since: number) => { id: string; at: number; text: string }[];
   /** Free market-data provider for the earnings and liquidity entry rules. */
   market?: MarketData;
   /** Sectors for symbols the broker reports without one, so the sector cap sees real exposure. */
@@ -55,6 +57,8 @@ function failedVerdict(detail: string): RiskVerdict {
 
 /** Identical retries of a recent risk rejection are refused without re-running the engine. */
 const DUPLICATE_RETRY_WINDOW_MS = 30 * 60_000;
+const OWNER_MESSAGE_WINDOW_MS = 14 * 86_400_000;
+const normalizeInstruction = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
 
 const etTimeFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -269,10 +273,29 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
       const valid = parsed.data;
+      let ownerMessageId: string | undefined;
+      if (valid.ownerInstruction !== undefined) {
+        const instruction = normalizeInstruction(valid.ownerInstruction);
+        const matched = instruction.length >= 3
+          ? deps.ownerMessagesSince?.(now - OWNER_MESSAGE_WINDOW_MS).find((message) =>
+            message.at >= now - OWNER_MESSAGE_WINDOW_MS && message.at <= now && normalizeInstruction(message.text).includes(instruction))
+          : undefined;
+        if (matched === undefined) {
+          const order = store.addOrder({
+            createdAt: now, updatedAt: now, ...(cycleId === undefined ? {} : { cycleId }), intent: valid,
+            verdict: { approved: false, isExit: false, checks: [{ rule: "owner_instruction", ok: false, detail: "quoted owner instruction not found in owner messages from the last 14 days" }] },
+            status: "rejected_risk",
+          });
+          publish(order);
+          return order;
+        }
+        ownerMessageId = matched.id;
+      }
+      const ownerMetadata = ownerMessageId === undefined ? {} : { ownerMessageId };
 
-      const duplicate = store
+      const duplicate = ownerMessageId === undefined ? store
         .ordersSince(now - DUPLICATE_RETRY_WINDOW_MS)
-        .find((o) => o.status === "rejected_risk" && isIdenticalRetry(o.intent, valid));
+        .find((o) => o.status === "rejected_risk" && isIdenticalRetry(o.intent, valid)) : undefined;
       if (duplicate !== undefined) {
         const rules = duplicate.verdict.checks.filter((c) => !c.ok).map((c) => c.rule);
         const order: OrderRecord = {
@@ -301,6 +324,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: now,
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict: failedVerdict(`snapshot failed: ${shortError(error, 150)}`),
           status: "failed",
@@ -313,7 +337,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       latestSnapshot = snapshot;
 
       const heldQty = snapshot.positions.find((p) => p.symbol === valid.symbol)?.quantity ?? 0;
-      const marketInputsPromise = isEntryOrder(valid.side, heldQty, valid.quantity) && !isCryptoSymbol(valid.symbol)
+      const marketInputsPromise = ownerMessageId === undefined && isEntryOrder(valid.side, heldQty, valid.quantity) && !isCryptoSymbol(valid.symbol)
         ? fetchMarketInputs(marketData, valid.symbol)
         : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
 
@@ -325,6 +349,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: now,
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict: { ...failedVerdict(`quote failed: ${shortError(error, 150)}`), quote: undefined },
           status: "failed",
@@ -348,9 +373,10 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
       const account = snapshot;
-      await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
+      if (ownerMessageId === undefined) await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
       const engineVerdict = evaluate({
         intent: valid,
+        ownerDirected: ownerMessageId !== undefined,
         settings,
         account,
         quote,
@@ -383,11 +409,14 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         settings.systemOne.enabled &&
         settings.systemOne.gate !== "off"
       ) {
-        const check = await deps.entryReview(valid, settings.systemOne.gate).catch((error: unknown) => {
+        const check = await deps.entryReview(valid, ownerMessageId === undefined ? settings.systemOne.gate : "advise").catch((error: unknown) => {
           log.warn("system one entry review failed", { error: shortError(error) });
           return undefined;
         });
-        if (check !== undefined) verdict = { ...verdict, approved: check.ok, checks: [...verdict.checks, check] };
+        if (check !== undefined) {
+          const advisory = ownerMessageId === undefined ? check : { ...check, ok: true };
+          verdict = { ...verdict, approved: advisory.ok, checks: [...verdict.checks, advisory] };
+        }
       }
 
       if (!verdict.approved) {
@@ -395,6 +424,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: now,
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict,
           status: "rejected_risk",
@@ -410,11 +440,12 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
 
-      if (settings.mode !== "auto") {
+      if (settings.mode !== "auto" || ownerMessageId !== undefined) {
         const order = store.addOrder({
           createdAt: now,
           updatedAt: now,
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict,
           status: "pending_approval",
@@ -435,7 +466,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         const reserved = store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
         const available = snapshot.positions.find((p) => p.symbol === valid.symbol)?.sharesAvailableForSells ?? 0;
         const sufficient = reserved + valid.quantity <= available;
-        const order = store.addOrder({ createdAt: now, updatedAt: clock.now(), ...(cycleId ? { cycleId } : {}), intent: valid, verdict,
+        const order = store.addOrder({ createdAt: now, updatedAt: clock.now(), ...(cycleId ? { cycleId } : {}), ...ownerMetadata, intent: valid, verdict,
           status: sufficient ? "held" : "failed", ...(!sufficient ? { error: "Insufficient unreserved shares for held stop" } : {}) });
         orderChanged(deps, order);
         return order;
@@ -447,6 +478,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: clock.now(),
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict,
           status: "failed",
@@ -462,6 +494,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: clock.now(),
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict,
           status: "submitted",
@@ -482,6 +515,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           createdAt: now,
           updatedAt: clock.now(),
           ...(cycleId === undefined ? {} : { cycleId }),
+          ...ownerMetadata,
           intent: valid,
           verdict,
           status: "failed",
@@ -524,7 +558,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       latestSnapshot = snapshot;
 
       const heldQty = snapshot.positions.find((p) => p.symbol === existing.intent.symbol)?.quantity ?? 0;
-      const marketInputsPromise = isEntryOrder(existing.intent.side, heldQty, existing.intent.quantity) && !isCryptoSymbol(existing.intent.symbol)
+      const marketInputsPromise = existing.ownerMessageId === undefined && isEntryOrder(existing.intent.side, heldQty, existing.intent.quantity) && !isCryptoSymbol(existing.intent.symbol)
         ? fetchMarketInputs(marketData, existing.intent.symbol)
         : Promise.resolve({ marketDataAvailable: true } as MarketInputs);
 
@@ -560,9 +594,10 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         )
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
-      await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
+      if (existing.ownerMessageId === undefined) await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
       const engineVerdict = evaluate({
         intent: existing.intent,
+        ownerDirected: existing.ownerMessageId !== undefined,
         settings,
         account: snapshot,
         quote,

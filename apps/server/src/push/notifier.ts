@@ -91,10 +91,21 @@ export function startNotifier(deps: NotifierDeps): () => void {
   }
 
   function onOrder(order: OrderRecord): void {
-    if (order.status !== "submitted" && order.status !== "failed") return;
+    const ownerPending = order.status === "pending_approval" && order.ownerMessageId !== undefined;
+    if (!ownerPending && order.status !== "submitted" && order.status !== "failed") return;
     const key = `${order.id}:${order.status}`;
     if (seenOrders.has(key)) return;
     seenOrders.add(key);
+    if (ownerPending) {
+      const { side, quantity, symbol, limitPrice, orderType, stopPrice } = order.intent;
+      deliver({
+        title: "Owner order awaiting approval",
+        body: `${side} ${quantity} ${symbol} @ $${limitPrice} ${orderType === "stop_limit" ? `stop-limit (stop $${stopPrice})` : "limit"}`,
+        url: `/?order=${order.id}`,
+        tag: `order-${order.id}-approval`,
+      });
+      return;
+    }
     if (order.status === "submitted") {
       const { side, symbol, quantity, limitPrice, thesis } = order.intent;
       const notional = quantity * limitPrice;

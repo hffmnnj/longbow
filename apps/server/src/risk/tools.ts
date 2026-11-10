@@ -85,6 +85,11 @@ const submitOrderSchema = Type.Object({
       maxLength: 60,
     }),
   ),
+  ownerInstruction: Type.Optional(Type.String({
+    description: "Only for a trade explicitly ordered by the owner: quote the owner's own chat words verbatim. This routes the order to human approval, not automatic execution. Misuse is a scored integrity failure.",
+    minLength: 3,
+    maxLength: 500,
+  })),
   evidence: Type.Array(Type.String({ minLength: 3, maxLength: 400 }), {
     description: "Citations to the tool outputs behind this idea: tool name, what it showed, and when. At least one.",
     minItems: 1,
@@ -124,7 +129,8 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
     description:
       "Propose an order to the deterministic risk gate. It validates the intent, checks every risk rule, " +
       "and either rejects it, holds it for approval in approve mode, or submits it to the broker in auto mode. " +
-      "In approve mode a human must approve the pending order before anything is placed.",
+      "In approve mode a human must approve the pending order before anything is placed. " +
+      "Owner-instruction orders always require human approval, including in auto mode.",
     parameters: submitOrderSchema,
     async execute(args: SubmitOrderArgs) {
       const order = await gate.submit(
@@ -144,6 +150,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
           expectedLossPct: args.expectedLossPct,
           estimatedCostPct: args.estimatedCostPct,
           ...(args.sector === undefined ? {} : { sector: args.sector }),
+          ...(args.ownerInstruction === undefined ? {} : { ownerInstruction: args.ownerInstruction }),
           evidence: args.evidence,
         },
         currentCycleId(),

@@ -133,6 +133,21 @@ describe("push notifier", () => {
     startNotifier({ bus, push, log, now: () => nowMs });
   });
 
+  it("notifies once for an owner order awaiting approval without silencing its later submission", async () => {
+    const pending = orderRecord({ status: "pending_approval", ownerMessageId: "owner-1",
+      intent: { ...orderRecord().intent, symbol: "BTC-USD", quantity: 0.00001234, limitPrice: 187.425 } });
+    bus.publish({ type: "order", order: orderRecord({ status: "pending_approval" }) });
+    bus.publish({ type: "order", order: pending, simRunId: "sim1" });
+    bus.publish({ type: "order", order: pending });
+    bus.publish({ type: "order", order: pending });
+    await flush();
+    assert.deepEqual(push.payloads, [{ title: "Owner order awaiting approval", body: "buy 0.00001234 BTC-USD @ $187.425 limit", url: "/?order=o1", tag: "order-o1-approval" }]);
+    bus.publish({ type: "order", order: { ...pending, status: "submitted" } });
+    await flush();
+    assert.equal(push.payloads.length, 2);
+    assert.equal(push.payloads[1]?.tag, "order-o1");
+  });
+
   it("sends once for a submitted order and again on failure", async () => {
     const order = orderRecord();
     bus.publish({ type: "order", order });

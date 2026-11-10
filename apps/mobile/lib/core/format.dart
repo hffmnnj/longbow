@@ -84,6 +84,23 @@ String qtyCoins(num value) => _coins.format(value);
 String qtyFor(String symbol, num value) =>
     isCryptoSymbol(symbol) ? qtyCoins(value) : qty(value);
 
+final NumberFormat _exact = NumberFormat('#,##0.########', 'en_US');
+final NumberFormat _moneyExact = NumberFormat('#,##0.00######', 'en_US');
+
+/// Quantity with full fractional precision (up to 8 decimals, trimmed): the
+/// stock [qty] rounds to 4, which would misstate an owner order awaiting
+/// approval. Grouped above 1,000 exactly like [qty].
+String qtyExact(num value) => _exact.format(value);
+
+/// Per-unit price with full precision (cents always, up to 8 decimals
+/// trimmed): the stock [usd] rounds to cents, which would misstate an owner
+/// order's limit while keeping sub-cent crypto prices intact. Negatives use a
+/// true minus sign.
+String priceExact(num value) {
+  final s = '\$${_moneyExact.format(value.abs())}';
+  return value < 0 ? '$kMinus$s' : s;
+}
+
 /// Unit word for a known symbol: "coins" for crypto, "shares" for stocks.
 String qtyUnit(String symbol) => isCryptoSymbol(symbol) ? 'coins' : 'shares';
 

@@ -74,6 +74,8 @@ class _OrderCardState extends ConsumerState<OrderCard> {
     final c = context.lb;
     final ev = expectedValuePct(i);
     final pending = order.status == OrderStatus.pendingApproval;
+    final isOwner = order.ownerMessageId != null;
+    final ownerPending = isOwner && pending;
     final busy = ref.watch(harnessProvider.select((s) => s.busy['order:${order.id}'] ?? false));
     final killSwitch = ref.watch(harnessProvider.select((s) => s.feed.status?.settings.killSwitch ?? false));
     final compact = widget.compact;
@@ -97,6 +99,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                     children: [
                       SideBadge(i.side.name),
                       TickerLink(i.symbol, style: LbText.number(context, size: 15, weight: FontWeight.w600)),
+                      if (isOwner) const StatusChip('Owner order', tone: StatusTone.live, showIcon: false),
                       Text('${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}', style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground)),
                       if (i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0)
                         Text('stop ${usd(i.stopPrice!)}', style: LbText.number(context, size: 12, weight: FontWeight.w400, color: c.mutedForeground)),
@@ -121,6 +124,10 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                   ),
               ],
             ),
+            if (ownerPending) ...[
+              const SizedBox(height: 10),
+              _OwnerOrderDetails(order: order),
+            ],
             const SizedBox(height: 10),
             Text(
               i.thesis,
@@ -194,6 +201,56 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                   child: Text('Kill switch is engaged. Release it to approve.', style: Theme.of(context).textTheme.bodySmall!.copyWith(color: c.warn)),
                 ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Exact terms of an owner-requested order awaiting approval: full-precision
+/// quantity and limit (the compact formatters round), order type, stop when
+/// set, and expiry at today's close. The quoted instruction is context for
+/// the decision, not a claim of authorization.
+class _OwnerOrderDetails extends StatelessWidget {
+  const _OwnerOrderDetails({required this.order});
+
+  final OrderRecord order;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.lb;
+    final i = order.intent;
+    final side = i.side == OrderSide.buy ? 'Buy' : 'Sell';
+    final type = i.orderType == OrderType.stopLimit ? 'Stop limit' : 'Limit';
+    final stop = i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0
+        ? ' · Stop ${priceExact(i.stopPrice!)}'
+        : '';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(c.primary.withValues(alpha: 0.08), c.card),
+        border: Border.all(color: c.primary.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(LbRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '$side ${qtyExact(i.quantity)} ${qtyUnit(i.symbol)} of ${i.symbol} · $type @ ${priceExact(i.limitPrice)}$stop · Expires at today\'s close',
+              style: LbText.number(context, size: 12.5, weight: FontWeight.w400),
+            ),
+            if (i.ownerInstruction != null && i.ownerInstruction!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'From your message: “${i.ownerInstruction}”',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: LbText.muted(context, size: 12.5),
+                ),
+              ),
           ],
         ),
       ),

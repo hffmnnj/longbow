@@ -72,6 +72,7 @@ class OrderIntent {
     required this.expectedLossPct,
     required this.estimatedCostPct,
     this.sector,
+    this.ownerInstruction,
     required this.evidence,
   });
 
@@ -108,6 +109,10 @@ class OrderIntent {
   /// Estimated round-trip costs (spread, slippage, fees) in % of notional.
   final double estimatedCostPct;
   final String? sector;
+
+  /// Verbatim owner chat text used to route this order for human approval.
+  /// Absent for agent-initiated orders; unknown fields still parse.
+  final String? ownerInstruction;
 
   /// Citations to tool outputs: tool name plus what it showed and when.
   final List<String> evidence;
@@ -163,6 +168,7 @@ class OrderRecord {
     required this.intent,
     required this.verdict,
     required this.status,
+    this.ownerMessageId,
     this.review,
     this.brokerOrderId,
     this.filledQuantity,
@@ -182,6 +188,10 @@ class OrderRecord {
   @JsonKey(unknownEnumValue: OrderStatus.pendingApproval)
   final OrderStatus status;
 
+  /// Server-recorded chat message matched when routing this order for
+  /// approval. Present only on owner-requested orders.
+  final String? ownerMessageId;
+
   /// Text of Robinhood's review (pre-trade warnings), when run.
   final String? review;
   final String? brokerOrderId;
@@ -197,6 +207,7 @@ class OrderRecord {
     OrderIntent? intent,
     RiskVerdict? verdict,
     OrderStatus? status,
+    String? ownerMessageId,
     String? review,
     String? brokerOrderId,
     double? filledQuantity,
@@ -211,6 +222,7 @@ class OrderRecord {
       intent: intent ?? this.intent,
       verdict: verdict ?? this.verdict,
       status: status ?? this.status,
+      ownerMessageId: ownerMessageId ?? this.ownerMessageId,
       review: review ?? this.review,
       brokerOrderId: brokerOrderId ?? this.brokerOrderId,
       filledQuantity: filledQuantity ?? this.filledQuantity,

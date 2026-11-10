@@ -218,7 +218,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     }
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed });
-    const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market,
+    const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
       ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
       ...(scenario === undefined ? {} : { sectors: createStaticSectorDirectory(Object.fromEntries(scenario.symbols.map((s) => [s, scenario!.sectorOf(s)]))) }) });
     let agent: TradingAgent | undefined;

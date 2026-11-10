@@ -21,6 +21,8 @@ import { roundTripFeePct } from "../fees.ts";
 
 export interface RiskInput {
   intent: OrderIntent;
+  /** Set only by the gate for an owner-routed order awaiting explicit approval. */
+  ownerDirected?: boolean;
   settings: Settings;
   account: AccountSnapshot;
   quote: Quote;
@@ -147,8 +149,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
   } = input;
   const risk = settings.risk;
   const checks: RiskCheck[] = [];
+  const waived = new Set(["entry_window", "spread", "daily_loss", "drawdown", "risk_per_trade", "position_size", "sector", "max_positions", "entries_per_day", "min_hold", "ev_after_costs", "time_stop", "earnings_blackout", "liquidity", "crypto_sleeve", "crypto_reward_risk"]);
   const push = (rule: string, ok: boolean, detail: string): void => {
-    checks.push({ rule, ok, detail });
+    checks.push(input.ownerDirected && waived.has(rule) ? { rule, ok: true, detail: "owner order: waived" } : { rule, ok, detail });
   };
 
   const equity = account.equity;
@@ -234,6 +237,14 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 7. limit_vs_mid: the limit may sit at most maxSlippageBps through the mid.
   if (intent.orderType === "stop_limit" && intent.stopPrice === undefined) {
     push("limit_vs_mid", false, "stop_limit order is missing its required stopPrice");
+  } else if (input.ownerDirected) {
+    const reference = intent.side === "buy" ? quote.ask : quote.bid;
+    const bound = reference * (intent.side === "buy" ? 1.02 : 0.98);
+    const limitOk = intent.side === "buy" ? intent.limitPrice <= bound : intent.limitPrice >= bound;
+    const stopOk = intent.orderType !== "stop_limit" || (intent.stopPrice !== undefined &&
+      (intent.side === "buy" ? intent.limitPrice >= intent.stopPrice : intent.limitPrice <= intent.stopPrice));
+    push("limit_vs_mid", reference > 0 && limitOk && stopOk,
+      `owner order: ${intent.side} limit ${intent.limitPrice} vs ${intent.side === "buy" ? "ask" : "bid"} ${reference} (2% ${intent.side === "buy" ? "ceiling" : "floor"} ${bound.toFixed(2)}); stop limit must be valid`);
   } else if (mid <= 0) {
     push("limit_vs_mid", false, `mid ${mid} is not positive; cannot check the limit`);
   } else if (intent.orderType === "stop_limit") {
@@ -411,18 +422,18 @@ export function evaluate(input: RiskInput): RiskVerdict {
   } else if (intent.side === "sell") {
     push(
       "notional_cap",
-      notional <= orderCapUsd,
-      `sell notional ${money(notional)} vs cap ${money(orderCapUsd)}`,
+      input.ownerDirected || notional <= orderCapUsd,
+      input.ownerDirected ? "owner order: notional cap waived" : `sell notional ${money(notional)} vs cap ${money(orderCapUsd)}`,
     );
   } else {
     const cashOk =
       account.settledCash === undefined ? true : notional <= account.settledCash;
     const ok =
-      notional <= orderCapUsd && notional <= buyingPower && cashOk;
+      (input.ownerDirected || notional <= orderCapUsd) && notional <= buyingPower && cashOk;
     push(
       "notional_cap",
       ok,
-      `buy notional ${money(notional)} vs cap ${money(orderCapUsd)}, ` +
+      `buy notional ${money(notional)} vs ${input.ownerDirected ? "owner order: cap waived" : `cap ${money(orderCapUsd)}`}, ` +
         `buying power ${money(buyingPower)}` +
         (account.settledCash === undefined
           ? " (no settled-cash mark)"
@@ -691,12 +702,14 @@ export function evaluate(input: RiskInput): RiskVerdict {
       push("crypto_reward_risk", true, "exit; reward to risk does not apply");
     } else {
       const anyPair = cryptoRules.allowed.length === 0;
-      const allowed = cryptoRules.enabled && (anyPair || cryptoRules.allowed.includes(intent.symbol));
+      const allowed = cryptoRules.enabled && (input.ownerDirected || anyPair || cryptoRules.allowed.includes(intent.symbol));
       push(
         "crypto_allowed",
         allowed,
         !cryptoRules.enabled
           ? "the crypto sleeve is switched off"
+          : input.ownerDirected && !anyPair && !cryptoRules.allowed.includes(intent.symbol)
+            ? "owner order: crypto allowlist waived"
           : allowed
             ? anyPair
               ? `${intent.symbol}: any Robinhood crypto pair is allowed`
@@ -723,7 +736,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
   }
 
   let maxQuantity: number | undefined;
-  if (isEntry) {
+  if (isEntry && !input.ownerDirected) {
     const candidates = [riskQty, positionQty, capQty, sleeveQty].filter(
       (q): q is number => q !== undefined && Number.isFinite(q),
     );

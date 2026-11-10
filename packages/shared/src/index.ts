@@ -247,6 +247,8 @@ export const OrderIntentSchema = z.object({
   /** Estimated round-trip costs (spread, slippage, fees) in % of notional. */
   estimatedCostPct: z.number().nonnegative(),
   sector: z.string().max(60).optional(),
+  /** Verbatim owner chat text used to route an order for human approval. */
+  ownerInstruction: z.string().min(3).max(500).optional(),
   /** Citations to tool outputs: tool name plus what it showed and when. */
   evidence: z.array(z.string().min(3).max(400)).min(1).max(20),
 });
@@ -286,6 +288,8 @@ export interface OrderRecord {
   createdAt: number;
   updatedAt: number;
   cycleId?: string;
+  /** Server-recorded chat message matched when routing this order for approval. */
+  ownerMessageId?: string;
   intent: OrderIntent;
   verdict: RiskVerdict;
   status: OrderStatus;

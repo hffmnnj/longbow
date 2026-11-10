@@ -17,7 +17,18 @@ import { summarizeReport } from "../reports/ids.ts";
  * App state in one SQLite file, synchronous via node:sqlite with WAL.
  * JSON columns hold the shared zod-validated shapes; ids are randomUUIDs.
  */
-export function openStore(path: string, _clock: Clock): Store {
+export interface OwnerMessage {
+  id: string;
+  at: number;
+  text: string;
+}
+
+export interface OwnerMessageStore {
+  addOwnerMessage(message: Omit<OwnerMessage, "id">): OwnerMessage;
+  ownerMessagesSince(since: number): OwnerMessage[];
+}
+
+export function openStore(path: string, _clock: Clock): Store & OwnerMessageStore {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
@@ -43,6 +54,12 @@ export function openStore(path: string, _clock: Clock): Store {
       body TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS orders_created ON orders (created_at DESC);
+    CREATE TABLE IF NOT EXISTS owner_messages (
+      id TEXT PRIMARY KEY,
+      at INTEGER NOT NULL,
+      text TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS owner_messages_at ON owner_messages (at DESC);
     CREATE TABLE IF NOT EXISTS equity_marks (
       et_date TEXT PRIMARY KEY,
       day_start REAL NOT NULL,
@@ -117,6 +134,19 @@ export function openStore(path: string, _clock: Clock): Store {
   return {
     getSettings,
     patchSettings,
+
+    addOwnerMessage(message) {
+      const full: OwnerMessage = { ...message, id: randomUUID() };
+      db.prepare("INSERT INTO owner_messages (id, at, text) VALUES (?, ?, ?)")
+        .run(full.id, full.at, full.text);
+      return full;
+    },
+
+    ownerMessagesSince(since) {
+      const rows = db.prepare("SELECT id, at, text FROM owner_messages WHERE at >= ? ORDER BY at DESC")
+        .all(since) as unknown as OwnerMessage[];
+      return rows.map(({ id, at, text }) => ({ id, at, text }));
+    },
 
     addJournal(entry) {
       const full: JournalEntry = { ...entry, id: randomUUID() };

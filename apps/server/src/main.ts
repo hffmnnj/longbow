@@ -83,6 +83,7 @@ async function main(): Promise<void> {
     clock,
     bus,
     log: log.child("risk"),
+    ownerMessagesSince: (since) => store.ownerMessagesSince(since),
     market,
     sectors,
     entryReview: createEntryReview({ client: systemOne, clock, log: log.child("systemone") }),
@@ -211,6 +212,7 @@ async function main(): Promise<void> {
     bus,
     clock,
     extensions,
+    recordOwnerMessage: (message) => { store.addOwnerMessage(message); },
     onRegistry: (registry) => broker.attach(registry),
     cycleInput: async (kind, cycleId) => {
       await gate.sync();
