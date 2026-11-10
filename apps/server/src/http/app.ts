@@ -318,25 +318,40 @@ export function createApp(deps: AppDeps): Hono {
   app.get("/api/events", (_c) => {
     let off: (() => void) | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let closed = false;
     const encoder = new TextEncoder();
+    const cleanup = (): void => {
+      closed = true;
+      off?.();
+      if (heartbeat !== undefined) clearInterval(heartbeat);
+    };
     const stream = new ReadableStream({
-      async start(controller) {
+      start(controller) {
         const send = (line: string): void => {
+          if (closed) return;
           try {
             controller.enqueue(encoder.encode(line));
           } catch {
             // Client went away; cancel() cleans up.
           }
         };
-        send(`data: ${JSON.stringify({ type: "status", status: await buildStatus(deps) })}\n\n`);
+        let receivedStatus = false;
         off = deps.bus.subscribe((event) => {
+          if (event.type === "status") receivedStatus = true;
           send(`data: ${JSON.stringify(event)}\n\n`);
         });
         heartbeat = setInterval(() => send(": ping\n\n"), 25_000);
+        // Subscribe before the async snapshot so messages during status assembly cannot be lost.
+        void buildStatus(deps).then((status) => {
+          if (!receivedStatus) send(`data: ${JSON.stringify({ type: "status", status })}\n\n`);
+        }).catch((error: unknown) => {
+          if (closed) return;
+          cleanup();
+          controller.error(error);
+        });
       },
       cancel() {
-        off?.();
-        if (heartbeat !== undefined) clearInterval(heartbeat);
+        cleanup();
       },
     });
     return new Response(stream, {
