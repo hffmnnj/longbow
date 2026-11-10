@@ -10,7 +10,8 @@
   import WorkStep from "./WorkStep.svelte";
   import { Loading03Icon } from "$lib/icons";
   import { etTime } from "$lib/format";
-  import { buildItems, liveStepKey, withDecisions } from "$lib/steps";
+  import { buildItems, isRunning, liveStepKey, withDecisions } from "$lib/steps";
+  import { toolTitle } from "$lib/toolMeta";
   import { harness } from "$lib/store.svelte";
   import type { OutboxItem } from "$lib/reducer";
 
@@ -33,6 +34,11 @@
   const orderById = $derived(new Map(orders.map((o) => [o.id, o])));
   const liveKey = $derived(running ? liveStepKey(items) : undefined);
   const lastIsLiveStep = $derived(liveKey !== undefined && liveKey === items.findLast((i) => i.kind === "step")?.key);
+  /** Between steps the stream still names its newest running call when there is one. */
+  const runningCall = $derived(
+    running && !lastIsLiveStep && calls?.length ? ([...calls].reverse().find((c) => isRunning(c)) ?? calls.at(-1)) : undefined,
+  );
+  const runningLabel = $derived(runningCall ? toolTitle(runningCall.name, runningCall.summary) : undefined);
 </script>
 
 {#each items as item (item.key)}
@@ -94,7 +100,7 @@
     <div class="stream-caret text-[14px]"><Markdown text={draft} /></div>
   </article>
 {:else if running && !lastIsLiveStep && compaction !== "compacting"}
-  <div class="text-live flex items-center gap-1.5 text-[12px]">
-    <Icon icon={Loading03Icon} class="size-3.5 animate-spin" /> Working
+  <div class="text-live flex items-center gap-1.5 text-[12px]" aria-label={runningLabel ? `Using tools: ${runningLabel}` : "Agent is working"}>
+    <Icon icon={Loading03Icon} class="size-3.5 animate-spin" /> {runningLabel ? `Using ${runningLabel}…` : "Working"}
   </div>
 {/if}

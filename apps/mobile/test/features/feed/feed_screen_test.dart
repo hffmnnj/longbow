@@ -29,12 +29,18 @@ Future<void> _type(WidgetTester tester, String text) async {
 void main() {
   group('FeedScreen states', () {
     testWidgets('beforeFirstLoad_showsSkeletonAndComposer', (tester) async {
-      final h = (await tester.runAsync(StoreHarness.create))!;
+      // Gate primary history so the first refresh cannot finish before the
+      // first frame: the contract is skeleton-until-loaded, not timing.
+      final gate = Completer<List<ChatMessage>>();
+      final api = FakeApi()..defaults();
+      api.handlers['messages'] = (_) => gate.future;
+      final h = (await tester.runAsync(() => StoreHarness.create(api: api)))!;
       addTearDown(h.dispose);
       await pumpScreen(tester, const FeedScreen(), harness: h);
 
       expect(find.byType(SkeletonBlock), findsNWidgets(3));
       expect(find.text('Message the agent'), findsWidgets);
+      gate.complete(const []);
     });
 
     testWidgets('emptyFeed_showsMessageAndRunCycleStartsACycle', (tester) async {

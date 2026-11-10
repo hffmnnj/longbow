@@ -114,6 +114,13 @@ void main() {
       expect(s.draft, '');
     });
 
+    test('delivered idle status still clears the draft', () {
+      var s = applyEvent(emptyState(), const DeltaEvent('partial'));
+      s = applyEvent(s, StatusEvent(statusWith(AgentState.idle)));
+      expect(s.draft, isEmpty);
+      expect(s.calls, isEmpty);
+    });
+
     test('keeps journal and orders newest first and updates in place', () {
       var s = emptyState();
       s = applyEvent(s, JournalEvent(entry('j1', 100)));
@@ -332,6 +339,47 @@ void main() {
       expect(s.subagents.firstWhere((r) => r.id == 'x').endedAt, laterAt);
       expect(s.subagents.firstWhere((r) => r.id == 'x').status,
           SubagentStatus.done);
+    });
+  });
+  group('refresh-vs-stream reconciliation', () {
+    test('reconcileMessages keeps an SSE message that arrived after the fetch snapshot', () {
+      final fetched = [msg('m1', 100, ChatRole.user), msg('m2', 200, ChatRole.assistant)];
+      final current = [...fetched, msg('m3', 300, ChatRole.user)];
+      expect(reconcileMessages(fetched, current, fetched).map((m) => m.id), ['m1', 'm2', 'm3']);
+    });
+
+    test('reconcileMessages prefers the mid-flight replacement when an id collides', () {
+      final base = msg('m1', 100, ChatRole.user, 'before');
+      final live = msg('m1', 100, ChatRole.user, 'edited live');
+      final stale = msg('m1', 100, ChatRole.user, 'before');
+      expect(reconcileMessages([base], [live], [stale]).single.text, 'edited live');
+    });
+
+    test('reconcileOrders lets an untouched fetch update an old cached record', () {
+      final cached = order('o1', OrderStatus.pendingApproval, 1);
+      final filled = cached.copyWith(status: OrderStatus.filled);
+      // Same object as the baseline: nothing streamed for it, so the fetch wins.
+      expect(reconcileOrders([cached], [cached], [filled]).single.status, OrderStatus.filled);
+    });
+
+    test('reconcileOrders keeps a mid-flight SSE replacement over an older response', () {
+      final cached = order('o1', OrderStatus.pendingApproval, 1);
+      final streamed = cached.copyWith(status: OrderStatus.rejectedUser);
+      final stale = cached.copyWith(status: OrderStatus.submitted);
+      // A different object than the baseline: the SSE event is newer than the
+      // fetch that started before it, so the live copy wins.
+      expect(reconcileOrders([cached], [streamed], [stale]).single.status, OrderStatus.rejectedUser);
+    });
+
+    test('reconcileJournal and reconcileNotes keep current-only entries and fetch updates', () {
+      final j2 = entry('j2', 200);
+      final j1 = entry('j1', 100);
+      expect(reconcileJournal([j2], [j2, j1], [j2]).map((j) => j.id), ['j2', 'j1']);
+      const cached = NoteFile(path: 'plan.md', size: 1, updatedAt: 1);
+      const fetched = NoteFile(path: 'plan.md', size: 2, updatedAt: 2);
+      expect(reconcileNotes([cached], [cached], [fetched]), [fetched]);
+      const live = NoteFile(path: 'plan.md', size: 9, updatedAt: 3);
+      expect(reconcileNotes([cached], [live], [fetched]), [live]);
     });
   });
 }

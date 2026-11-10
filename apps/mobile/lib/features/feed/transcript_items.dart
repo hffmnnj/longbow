@@ -258,22 +258,26 @@ class DraftBubble extends StatelessWidget {
   }
 }
 
-/// "Working" indicator shown while the agent runs between steps.
+/// "Working" indicator shown while the agent runs between steps. Names the
+/// newest running call when [label] is set instead of a vague duplicate.
 class WorkingIndicator extends StatelessWidget {
-  const WorkingIndicator({super.key});
+  const WorkingIndicator({super.key, this.label});
+
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     final c = context.lb;
+    final text = label == null ? 'Working' : 'Using $label\u2026';
     return Semantics(
       container: true,
       liveRegion: true,
-      label: 'Agent is working',
+      label: label == null ? 'Agent is working' : 'Agent is using $label',
       child: Row(
         children: [
           PulseDot(color: c.live, size: 6),
           const SizedBox(width: 6),
-          Text('Working', style: Theme.of(context).textTheme.labelMedium!.copyWith(color: c.primary)),
+          Text(text, style: Theme.of(context).textTheme.labelMedium!.copyWith(color: c.primary)),
         ],
       ),
     );

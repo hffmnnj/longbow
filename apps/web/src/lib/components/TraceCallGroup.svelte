@@ -12,7 +12,6 @@
   } from "$lib/components/ui/trace/index.js";
   import Icon from "./Icon.svelte";
   import TraceCall from "./TraceCall.svelte";
-  import { durationShort } from "$lib/format";
   import { isRunning } from "$lib/steps";
   import { humanize, isMessageCall, toolIcon, type AnyCall } from "$lib/toolMeta";
 
@@ -37,13 +36,10 @@
   const failed = $derived(items.filter((c) => c.isError).length);
   const running = $derived(items.filter((c) => !isMessageCall(c) && isRunning(c)).length);
   const status = $derived(failed > 0 ? ("error" as const) : running > 0 ? ("running" as const) : undefined);
-  const totalMs = $derived(
-    items.reduce((a, c) => a + (!isMessageCall(c) && c.durationMs !== undefined ? c.durationMs : 0), 0),
-  );
-  const parts = $derived([
-    ...(totalMs > 0 ? [durationShort(totalMs)] : []),
-    `${items.length} ${items.length === 1 ? "call" : "calls"}`,
-  ]);
+  // One line per call already carries its own durationMs; the group header
+  // stays a plain count because parallel calls overlap and their sum is not
+  // wall time.
+  const parts = $derived([`${items.length} ${items.length === 1 ? "call" : "calls"}`]);
   const label = $derived(
     `${humanize(name)} ×${items.length}, ${parts.join(", ")}${status ? `, ${status}` : ""}`,
   );

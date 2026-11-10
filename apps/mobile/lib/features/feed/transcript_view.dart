@@ -240,7 +240,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
           if (feed.draft.isNotEmpty)
             DraftBubble(text: feed.draft, label: widget.agentLabel)
           else if (_built.showWorking)
-            const WorkingIndicator(),
+            WorkingIndicator(label: _built.workingLabel),
         ];
         final tail = tailChildren.isEmpty
             ? const SizedBox.shrink()

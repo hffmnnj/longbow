@@ -113,6 +113,30 @@ export function liveStepKey(items: readonly FeedItem[]): string | undefined {
   return undefined;
 }
 
+/**
+ * A step fails when any nested call errored OR the script result itself is
+ * marked failed. The result flag matters most for empty-call failures (a
+ * script that died before reporting calls): without it a red result would
+ * render a green "completed" header.
+ */
+export function isStepFailed(
+  calls: readonly { isError?: boolean | null | undefined }[],
+  result?: { isError?: boolean | null | undefined },
+): boolean {
+  if (result?.isError === true) return true;
+  return calls.some((c) => c.isError === true);
+}
+
+/** Header status for one activity group: still streaming, failed, or done. */
+export function stepStatus(
+  live: boolean,
+  calls: readonly { isError?: boolean | null | undefined }[],
+  result?: { isError?: boolean | null | undefined },
+): "running" | "error" | undefined {
+  if (live) return "running";
+  return isStepFailed(calls, result) ? "error" : undefined;
+}
+
 /** When the item happened, for placing journal decisions among the messages around them. */
 export function itemTime(item: FeedItem): number {
   switch (item.kind) {

@@ -61,17 +61,20 @@ void main() {
         ]),
       );
 
-      expect(rich('Worked for 3.0s \u00b7 2 calls'), findsOneWidget);
+      expect(rich('Tools completed'), findsOneWidget);
+      expect(rich('2 calls \u00b7 3.0s elapsed'), findsOneWidget);
       expect(rich('Indicators for NVDA'), findsNothing);
 
-      await tapRow(tester, rich('Worked for 3.0s \u00b7 2 calls'));
+      await tapRow(tester, rich('Tools completed'));
       expect(rich('Indicators for NVDA'), findsOneWidget);
       expect(rich('Checked risk state'), findsOneWidget);
 
-      await tapRow(tester, rich('Script'));
+      await tapRow(tester, rich('Details'));
       expect(find.textContaining('get_quote({symbol:"NVDA"})'), findsOneWidget);
 
-      await tapRow(tester, rich('Output'));
+      await tester.tap(find.text('Result'));
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Script completed'), findsOneWidget);
     });
 
@@ -90,8 +93,36 @@ void main() {
         ]),
       );
 
-      expect(rich('Worked for 3.0s \u00b7 2 calls \u00b7 1 failed'), findsOneWidget);
-      expect(find.bySemanticsLabel(RegExp(r'1 failed, failed')), findsOneWidget);
+      expect(rich('Tool run failed'), findsOneWidget);
+      expect(rich('1 failed \u00b7 2 calls \u00b7 3.0s elapsed'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'Tool run failed \u00b7 1 failed \u00b7 2 calls')), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('workStep_resultErrorWithNoCallsMarksGroupFailed', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final h = await startHarness(tester);
+      await pumpView(
+        tester,
+        h,
+        FeedState(messages: [
+          codeMsg('s1', 'x'),
+          resultMsg('r1', 'boom', isError: true),
+        ]),
+      );
+
+      expect(rich('Tool run failed'), findsOneWidget);
+      expect(rich('0 calls \u00b7 3.0s elapsed'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'Tool run failed \u00b7 0 calls \u00b7 3.0s elapsed')), findsOneWidget);
+
+      await tapRow(tester, rich('Tool run failed'));
+      expect(rich('No tool calls recorded'), findsOneWidget);
+
+      await tapRow(tester, rich('Details'));
+      await tester.tap(find.text('Result'));
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text('boom'), findsOneWidget);
       semantics.dispose();
     });
 
@@ -107,8 +138,10 @@ void main() {
         ),
       );
 
-      expect(find.textContaining('Working for', findRichText: true), findsOneWidget);
-      expect(rich('Treasury yields'), findsOneWidget, reason: 'the running step opens by itself');
+      expect(find.textContaining('Using tools', findRichText: true), findsOneWidget);
+      // The nested call line carries the exact title; the header names it too
+      // as the current-call description, so match the line exactly.
+      expect(find.text('Checked Treasury yields'), findsOneWidget, reason: 'the running step opens by itself');
 
       feed.value = feed.value.copyWith(calls: const [
         ToolCallSummary(name: 'market_yields', summary: '{}', durationMs: 80),
@@ -116,7 +149,7 @@ void main() {
       ]);
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(rich('Quote for SPY'), findsOneWidget);
+      expect(find.text('Quote for SPY'), findsOneWidget);
       expect(find.textContaining('2 calls', findRichText: true), findsOneWidget);
       await shutDown(tester, h);
     });
@@ -237,7 +270,7 @@ void main() {
         ),
       );
 
-      await tapRow(tester, rich('Worked for'));
+      await tapRow(tester, rich('Tools completed'));
       await tapRow(tester, rich('Delegated to bull \u00b7 NVDA'));
       await tester.tap(find.text('Open Bull transcript'));
       await tester.pump();
@@ -414,14 +447,16 @@ void main() {
       expect(etTime(firstAt), isNot(etTime(laterAt)));
       expect(find.textContaining(etTime(firstAt)), findsOneWidget);
       expect(rich(etTime(helperAt)), findsWidgets);
-      expect(rich('Worked for 3.0s \u00b7 1 call'), findsOneWidget);
+      expect(rich('Tools completed'), findsOneWidget);
+      expect(rich('1 call \u00b7 3.0s elapsed'), findsOneWidget);
 
       // A much later message joins history; nothing historical is restamped.
       feed.value = feed.value.copyWith(messages: [...feed.value.messages, userMsg('later', 'a later question', at: laterAt)]);
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(rich('Worked for 3.0s \u00b7 1 call'), findsOneWidget,
+      expect(rich('Tools completed'), findsOneWidget,
           reason: 'a completed step still measures its stored script/result times');
+      expect(rich('1 call \u00b7 3.0s elapsed'), findsOneWidget);
       expect(find.textContaining(etTime(firstAt)), findsOneWidget);
       expect(rich(etTime(helperAt)), findsWidgets);
       expect(find.text('a later question'), findsOneWidget);
@@ -561,7 +596,7 @@ void main() {
         textScale: 2.0,
       );
 
-      for (final label in ['Worked for', 'Scout reported', 'Bull on NVDA']) {
+      for (final label in ['Tools completed', 'Scout reported', 'Bull on NVDA']) {
         final f = find.textContaining(label, findRichText: true);
         if (f.evaluate().isNotEmpty) {
           await tester.ensureVisible(f.first);

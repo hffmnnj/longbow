@@ -160,9 +160,10 @@ class ToolCallGroup extends StatelessWidget {
         : running > 0
             ? TraceStatus.running
             : null;
-    final totalMs = items.fold<int>(0, (a, c) => a + (c is ToolCallSummary ? (c.durationMs ?? 0) : 0));
+    // One line per call already carries its own durationMs; the group header
+    // stays a plain count because parallel calls overlap and their sum is not
+    // wall time.
     final parts = [
-      if (totalMs > 0) durationShort(totalMs),
       '${items.length} ${items.length == 1 ? 'call' : 'calls'}',
     ];
     final title = '${humanize(name)} \u00d7${items.length}';

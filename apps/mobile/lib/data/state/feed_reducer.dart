@@ -178,6 +178,69 @@ FeedState mergeTranscript(
   );
 }
 
+/// Reconcile a REST snapshot against a request baseline and the live feed.
+/// [baseline] is the list as it was when the request started; [current] is
+/// the list now (it may include SSE that arrived mid-flight); [fetched] is
+/// the authoritative response.
+///
+/// The fetch wins for records that did not change during the flight, so a
+/// missed event can never freeze stale data: an old cached pending order
+/// becomes the fetched filled order when nothing streamed for it. A record
+/// that WAS replaced mid-flight (a different object than the baseline)
+/// keeps the live copy, because the SSE event is newer than a fetch that
+/// started before it. Entries only on one side are kept.
+List<T> _reconcile<T extends Object>(
+  List<T> baseline,
+  List<T> current,
+  List<T> fetched,
+  String Function(T) keyOf,
+  List<T> Function(List<T>, T) upsertOne,
+) {
+  final baseByKey = {for (final e in baseline) keyOf(e): e};
+  final currentByKey = {for (final e in current) keyOf(e): e};
+  final out = [
+    for (final f in fetched)
+      currentByKey[keyOf(f)] != null &&
+              !identical(currentByKey[keyOf(f)], baseByKey[keyOf(f)])
+          ? currentByKey[keyOf(f)]!
+          : f,
+  ];
+  final fetchedKeys = fetched.map(keyOf).toSet();
+  var res = out;
+  for (final c in current) {
+    if (!fetchedKeys.contains(keyOf(c))) res = upsertOne(res, c);
+  }
+  return res;
+}
+
+List<ChatMessage> reconcileMessages(
+  List<ChatMessage> baseline,
+  List<ChatMessage> current,
+  List<ChatMessage> fetched,
+) =>
+    _reconcile(baseline, current, fetched, (m) => m.id, upsertMessage);
+
+List<JournalEntry> reconcileJournal(
+  List<JournalEntry> baseline,
+  List<JournalEntry> current,
+  List<JournalEntry> fetched,
+) =>
+    _reconcile(baseline, current, fetched, (e) => e.id, upsertJournal);
+
+List<OrderRecord> reconcileOrders(
+  List<OrderRecord> baseline,
+  List<OrderRecord> current,
+  List<OrderRecord> fetched,
+) =>
+    _reconcile(baseline, current, fetched, (o) => o.id, upsertOrder);
+
+List<NoteFile> reconcileNotes(
+  List<NoteFile> baseline,
+  List<NoteFile> current,
+  List<NoteFile> fetched,
+) =>
+    _reconcile(baseline, current, fetched, (n) => n.path, upsertNote);
+
 FeedState addOutbox(FeedState state, OutboxItem item) =>
     state.copyWith(outbox: [...state.outbox, item]);
 
@@ -242,6 +305,9 @@ FeedState applyEvent(FeedState state, ServerEvent event) {
   }
   switch (event) {
     case StatusEvent(:final status):
+      // Delivered SSE status is authoritative for terminal cleanup: the
+      // server subscribes before building the snapshot and suppresses an
+      // initial snapshot once a newer status event went out.
       final idle = status.agent.state != AgentState.running;
       return state.copyWith(
         status: () => status,

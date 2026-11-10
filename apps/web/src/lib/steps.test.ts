@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, JournalEntry, SubagentRun } from "@rh/shared";
 import { durationShort } from "./format.ts";
-import { buildItems, cycleLabel, helperReport, itemTime, liveStepKey, matchRuns, withDecisions } from "./steps.ts";
+import { buildItems, cycleLabel, helperReport, isStepFailed, itemTime, liveStepKey, matchRuns, stepStatus, withDecisions } from "./steps.ts";
 
 const d = (role: string) => ({ name: "delegate", summary: `{"role":"${role}","symbol":"NVDA"}`, durationMs: 100 });
 
@@ -78,6 +78,23 @@ describe("buildItems", () => {
   it("keeps a helper body without a delivery prefix untouched", () => {
     const msg = m("h2", "helper", { helperName: "macro-brief", agentRole: "analyst", text: "Rates steady." });
     expect(helperReport(msg)).toEqual({ name: "macro-brief", role: "analyst", body: "Rates steady." });
+  });
+});
+
+describe("step failure status", () => {
+  const call = (isError?: boolean) => ({ name: "get_quote", summary: "{}", ...(isError ? { isError } : {}) });
+
+  it("marks a result failure even when no calls were recorded", () => {
+    expect(isStepFailed([], { isError: true })).toBe(true);
+    expect(stepStatus(false, [], { isError: true })).toBe("error");
+  });
+
+  it("marks nested call failures and keeps running state live", () => {
+    expect(isStepFailed([call(true)], { isError: false })).toBe(true);
+    expect(stepStatus(false, [call(true)], undefined)).toBe("error");
+    expect(stepStatus(true, [call()], undefined)).toBe("running");
+    expect(stepStatus(false, [call()], undefined)).toBeUndefined();
+    expect(stepStatus(false, [], undefined)).toBeUndefined();
   });
 });
 
