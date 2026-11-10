@@ -1,5 +1,8 @@
 # Robinhood harness guidance
 
+## Local operating mandate
+- Load @INTERNAL_AGENTS.md before working in the owner's checkout. This local-only file holds the autonomous operating mandate and must never be committed. If absent in a worktree, read `/home/james/Documents/robinhood-harness/INTERNAL_AGENTS.md` when available; other clones continue with this file's guidance.
+
 ## Hard limits
 - Orders reach Robinhood only through `submit_order` (risk engine, review, place). Never expose Robinhood `place_*` tools to the model or bypass `apps/server/src/risk/gate.ts`.
 - Never print `~/.config/muse/auth.json`, `~/.local/share/robinhood-harness/robinhood/oauth.json`, or the websearch Authorization header in `~/.config/opencode-v2/opencode.json`.
