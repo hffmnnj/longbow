@@ -93,15 +93,19 @@ OrderRecord order(
   double? filled,
   double? fillPrice,
   int createdAt = 1000,
+  double quantity = 3,
+  String? ownerMessageId,
+  String? ownerInstruction,
 }) =>
     OrderRecord(
       id: id,
       createdAt: createdAt,
       updatedAt: createdAt,
-      intent: const OrderIntent(
+      ownerMessageId: ownerMessageId,
+      intent: OrderIntent(
         symbol: 'NVDA',
         side: OrderSide.buy,
-        quantity: 3,
+        quantity: quantity,
         orderType: OrderType.limit,
         limitPrice: 501.25,
         timeInForce: TimeInForce.day,
@@ -113,7 +117,8 @@ OrderRecord order(
         expectedLossPct: 3,
         estimatedCostPct: 0.2,
         sector: 'Technology',
-        evidence: ['RSI(2) at 8', 'Held the 50-day average'],
+        ownerInstruction: ownerInstruction,
+        evidence: const ['RSI(2) at 8', 'Held the 50-day average'],
       ),
       verdict: RiskVerdict(approved: true, isExit: false, checks: checks),
       status: status,

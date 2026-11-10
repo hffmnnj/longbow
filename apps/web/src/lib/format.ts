@@ -103,6 +103,33 @@ export function priceFor(symbol: string, value: number): string {
   return value < 0 ? MINUS + s : s;
 }
 
+const exactQtyFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
+const exactPriceFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 8,
+});
+
+/**
+ * Quantity with full fractional precision (up to 8 decimals, trimmed): the
+ * stock formatter rounds to 4, which would misstate an owner order awaiting
+ * approval. Grouped above 1,000 exactly like {@link qty}.
+ */
+export function qtyExact(value: number): string {
+  return exactQtyFmt.format(value);
+}
+
+/**
+ * Per-unit price with full precision (cents always, up to 8 decimals
+ * trimmed): the stock formatter rounds to cents, which would misstate an
+ * owner order's limit while keeping sub-cent crypto prices intact.
+ */
+export function priceExact(value: number): string {
+  const s = exactPriceFmt.format(Math.abs(value));
+  return value < 0 ? MINUS + s : s;
+}
+
 export type Tone = "gain" | "loss" | "flat";
 export function tone(value: number): Tone {
   if (Math.abs(value) < 0.005) return "flat";

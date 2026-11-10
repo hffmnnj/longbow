@@ -34,6 +34,7 @@ OrderIntent _$OrderIntentFromJson(Map<String, dynamic> json) => OrderIntent(
   expectedLossPct: (json['expectedLossPct'] as num).toDouble(),
   estimatedCostPct: (json['estimatedCostPct'] as num).toDouble(),
   sector: json['sector'] as String?,
+  ownerInstruction: json['ownerInstruction'] as String?,
   evidence: (json['evidence'] as List<dynamic>)
       .map((e) => e as String)
       .toList(),
@@ -78,6 +79,7 @@ OrderRecord _$OrderRecordFromJson(Map<String, dynamic> json) => OrderRecord(
     json['status'],
     unknownValue: OrderStatus.pendingApproval,
   ),
+  ownerMessageId: json['ownerMessageId'] as String?,
   review: json['review'] as String?,
   brokerOrderId: json['brokerOrderId'] as String?,
   filledQuantity: (json['filledQuantity'] as num?)?.toDouble(),

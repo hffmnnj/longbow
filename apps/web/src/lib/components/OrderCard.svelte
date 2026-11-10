@@ -6,7 +6,7 @@
   import MiniChart from "./MiniChart.svelte";
   import SideBadge from "./SideBadge.svelte";
   import Ticker from "./Ticker.svelte";
-  import { ago, pctSigned, priceFor, qtyFor, usd } from "$lib/format";
+  import { ago, pctSigned, priceExact, priceFor, qtyExact, qtyFor, qtyUnit, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
   import { expectedValuePct, notional } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
@@ -15,6 +15,8 @@
   const i = $derived(order.intent);
   const ev = $derived(expectedValuePct(i));
   const busy = $derived(harness.busy[`order:${order.id}`] ?? false);
+  const isOwner = $derived(order.ownerMessageId != null);
+  const isPendingOwner = $derived(isOwner && order.status === "pending_approval");
   let rejecting = $state(false);
   let reason = $state("");
   let expanded = $state(false);
@@ -24,12 +26,29 @@
   <header class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
     <SideBadge side={i.side} />
     <Ticker symbol={i.symbol} class="text-[15px]" />
+    {#if isOwner}
+      <span class="bg-primary/15 text-primary inline-flex h-5 items-center rounded px-1.5 text-[10.5px] font-semibold tracking-wider uppercase">Owner order</span>
+    {/if}
     <span class="num text-muted-foreground">{qtyFor(i.symbol, i.quantity)} @ {priceFor(i.symbol, i.limitPrice)}</span>
     {#if i.orderType === "stop_limit" && i.stopPrice}
       <span class="num text-muted-foreground text-[12px]">stop {priceFor(i.symbol, i.stopPrice)}</span>
     {/if}
     <span class="num ml-auto text-[13px] font-medium">{usd(notional(i))}</span>
   </header>
+
+  {#if isPendingOwner}
+    <div class="border-primary/30 bg-primary/5 rounded-md border px-2.5 py-2" aria-label="Owner order details">
+      <p class="num text-[12.5px] leading-relaxed">
+        {i.side === "buy" ? "Buy" : "Sell"}
+        {qtyExact(i.quantity)} {qtyUnit(i.symbol)} of {i.symbol} ·
+        {i.orderType === "stop_limit" ? "Stop limit" : "Limit"} @ {priceExact(i.limitPrice)}{#if i.orderType === "stop_limit" && i.stopPrice} · Stop {priceExact(i.stopPrice)}{/if} ·
+        Expires at today's close
+      </p>
+      {#if i.ownerInstruction}
+        <p class="text-muted-foreground mt-1 truncate text-[12.5px]">From your message: “{i.ownerInstruction}”</p>
+      {/if}
+    </div>
+  {/if}
 
   <div>
     <p class={expanded ? "text-[13px] leading-relaxed" : "line-clamp-2 text-[13px] leading-relaxed"}>{i.thesis}</p>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, countdown, durationShort, etClock, etStamp, etTime, pct, pctSigned, priceFor, qtyFor, qtyUnit, tone, usd, usdSigned } from "./format.ts";
+import { ago, countdown, durationShort, etClock, etStamp, etTime, pct, pctSigned, priceExact, priceFor, qtyExact, qtyFor, qtyUnit, tone, usd, usdSigned } from "./format.ts";
 
 describe("currency", () => {
   it("formats two decimals with thousands separators", () => {
@@ -121,5 +121,14 @@ describe("crypto quantities and prices", () => {
     expect(priceFor("BTC-USD", 80062.48)).toBe("$80,062.48");
     expect(priceFor("BTC-USD", 0.2134)).toBe("$0.2134");
     expect(priceFor("AAPL", 413.2)).toBe("$413.20");
+  });
+
+  it("keeps full fractional precision for owner orders awaiting approval", () => {
+    expect(qtyExact(0.123456)).toBe("0.123456");
+    expect(qtyExact(3)).toBe("3");
+    expect(qtyExact(1234.56789)).toBe("1,234.56789");
+    expect(priceExact(413.2)).toBe("$413.20");
+    expect(priceExact(413.205)).toBe("$413.205");
+    expect(priceExact(0.00058109)).toBe("$0.00058109");
   });
 });

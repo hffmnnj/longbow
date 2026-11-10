@@ -36,4 +36,27 @@ void main() {
     expect(rejected.id, order.id);
     expect(rejected.intent.limitPrice, order.intent.limitPrice);
   });
+
+  test('orders_parsesOwnerFieldsWhenPresentAndAbsent', () {
+    final list =
+        jsonDecode(File('test/fixtures/orders.json').readAsStringSync())
+            as List;
+    final base = list.single as Map<String, dynamic>;
+
+    final plain = OrderRecord.fromJson(base);
+    expect(plain.ownerMessageId, isNull);
+    expect(plain.intent.ownerInstruction, isNull);
+
+    final owned = OrderRecord.fromJson({
+      ...base,
+      'ownerMessageId': 'm-7',
+      'intent': {
+        ...base['intent'] as Map<String, dynamic>,
+        'ownerInstruction': 'Buy a small piece of SPY',
+      },
+    });
+    expect(owned.ownerMessageId, 'm-7');
+    expect(owned.intent.ownerInstruction, 'Buy a small piece of SPY');
+    expect(owned.intent.symbol, plain.intent.symbol);
+  });
 }
