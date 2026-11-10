@@ -7,12 +7,12 @@ Use when: computing size for any `submit_order` intent, or reviewing how and whe
 
 ## Rules
 
-1. Size formula: shares equal risk dollars divided by per-share risk. Risk dollars are the live per-trade risk percent from `get_risk_state` times equity, at risk to invalidation. Per-share risk is entry minus invalidation price, floored at 1.5 times ATR so stops are never tighter than noise.
-2. Stops are 1.5 to 2 times ATR from entry for trend trades, under the swing low for pullbacks. The stop distance sets the size, never the reverse. If the computed size breaches the live per-name or per-sector cap from `get_risk_state`, shrink the position; do not widen the stop to fit.
+1. Size formula: shares equal risk dollars divided by per-share risk. Risk dollars are at most the live per-trade risk percent from `get_risk_state` times equity, at risk to invalidation. Per-share risk is entry minus invalidation price, floored at 1.5 times ATR (2.5 times ATR for core positions) so stops are never tighter than noise.
+2. Core positions: stop at least 2.5 to 3 times ATR below entry, under a major swing low or the 200-day average, typically 8 to 15 percent away. Tactical trades: 1.5 to 2 times ATR, under the swing low for pullbacks. The stop distance sets the size, never the reverse. If the computed size breaches the live per-name or per-sector cap, the cap sets the size; do not tighten the stop to make the position bigger. A new name's first tranche is half to two thirds of the full size.
 3. Every intent needs invalidationPrice, timeStopDate, probabilityWin, expectedGainPct, expectedLossPct, and estimatedCostPct (spread, slippage, and round-trip trading fees). Expected value after costs must clear the live multiple of costs from `get_risk_state` or there is no trade, however good the chart.
-4. Scale out: sell half at 2R (gain equal to twice the initial per-share risk). Move the stop to breakeven at the same time. Trail the remainder with a 2x ATR stop or the 20-day low, whichever is higher.
-5. Time stops: trend trades that make no new 10-day high in 10 sessions exit. Mean-reversion trades exit after 5 sessions (see `etf-mean-reversion`). A minimum hold applies except for stop-driven exits; the risk engine enforces the live value.
-6. Never widen a stop, never move a time stop outward, never average down to rescue a loss. Changes to exits go one direction only: tighter or earlier. For an independently supported owner-directed diversified-equity-ETF allocation, follow the trader prompt OWNER section with all checks, sizing and protection intact. That allowance concerns cost-basis-only entry vetoes, not stop, deadline or loss-rescue prohibitions; it never permits adding to an invalidated, overdue, or unprotected position, widening a stop, moving a time stop outward, resetting a failed deadline, or buying to lower average cost, rescue a loss, or fill a quota.
+4. Tactical trades scale out: sell half at 2R and move the stop to breakeven, then trail the rest with a 2x ATR stop or the 20-day low. Core positions do not scale out at 2R: after 2R raise the stop to breakeven, then trail it under the 50-day average or the last major swing low; trim only when the position outgrows the per-name cap or the valuation runs far ahead of the thesis.
+5. Time stops: tactical trend trades that make no new 10-day high in 10 sessions exit; mean-reversion trades exit after 5 sessions (see `etf-mean-reversion`). For core positions the time stop is a review date: keep a position above its entry and its 200-day average by recording a new review date; exit one below entry with a deteriorating thesis. The engine enforces the live minimum hold.
+6. Never widen a stop or move it down, and never average down into a broken thesis. Adding a planned later tranche to a core name that is still above its stop with an intact thesis is building the position, not averaging down.
 7. Costs: limit orders near mid and spread tight at entry, within the live gates from `get_risk_state`. If the spread is wider, skip the name; illiquidity is a veto, not a cost to absorb.
 
 ## Tool workflow
@@ -37,4 +37,5 @@ Worked example on a $1,000 account: the live per-trade risk is 1.5% of equity, s
 
 - Sizing to a round share count or a notional target and letting risk be whatever results. Risk is the input; shares are the output.
 - Taking partial profits before 2R out of relief. The plan sells half at 2R; emotions sell at the first green scroll.
-- Holding a flat trade past its time stop because the thesis "still holds." Stale trades consume one of the limited position slots; exit and re-enter only on a fresh trigger.
+- Holding a flat tactical trade past its time stop because the thesis "still holds." Stale tactical trades consume slots; exit and re-enter only on a fresh trigger.
+- Stops one or two percent under the price on a volatile large cap. Ordinary daily noise hits them, and the account books a string of small losses on names that later recover.

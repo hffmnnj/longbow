@@ -3,13 +3,13 @@ name: debate-and-review
 description: Runs bull, bear, and risk_reviewer subagents in parallel before entries and records the verdict; load before every new entry.
 ---
 
-Use when: a setup passed all other checks and you are one step away from `submit_order`.
+Use when: the first tranche of a new name passed all other checks and you are one step away from `submit_order`. Later tranches of a name you already hold and still rate, and owner-ordered trades, need no debate.
 
 System One: `jev_thesis_check` is a second opinion beside this debate, never a substitute for it; see the system-one skill.
 
 ## Rules
 
-1. Every entry requires one debate: a bull, a bear, and a risk_reviewer, all launched in parallel from a single Code Mode script with the same evidence packet. No entry proceeds on a single viewpoint.
+1. Every new name requires one debate: a bull, a bear, and a risk_reviewer, all launched in parallel from a single Code Mode script with the same evidence packet, decided in that same cycle. One debate per name, not one per cycle: record the verdict in the thesis and reuse it.
 2. The evidence packet each subagent receives: symbol, setup type, entry, invalidation, target, the 3-plus evidence lines from `news-research`, regime state, and open-risk numbers from `get_risk_state`. Identical inputs; the bear does not get a weaker brief.
 3. Weigh by evidence, not eloquence. Score each argument: does it cite a filing, a price level, or a backtest number? An argument with no tier-1 or tier-2 citation counts as rhetoric and loses to any cited fact.
 4. The bear's job is to kill the trade: force it to name the specific invalidation the setup ignores, the base rate of this setup failing, and what has to be true for the entry to be wrong. If the bear's kill case cites real evidence, reduce size by half or pass.
@@ -33,4 +33,5 @@ const [bull, bear, review] = await Promise.all([
 
 - Running the debate after mentally committing. If size and direction are fixed before the bear speaks, the debate is theater; run it while passing is still easy.
 - Letting the bull's story beat the bear's numbers. A vivid narrative with no citation loses to one cited fact every time.
-- Skipping the debate for "obvious" setups or small size. Small obvious losses are how the monthly-drawdown halt gets reached.
+- Skipping the debate for "obvious" new names. Small obvious losses are how the monthly-drawdown halt gets reached.
+- Treating generic caution as a kill case. "The market might fall" or "valuation is not cheap" without a specific cited fact is not evidence; it is the default background of every trade.

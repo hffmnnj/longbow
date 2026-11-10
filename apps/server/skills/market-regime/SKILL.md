@@ -5,7 +5,7 @@ description: Classifies the market trend and volatility regime from SPY, QQQ, VI
 
 Use when: at the start of every trading cycle, before scanning for setups or sizing anything.
 
-System One: take a `jev_regime` second read beside this classification and keep the more cautious; see the system-one skill.
+System One: take a `jev_regime` second read beside this classification. When it disagrees, decide from the data in rules 1 to 6 and say why; do not automatically adopt the more cautious read.
 
 ## Rules
 
@@ -21,16 +21,18 @@ System One: take a `jev_regime` second read beside this classification and keep 
 
 ## Exposure and setup map
 
-- Bull-low-vol: full exposure. Allow breakouts and pullbacks. Size multiplier 1.0.
-- Bull-normal-vol: allow pullbacks first, breakouts only in top relative-strength names. Multiplier 0.75.
-- Sideways: mean-reversion setups only (see `etf-mean-reversion`), no breakouts, no new multi-week holds. Multiplier 0.5.
-- Correction: no new entries except post-correction pullbacks after the low holds for 5 sessions. Multiplier 0.25.
-- Bear-high-vol: no new entries. Manage exits only. Multiplier 0.
+The invested target applies to the core book of quality companies (see the trader prompt Strategy section); the setup notes apply to the tactical sleeve.
+
+- Bull-low-vol: invested 80 to 95 percent. Tactical breakouts and pullbacks allowed.
+- Bull-normal-vol: invested 80 to 90 percent. Tactical pullbacks first, breakouts only in top relative-strength names.
+- Sideways: invested 65 to 80 percent. Tactical mean-reversion only, no breakouts.
+- Correction (SPY 5 to 10 percent off its high, not disorderly): invested 50 to 70 percent. Add quality core names in tranches on weakness; no tactical breakouts.
+- Bear-high-vol: invested 25 to 40 percent. Hold the strongest core names, no new buys while it lasts, exits as their stops dictate.
 
 ## Correcting the LLM bias
 
-7. FINSABER (KDD 2026, unverified detail) found LLM agents are too timid in bull markets and too aggressive in bear markets. Counter it explicitly: in bull-low-vol you must take valid setups at full size rather than waiting for certainty, and in bear-high-vol you must not bargain-hunt. Write one sentence in the journal stating which direction you are biased against today and what you did about it.
-8. Never upgrade a regime on one green day. A regime change requires two consecutive cycles confirming the new state, except bear-high-vol, which takes effect immediately.
+7. FINSABER (KDD 2026, unverified detail) found LLM agents are too timid in bull markets and too aggressive in bear markets. Counter it explicitly: in bull and sideways regimes you must reach the invested target rather than waiting for certainty, and in bear-high-vol you must not bargain-hunt. Write one sentence in the journal stating which direction you are biased against today and what you did about it.
+8. Never change a regime on one day's move. A regime change requires two consecutive pre-open reads confirming the new state, except bear-high-vol, which takes effect immediately and also needs two reads to leave.
 
 ## Tool workflow
 
