@@ -27,6 +27,8 @@
 - For scratch checks, snapshot the live DB with `VACUUM INTO` on a read-only open of `~/.local/share/robinhood-harness/app.sqlite`; a plain `cp` misses the WAL and yields a malformed copy.
 - bits-ui sets `data-state`, not `data-checked`, so shadcn classes written as `data-checked:` never apply; style with `data-[state=checked]:` (the Switch was invisible until fixed).
 - Bottom sheets need `max-h-[…dvh]`, not `h-[…]`: bits-ui's `data-[side=bottom]:h-auto` outranks a plain height class and the sheet grows past the screen.
+- Every browser origin the owner uses (including the short MagicDNS `http://laptop:4520`) must be listed in `HARNESS_ORIGINS` in `~/.config/robinhood-harness/env`, which overrides the unit's `Environment=`; an unlisted origin gets 403 "forbidden origin" on every POST, so chat shows "Not sent".
+- The Muse adapter is vendored as `apps/server/vendor/pi-muse-code-adapter-*.tgz` (a Git install lacks `dist`); the owner's global gitignore ignores `vendor/`, so stage a new tarball with `git add -f`.
 - The PWA's tailnet origin is `https://<host>.<tailnet>.ts.net:8443` (`tailscale serve`); the public Funnel on :443 belongs to another project and must stay untouched.
 
 ## Read when
