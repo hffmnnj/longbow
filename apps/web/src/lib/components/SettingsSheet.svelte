@@ -217,6 +217,14 @@
           {/if}
         </section>
 
+        <section class="flex flex-col gap-3" aria-labelledby="s-android">
+          <h3 id="s-android" class="label-caps">Android app</h3>
+          <p class="text-muted-foreground text-[12.5px] leading-snug">Install or update the native app. Downloads the current build from this server.</p>
+          <Button type="button" variant="outline" class="h-10 self-start md:h-9" href="/download/longbow.apk" download="longbow.apk">
+            Download Android app
+          </Button>
+        </section>
+
         {#if harness.status?.broker.state === "connected"}
           <section class="border-border flex items-center justify-between gap-3 border-t pt-4">
             <span class="text-[13px] font-medium">Robinhood</span>

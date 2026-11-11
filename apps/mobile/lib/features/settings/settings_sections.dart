@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:longbow/core/core.dart';
 import 'package:longbow/data/data.dart' hide ToastTone;
+import 'package:longbow/data/state/toast.dart' as data_toast show ToastTone;
 import 'package:longbow/features/connect/host_form.dart';
 import 'package:longbow/models/models.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -287,6 +288,61 @@ class _AboutSectionState extends State<AboutSection> {
     return FutureBuilder<String>(
       future: _version,
       builder: (context, snap) => KeyValueRow('Longbow', value: snap.data ?? '\u2026'),
+    );
+  }
+}
+
+/// The current Android build from the connected server, opened in the external
+/// browser so Android can install or update the app.
+class AndroidAppSection extends ConsumerWidget {
+  const AndroidAppSection({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locator = ref.watch(serverLocatorProvider);
+    final baseUrl = locator is Connected ? locator.baseUrl : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Install or update this app from the server you are connected to.',
+          style: LbText.muted(context, size: 12.5),
+        ),
+        const SizedBox(height: LbSpace.gap),
+        OutlinedButton.icon(
+          onPressed: baseUrl == null
+              ? null
+              : () => _openAndroidApkDownload(ref, baseUrl),
+          icon: const LbIcon(LbIcons.arrowDown01, size: 16),
+          label: const Text('Download Android app'),
+        ),
+        if (baseUrl == null) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Connect to the server first.',
+            style: LbText.muted(context, size: 12.5),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+Future<void> _openAndroidApkDownload(WidgetRef ref, Uri baseUrl) async {
+  var launched = false;
+  try {
+    final downloadUrl = baseUrl.replace(path: '/download/longbow.apk');
+    launched = await ref.read(externalLauncherProvider)(downloadUrl);
+  } catch (_) {
+    launched = false;
+  }
+  if (!launched) {
+    ref.read(toastQueueProvider).add(
+      const ToastEvent(
+        tone: data_toast.ToastTone.error,
+        title: 'Could not open the download',
+        body: 'Open /download/longbow.apk on the connected server from a browser on this phone.',
+      ),
     );
   }
 }

@@ -252,6 +252,7 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
       _section('Appearance', child: const AppearanceSection()),
       _section('Server', child: const ServerSection()),
       _section('About', child: const AboutSection()),
+      _section('Android app', child: const AndroidAppSection()),
     ];
 
     return PopScope(
