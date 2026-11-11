@@ -232,6 +232,7 @@ Controls (buttons, inputs, segmented tabs) at 6px, cards at 8px, chat bubbles an
 
 | Date | Decision | Why |
 | --- | --- | --- |
+| 2026-11-11 | Settings offers the current Android build from the same origin: `GET /download/longbow.apk` | The server streams the published APK as an attachment (404 until published); web links same-origin so the build always matches the server, and Android opens the connected server's URL in the external browser, disabled while disconnected with a toast on failure. |
 | 2026-11-10 | Details disclosure per activity group with Script/Result tabs | Trailing Script/Output rows masqueraded as tool calls and split one outcome across three rows (QA screenshots). |
 | 2026-11-10 | Outcome-once headers with wrappable count/elapsed metadata | Title and description repeated `N failed` and truncated mid-fact on narrow widths (QA screenshots). |
 | 2026-11-10 | Reconcile REST against request baseline; loaded on messages; drop late responses from dead connections | Blind replace wiped mid-flight stream data; gating the transcript on every read hid primary history; stale tasks published after stop/replace. |

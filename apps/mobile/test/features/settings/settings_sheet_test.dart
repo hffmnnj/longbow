@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:longbow/data/data.dart';
 import 'package:longbow/features/settings/robinhood_sign_in.dart';
+import 'package:longbow/features/settings/settings_sections.dart';
 import 'package:longbow/features/settings/settings_sheet.dart';
 import 'package:longbow/models/models.dart';
 
@@ -446,5 +447,66 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
     await settle(tester, 12);
     expect(find.text('Risk limits'), findsNothing);
+  });
+
+  testWidgets('settings_androidDownload_opensApkFromConnectedServer', (tester) async {
+    final opened = <Uri>[];
+    final h = await pumpApp(
+      tester,
+      const Scaffold(body: SettingsSheet()),
+      overrides: [externalLauncherProvider.overrideWithValue((uri) async {
+        opened.add(uri);
+        return true;
+      })],
+    );
+
+    final download = find.widgetWithText(OutlinedButton, 'Download Android app');
+    await _scrollTo(tester, download);
+    expect(tester.widget<OutlinedButton>(download).onPressed, isNotNull);
+    await tester.tap(download);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(opened, [testBaseUrl.replace(path: '/download/longbow.apk')]);
+    expect(h.toastsSeen, isEmpty);
+  });
+
+  testWidgets('settings_androidDownload_browserCannotOpen_toasts', (tester) async {
+    final h = await pumpApp(
+      tester,
+      const Scaffold(body: SettingsSheet()),
+      overrides: [
+        externalLauncherProvider.overrideWithValue((_) async => false),
+      ],
+    );
+
+    final download = find.widgetWithText(OutlinedButton, 'Download Android app');
+    await _scrollTo(tester, download);
+    await tester.tap(download);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(h.toastsSeen.map((t) => t.title), ['Could not open the download']);
+  });
+
+  testWidgets('settings_androidDownload_disabledWhileDisconnected', (tester) async {
+    await pumpApp(
+      tester,
+      const Scaffold(body: SettingsSheet()),
+      locatorState: const NoHosts(),
+    );
+
+    final download = find.widgetWithText(OutlinedButton, 'Download Android app');
+    await _scrollTo(tester, download);
+    expect(tester.widget<OutlinedButton>(download).onPressed, isNull);
+    expect(
+      find.descendant(
+        of: find.byType(AndroidAppSection),
+        matching: find.text('Connect to the server first.'),
+      ),
+      findsOneWidget,
+    );
   });
 }
