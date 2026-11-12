@@ -87,6 +87,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
   bool _stick = true;
   bool _programmatic = false;
   bool _jumpQueued = false;
+  bool _userScrolling = false;
   int _unread = 0;
 
   bool get _running =>
@@ -156,7 +157,7 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
     _jumpQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _jumpQueued = false;
-      if (!mounted || !_stick || !_controller.hasClients) return;
+      if (!mounted || !_stick || _userScrolling || !_controller.hasClients) return;
       final p = _controller.position;
       if (p.maxScrollExtent - p.pixels > 0.5) {
         _programmatic = true;
@@ -167,12 +168,21 @@ class _FeedTranscriptViewState extends ConsumerState<FeedTranscriptView> {
   }
 
   bool _onMetrics(ScrollMetricsNotification n) {
-    if (n.depth == 0 && n.metrics.axis == Axis.vertical && _stick) _queueJump();
+    if (n.depth == 0 && n.metrics.axis == Axis.vertical && _stick && !_userScrolling) _queueJump();
     return false;
   }
 
   bool _onScroll(ScrollNotification n) {
     if (n.depth != 0 || n.metrics.axis != Axis.vertical || _programmatic) return false;
+    if (n is ScrollStartNotification) {
+      _userScrolling = true;
+      return false;
+    }
+    if (n is ScrollEndNotification) {
+      _userScrolling = false;
+      if (_stick) _queueJump();
+      return false;
+    }
     final stick = n.metrics.extentAfter < _stickDistance;
     if (stick != _stick || (stick && _unread != 0)) {
       setState(() {
