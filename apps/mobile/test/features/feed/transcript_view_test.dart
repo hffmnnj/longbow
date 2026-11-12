@@ -503,6 +503,33 @@ void main() {
       expect(find.textContaining('Latest'), findsNothing);
     });
 
+    testWidgets('streamingWhileDragging_doesNotYankBack', (tester) async {
+      final h = await startHarness(tester);
+      final feed = await pumpView(tester, h, history(40), size: const Size(360, 640));
+      final position = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(position.pixels, position.maxScrollExtent);
+
+      // Hold a short drag (still inside the follow threshold) while a new
+      // message streams in. The follow must wait until the finger lifts.
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(CustomScrollView)));
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      feed.value = feed.value.copyWith(messages: [...feed.value.messages, userMsg('new1', 'fresh question', at: 9000)]);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        position.pixels,
+        lessThan(position.maxScrollExtent - 10),
+        reason: 'a streamed message must not yank the viewport while the reader holds it',
+      );
+
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 100));
+      await shutDown(tester, h);
+    });
+
     testWidgets('slowDragsUp_throughMixedHeightRows_keepReachingOlderMessages', (tester) async {
       final h = await startHarness(tester);
       final long = List.filled(40, 'a long reply that wraps over many lines').join(' ');
@@ -547,10 +574,15 @@ void main() {
       expect(find.text('Show more'), findsOneWidget);
       expect(position.maxScrollExtent, lessThan(3000), reason: 'a collapsed bubble is a few lines, not a wall of text');
 
-      await tester.fling(find.byType(CustomScrollView), const Offset(0, 500), 2000);
-      await tester.pumpAndSettle();
+      // A controlled drag (not a ballistic fling) reveals the message above
+      // the collapsed bubble. A fling would overshoot to the top now that the
+      // follow no longer yanks the viewport back mid-gesture.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+      await tester.pump(const Duration(milliseconds: 100));
       expect(find.textContaining('answer 19', findRichText: true), findsOneWidget, reason: 'one swipe reaches older messages');
 
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -300));
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(find.text('Show more'), warnIfMissed: false);
       await tester.pump();
     });

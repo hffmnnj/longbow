@@ -12,17 +12,29 @@
   let stick = $state(true);
   let unread = $state(false);
   let lastHeight = 0;
+  let lastTop = 0;
 
   const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function toBottom(smooth = false) {
-    scroller?.scrollTo({ top: scroller.scrollHeight, behavior: smooth && !reduced() ? "smooth" : "auto" });
+    if (!scroller) return;
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth && !reduced() ? "smooth" : "auto" });
+    lastTop = scroller.scrollTop;
   }
 
   function onscroll() {
     if (!scroller) return;
-    stick = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
-    if (stick) unread = false;
+    const top = scroller.scrollTop;
+    // A user drag upward must release the follow immediately. Waiting for the
+    // 80px threshold traps the reader: while stuck near the bottom every
+    // streamed token yanks the viewport back before the threshold is crossed.
+    if (top < lastTop - 2) {
+      stick = false;
+    } else {
+      stick = scroller.scrollHeight - top - scroller.clientHeight < 80;
+      if (stick) unread = false;
+    }
+    lastTop = top;
   }
 
   $effect(() => {
