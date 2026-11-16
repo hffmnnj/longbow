@@ -49,12 +49,23 @@ export function restingCryptoStops(store: Store, symbol: string): OrderRecord[] 
   return store.ordersSince(0).filter((o) => o.intent.symbol === symbol && o.intent.side === "sell" && o.intent.orderType === "stop_limit" && ["submitted", "partially_filled"].includes(o.status));
 }
 export async function watchStops(deps: StopDeps): Promise<void> {
-  await syncOrders(deps);
-  const settings = deps.store.getSettings();
-  if (!deps.calendar.clock(deps.clock.now()).isOpen || settings.killSwitch || settings.mode === "off") return;
-  const held = deps.store.ordersSince(0).filter((order) => order.status === "held");
-  if (!held.length) return;
-  const quotes = await deps.broker.quotes([...new Set(held.map((o) => o.intent.symbol))]);
+  let stage: "sync" | "settings" | "held" | "quotes" = "sync";
+  let held: OrderRecord[];
+  let quotes: Awaited<ReturnType<TradingBroker["quotes"]>>;
+  try {
+    await syncOrders(deps);
+    stage = "settings";
+    const settings = deps.store.getSettings();
+    if (!deps.calendar.clock(deps.clock.now()).isOpen || settings.killSwitch || settings.mode === "off") return;
+    stage = "held";
+    held = deps.store.ordersSince(0).filter((order) => order.status === "held");
+    if (!held.length) return;
+    stage = "quotes";
+    quotes = await deps.broker.quotes([...new Set(held.map((o) => o.intent.symbol))]);
+  } catch (error) {
+    deps.log?.warn("protective stop watcher stage failed", { stage });
+    throw error;
+  }
   for (const candidate of held) {
     const order = deps.store.getOrder(candidate.id);
     // This persisted guard also protects restart/re-entry after an uncertain broker response.

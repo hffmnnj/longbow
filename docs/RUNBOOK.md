@@ -31,6 +31,7 @@ Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 - Logs: `journalctl --user -u robinhood-harness -f`
 - Stop everything now: the kill switch in the UI, or `systemctl --user stop robinhood-harness`.
 - Logs: `journalctl _SYSTEMD_USER_UNIT=robinhood-harness.service -f` (this host does not keep a user journal).
+- Broker call failures log an allowlisted `operation`, error `name`/`code` and HTTP `status` when available; tool-error responses use a fixed classification. Raw broker errors and arguments remain excluded. A connected broker status is not proof that its latest read succeeded. `protective stop watcher stage failed` identifies a pre-claim failure stage; a failed quote pass checks no held stops that minute and does not change their local state. These diagnostics do not retry uncertain placements or prove protection at Robinhood.
 - Roll back: `git checkout <previous commit> && bun install && bun run build:web && systemctl --user restart robinhood-harness`.
 - Muse sign-in expired (agent shows "needs login"): run `muse` to sign in again; the server re-seeds from
   `~/.config/muse/auth.json` on the next start.

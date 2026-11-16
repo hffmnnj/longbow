@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rmdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { StreamableHttpTransport } from "@earendil-works/pi-mcp";
+import { McpHttpError, StreamableHttpTransport } from "@earendil-works/pi-mcp";
+import type { ToolRegistration } from "@earendil-works/pi-durable";
+import type { OrderIntent } from "@rh/shared";
 import { loadConfig } from "../config.ts";
 import type { Logger } from "../ports.ts";
 import { createRobinhoodBroker, type RobinhoodBroker } from "./broker.ts";
@@ -11,7 +13,7 @@ import { TokenStore } from "./token-store.ts";
 
 type Client = ReturnType<NonNullable<Parameters<typeof createRobinhoodBroker>[0]["createClient"]>>;
 
-async function fixture(mode: "transient" | "invalid") {
+async function fixture(mode: "transient" | "invalid", handler?: Client["callTool"]) {
   const dir = await mkdtemp("/var/tmp/james/opencode/robinhood-retry-");
   const store = new TokenStore(dir);
   await store.save({ serverUrl: MCP_URL, tokensExpireAt: 1, tokens: { access_token: "access", refresh_token: "refresh", token_type: "Bearer" } });
@@ -37,13 +39,17 @@ async function fixture(mode: "transient" | "invalid") {
       await transport.options.authProvider?.token();
       return { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "fake", version: "1" } };
     },
-    async listTools() { return [{ name: "get_accounts", inputSchema: { type: "object", properties: {} } }]; },
-    async callTool() { return { content: [{ type: "text", text: JSON.stringify({ data: { accounts: [{ account_number: "mcp", agentic_allowed: true }] } }) }] }; },
+    async listTools() { return ["get_accounts", "get_portfolio", "get_advanced_orders", "get_sensitive_secret", "place_equity_order"].map((name) => ({ name, inputSchema: { type: "object", properties: { ref_id: { type: "string" } }, additionalProperties: true } })); },
+    async callTool(name, args, options) {
+      if (name === "get_accounts") return { content: [{ type: "text", text: JSON.stringify({ data: { accounts: [{ account_number: "mcp", agentic_allowed: true }] } }) }] };
+      if (!handler) throw new Error("unexpected call");
+      return handler(name, args, options);
+    },
     onClose(listener) { closed = listener; return () => {}; },
     onNotification() { return () => {}; },
     async close() {},
   });
-  const broker = createRobinhoodBroker({ config: loadConfig({ DATA_DIR: dir }), clock: { now: () => 1000 }, log, authorize, createClient,
+  const broker = createRobinhoodBroker({ config: loadConfig({ DATA_DIR: dir, HARNESS_LIVE_TRADING: "1" }), clock: { now: () => 1000 }, log, authorize, createClient,
     scheduleReconnect(fire, delay) {
       const timer = { fire, delay, cancelled: false }; timers.push(timer);
       return () => { timer.cancelled = true; };
@@ -110,5 +116,40 @@ test("a stale reconnect callback cannot reconnect after disconnect", async () =>
     await f.broker.disconnect(); // Flush any incorrectly enqueued lifecycle work.
     assert.equal(f.attempts(), 1);
     assert.equal(f.broker.status().state, "needs_auth");
+  } finally { await f.cleanup(); }
+});
+
+test("broker diagnostics redact untrusted failures and never retry ambiguous placement", async () => {
+  const calls: string[] = [];
+  const f = await fixture("transient", async (name) => {
+    calls.push(name);
+    if (name === "get_portfolio" || name === "get_advanced_orders") return { isError: true, content: [{ type: "text", text: "secret response body" }] };
+    const cause = new McpHttpError(503, "secret URL", "secret body");
+    throw new Error("secret outer", { cause });
+  });
+  try {
+    await untilState(f.broker, "error");
+    f.makeAvailable();
+    const connected = untilState(f.broker, "connected");
+    f.timers[0]!.fire();
+    await connected;
+    f.warnings.length = 0;
+    await assert.rejects(f.broker.snapshot(), { message: "Robinhood tool reported an error" });
+    const advanced = f.broker.extension().tools?.find((item) => item.name === "rh_get_advanced_orders") as ToolRegistration;
+    assert.ok(advanced);
+    const advancedResult = await advanced.execute({}, {} as never, { abortSignal: new AbortController().signal } as never);
+    const unknown = f.broker.extension().tools?.find((item) => item.name === "rh_get_sensitive_secret") as ToolRegistration;
+    assert.ok(unknown);
+    const result = await unknown.execute({}, {} as never, { abortSignal: new AbortController().signal } as never);
+    const intent = { symbol: "AAPL", side: "sell", quantity: 1, orderType: "limit", limitPrice: 100, timeInForce: "day" } as OrderIntent;
+    await assert.rejects(f.broker.placeOrder(intent), { message: "Robinhood tool request failed; reconcile any uncertain order before retrying" });
+    assert.deepEqual(calls, ["get_portfolio", "get_advanced_orders", "get_sensitive_secret", "place_equity_order"]);
+    assert.deepEqual(f.warnings, [
+      { msg: "Robinhood tool response failed", fields: { operation: "get_portfolio", classification: "tool_error" } },
+      { msg: "Robinhood tool response failed", fields: { operation: "get_advanced_orders", classification: "tool_error" } },
+      { msg: "Robinhood tool request failed", fields: { operation: "unknown", name: "McpHttpError", status: 503 } },
+      { msg: "Robinhood tool request failed", fields: { operation: "place_equity_order", name: "McpHttpError", status: 503 } },
+    ]);
+    assert.doesNotMatch(JSON.stringify({ warnings: f.warnings, result, advancedResult }), /secret|503.*body/i);
   } finally { await f.cleanup(); }
 });
