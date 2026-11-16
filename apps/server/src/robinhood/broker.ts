@@ -1,4 +1,4 @@
-import { McpClient, StreamableHttpTransport, type Tool, type CallToolResult } from "@earendil-works/pi-mcp";
+import { McpClient, McpHttpError, StreamableHttpTransport, type Tool, type CallToolResult } from "@earendil-works/pi-mcp";
 import type { Extension, Registry } from "@earendil-works/pi-durable";
 import type { BrokerStatus, OrderIntent, OrderRecord, Quote } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";
@@ -10,6 +10,14 @@ import { BrokerMappingError, cryptoOrderMapping, findTool, orderMapping, orderRe
 import { createNyseCalendar } from "../risk/calendar.ts";
 
 export type { OpenStopOrder, PnlTrade };
+
+const diagnosticOperations = new Set([
+  "get_accounts", "get_portfolio", "get_equity_positions", "get_equity_quotes", "get_equity_orders", "get_advanced_orders",
+  "get_crypto_positions", "get_crypto_quotes", "get_crypto_orders", "get_pnl_trade_history",
+  "review_equity_order", "place_equity_order", "cancel_equity_order", "preview_crypto_order",
+  "place_crypto_order", "cancel_crypto_order", "search", "run_scan", "preview_scan",
+]);
+const diagnosticOperation = (name: string): string => diagnosticOperations.has(name) ? name : "unknown";
 
 export interface RobinhoodBroker extends Broker {
   extension(): Extension;
@@ -81,17 +89,19 @@ export function createRobinhoodBroker(deps: {
     }, delay);
     return delay;
   }
-  function safeError(error: unknown): { name: string; code?: string } {
+  function safeError(error: unknown): { name: string; code?: string; status?: number } {
     let current: unknown = error;
     let name = "Error";
     let code: string | undefined;
+    let status: number | undefined;
     for (let i = 0; i < 4 && current instanceof Error; i++) {
       if (/^(Error|TypeError|AbortError|TimeoutError|OAuthError|OAuthInsecureEndpointError|OAuthIssuerMismatchError|McpHttpError|McpAuthRequiredError|McpSessionExpiredError|BrokerMappingError|RobinhoodRefreshUnavailableError)$/.test(current.name)) name = current.name;
       const candidate = (current as Error & { code?: unknown }).code;
       if (typeof candidate === "string" && /^(invalid_grant|invalid_client|unauthorized_client|server_error|temporarily_unavailable)$/.test(candidate)) code = candidate;
+      if (current instanceof McpHttpError && Number.isInteger(current.status) && current.status >= 100 && current.status <= 599) status = current.status;
       current = current.cause;
     }
-    return { name, ...(code ? { code } : {}) };
+    return { name, ...(code ? { code } : {}), ...(status === undefined ? {} : { status }) };
   }
   async function connectionFailure(error: unknown) {
     let hasRefreshToken: boolean;
@@ -209,8 +219,15 @@ export function createRobinhoodBroker(deps: {
     if (!client || state.state !== "connected") throw new Error("Robinhood is not connected");
     // Hard lock independent of the app's mode: without HARNESS_LIVE_TRADING=1 only read tools reach Robinhood.
     if (!robinhoodCallAllowed(name, deps.config.LIVE_TRADING)) throw new Error(liveTradingLockedMessage(name));
-    try { return await client.callTool(name, args, { signal }); }
-    catch { throw new Error("Robinhood tool request failed; reconcile any uncertain order before retrying"); }
+    try {
+      const result = await client.callTool(name, args, { signal });
+      if (result.isError) log.warn("Robinhood tool response failed", { operation: diagnosticOperation(name), classification: "tool_error" });
+      return result;
+    }
+    catch (error) {
+      log.warn("Robinhood tool request failed", { operation: diagnosticOperation(name), ...safeError(error) });
+      throw new Error("Robinhood tool request failed; reconcile any uncertain order before retrying");
+    }
   }
   async function identifyAccount() {
     if (accountId) return;

@@ -470,6 +470,18 @@ describe("harness-held fractional protection", () => {
     assert.equal(store.getOrder(order.id)?.status, "filled"); assert.equal(store.getOrder(order.id)?.brokerOrderId, "stop-broker-id");
     assert.equal(store.getOrder(order.id)?.filledQuantity, 0.205652);
   });
+  it("reports quote-stage failure without claiming or executing held stops", async () => {
+    const f = liveSetup();
+    const order = await f.gate.submit(f.stop);
+    const warnings: unknown[] = [];
+    const log: Logger = { info() {}, error() {}, child() { return this; }, warn(msg, fields) { warnings.push({ msg, fields }); } };
+    f.broker.quotes = async () => { throw new Error("private broker detail"); };
+    const deps = { broker: f.broker, store: f.store, clock: { now: () => NOW }, calendar: createNyseCalendar(), bus: { publish: (_e: ServerEvent) => {}, subscribe: () => () => {} }, log };
+    await assert.rejects(watchStops(deps), { message: "private broker detail" });
+    assert.deepEqual(warnings, [{ msg: "protective stop watcher stage failed", fields: { stage: "quotes" } }]);
+    assert.equal(f.store.getOrder(order.id)?.status, "held");
+    assert.equal(f.executions.length, 0);
+  });
   it("persists the fire-once claim across overlapping watcher invocations", async () => {
     const f = liveSetup();
     const order = await f.gate.submit(f.stop);
