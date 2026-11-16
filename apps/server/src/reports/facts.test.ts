@@ -269,6 +269,78 @@ describe("weekly facts", () => {
   });
 });
 
+describe("benchmark freshness", () => {
+  interface BenchmarkCase {
+    name: string;
+    kind: "daily" | "weekly";
+    reportDate: string;
+    clock?: Clock;
+    bars: PriceHistory["bars"];
+    expected: number | undefined;
+  }
+
+  const friday = (date: string): Clock => ({ now: () => Date.parse(`${date}T20:00:00Z`) });
+  const cases: BenchmarkCase[] = [
+    {
+      name: "daily omits the benchmark when the period's own close has not arrived",
+      kind: "daily",
+      reportDate: "2026-10-26",
+      // The old close-on-or-before lookup matched 2026-10-23 for both ends and reported 0%.
+      bars: [bar("2026-10-22", 500), bar("2026-10-23", 505)],
+      expected: undefined,
+    },
+    {
+      name: "weekly omits the benchmark instead of stopping at the latest stale bar",
+      kind: "weekly",
+      reportDate: "2026-10-28",
+      clock: friday("2026-10-30"),
+      bars: [bar("2026-10-23", 500), bar("2026-10-28", 505)],
+      expected: undefined,
+    },
+    {
+      name: "omits the benchmark when the baseline anchor has no bar even though an older one exists",
+      kind: "daily",
+      reportDate: "2026-10-26",
+      bars: [bar("2026-10-22", 500), bar("2026-10-26", 505)],
+      expected: undefined,
+    },
+    {
+      name: "uses the close before Thanksgiving for a Friday-after-holiday period start",
+      kind: "daily",
+      reportDate: "2026-11-27",
+      bars: [bar("2026-11-25", 600), bar("2026-11-27", 612)],
+      expected: (612 / 600 - 1) * 100,
+    },
+    {
+      name: "uses Friday's close for a weekend period end and keeps a real 0%",
+      kind: "daily",
+      reportDate: "2026-11-29",
+      bars: [bar("2026-11-25", 600), bar("2026-11-27", 606)],
+      expected: 0,
+    },
+    {
+      name: "keeps a genuine flat benchmark instead of treating 0 as unavailable",
+      kind: "daily",
+      reportDate: "2026-10-26",
+      bars: [bar("2026-10-23", 500), bar("2026-10-26", 500)],
+      expected: 0,
+    },
+  ];
+
+  it("requires_exact_anchor_closes_and_preserves_real_flat_results", async () => {
+    for (const c of cases) {
+      const { deps: d } = deps({ clock: c.clock ?? { now: () => Date.parse("2026-10-27T14:00:00Z") }, market: fakeMarket({ histories: new Map([["SPY", c.bars]]) }) });
+      const facts = c.kind === "weekly" ? await buildWeeklyFacts(d, c.reportDate) : await buildDailyFacts(d, c.reportDate);
+      if (c.expected === undefined) {
+        assert.equal(facts.benchmarkPct, undefined, c.name);
+      } else {
+        assert.notEqual(facts.benchmarkPct, undefined, c.name);
+        assert.ok(Math.abs((facts.benchmarkPct ?? NaN) - c.expected) < 1e-9, `${c.name}: ${facts.benchmarkPct}`);
+      }
+    }
+  });
+});
+
 describe("trade selection", () => {
   it("prefers_the_newest_harness_trade_over_a_newer_robinhood_one", async () => {
     const buy = filledOrder(1, "NVDA", "buy", 100, etMorning("2026-10-26") - 7200_000);

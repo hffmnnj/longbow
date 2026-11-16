@@ -8,7 +8,7 @@ import type {
   ReportFacts,
 } from "@rh/shared";
 import type { Broker, Clock, Logger, MarketCalendar, MarketData, Notes, Store } from "../ports.ts";
-import { closeOnOrBefore, parseThesisStop, summarizeTrades } from "../analytics/compute.ts";
+import { parseThesisStop, summarizeTrades } from "../analytics/compute.ts";
 import { readAllClosedTrades } from "../analytics/trades.ts";
 import { endOfEtDateMs } from "../market/market-data.ts";
 import { etAddDays, isTradingDay, mondayOfWeek, weekDates } from "./ids.ts";
@@ -40,14 +40,36 @@ function rangeMs(periodStart: string, periodEnd: string): { since: number; until
   return { since: endOfEtDateMs(etAddDays(periodStart, -1)) + 1, until: endOfEtDateMs(periodEnd) };
 }
 
-/** SPY's percent change from the close before `periodStart` to the close on `periodEnd`. */
+/** Days to search back for a benchmark anchor; two weeks spans any weekend plus holiday run. */
+const BENCHMARK_ANCHOR_LOOKBACK_DAYS = 14;
+
+/** The newest NYSE trading day on or before `date`, within the lookback bound. */
+function newestTradingDayOnOrBefore(calendar: MarketCalendar, date: string): string | undefined {
+  for (let back = 0; back < BENCHMARK_ANCHOR_LOOKBACK_DAYS; back++) {
+    const day = etAddDays(date, -back);
+    if (isTradingDay(calendar, day)) return day;
+  }
+  return undefined;
+}
+
+/**
+ * SPY's percent change from the close on the trading day before `periodStart`
+ * to the close on the period's last trading day. Both closes must be exact
+ * bars for the dates the calendar names: a stale or missing bar omits the
+ * benchmark instead of borrowing an older close, which would report a lagging
+ * feed as a flat market.
+ */
 async function spyBenchmarkPct(deps: ReportFactsDeps, periodStart: string, periodEnd: string): Promise<number | undefined> {
   try {
     const spy = await deps.market.history("SPY", "1y");
     const byDate = new Map(spy.bars.map((b) => [b.date, b.close]));
-    const start = closeOnOrBefore(byDate, etAddDays(periodStart, -1));
-    const end = closeOnOrBefore(byDate, periodEnd);
-    if (start === undefined || end === undefined || start <= 0) return undefined;
+    const startDay = newestTradingDayOnOrBefore(deps.calendar, etAddDays(periodStart, -1));
+    const endDay = newestTradingDayOnOrBefore(deps.calendar, periodEnd);
+    if (startDay === undefined || endDay === undefined) return undefined;
+    const start = byDate.get(startDay);
+    const end = byDate.get(endDay);
+    if (start === undefined || end === undefined) return undefined;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0) return undefined;
     return (end / start - 1) * 100;
   } catch (error) {
     warn(deps.log, "report benchmark unavailable", error);
