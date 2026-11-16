@@ -25,6 +25,7 @@ import {
   type SymbolDetail,
   type HistoryRange,
   type JournalEntry,
+  type LatestReleaseResponse,
   type NoteContent,
   type NoteFile,
   type PriceHistory,
@@ -89,6 +90,7 @@ export interface Api {
   pushSubscribe(sub: PushSubscriptionInput): Promise<void>;
   pushUnsubscribe(endpoint: string): Promise<void>;
   pushTest(): Promise<{ sent: number; removed: number }>;
+  latestRelease(): Promise<LatestReleaseResponse>;
   subscribe(handlers: EventHandlers): () => void;
 }
 
@@ -226,6 +228,7 @@ export const realApi: Api = {
   pushSubscribe: (sub) => request("POST", "/api/push/subscribe", sub),
   pushUnsubscribe: (endpoint) => request("POST", "/api/push/unsubscribe", { endpoint }),
   pushTest: () => request("POST", "/api/push/test", {}),
+  latestRelease: () => request("GET", "/api/releases/latest"),
   subscribe: subscribeEvents,
 };
 
