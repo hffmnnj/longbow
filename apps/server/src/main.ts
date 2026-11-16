@@ -29,6 +29,7 @@ import { createPushService } from "./push/service.ts";
 import { startNotifier } from "./push/notifier.ts";
 import { mountPushRoutes } from "./http/push-routes.ts";
 import { createNativePushHub } from "./push/native-stream.ts";
+import { startReleaseNotifier } from "./releases/notifier.ts";
 import { createSimService } from "./sim/runner.ts";
 import { createSimToolsExtension } from "./sim/tools.ts";
 import { mountSimRoutes } from "./http/sim-routes.ts";
@@ -301,7 +302,9 @@ async function main(): Promise<void> {
   mountSimRoutes(app, { sim, suites, log: log.child("sim") });
   mountAnalyticsRoutes(app, { analytics, log: log.child("analytics") });
   mountReportRoutes(app, { store, log: log.child("reports") });
-  const stopNotifier = startNotifier({ bus, push: nativePush.wrap(push), log: log.child("push") });
+  const fanoutPush = nativePush.wrap(push);
+  const stopNotifier = startNotifier({ bus, push: fanoutPush, log: log.child("push") });
+  const stopReleaseNotifier = startReleaseNotifier({ dataDir: config.DATA_DIR, push: fanoutPush, log: log.child("push") });
 
   const refresher = setInterval(() => {
     // Crypto fills and external account changes also happen outside stock-market hours.
@@ -328,6 +331,7 @@ async function main(): Promise<void> {
     clearInterval(refresher);
     clearInterval(stopWatcher);
     stopNotifier();
+    stopReleaseNotifier();
     suites.close();
     void sim.close();
     scheduler.stop();

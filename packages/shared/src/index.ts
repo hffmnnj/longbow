@@ -939,6 +939,27 @@ export interface SimSuite {
 // ---------------------------------------------------------------------------
 // Web push (installed app notifications)
 
+/** Software publication metadata. APK URLs are always constructed from versionCode. */
+export const AndroidReleaseSchema = z.object({
+  versionCode: z.number().int().positive().max(2_100_000_000),
+  versionName: z.string().min(1).max(80),
+  size: z.number().int().positive().max(150 * 1024 * 1024),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type AndroidRelease = z.infer<typeof AndroidReleaseSchema>;
+
+export const SoftwareReleaseSchema = z.object({
+  id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/),
+  version: z.string().min(1).max(80),
+  title: z.string().min(1).max(160),
+  notes: z.string().max(4000),
+  publishedAt: z.number().int().positive(),
+  /** Latest compatible APK remains available when publishing a server-only release. */
+  android: AndroidReleaseSchema.optional(),
+}).strict();
+export type SoftwareRelease = z.infer<typeof SoftwareReleaseSchema>;
+export interface LatestReleaseResponse { release: SoftwareRelease | null }
+
 export const PushSubscriptionSchema = z.object({
   endpoint: z.string().url().max(2000),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),

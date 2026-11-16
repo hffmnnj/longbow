@@ -20,6 +20,34 @@ curl -fsS http://127.0.0.1:4520/api/status | head -c 300
 
 Open http://127.0.0.1:4520 locally or http://<tailnet-ip>:4520 over the Tailnet.
 
+## Publish a software release
+
+From `apps/server`, create a JSON file containing `id`, `version`, `title`, `notes`, and
+`publishedAt` (Unix milliseconds). IDs must be unique and use only letters, numbers,
+periods, underscores, and hyphens. Then run:
+
+```sh
+node scripts/publish-release.ts /path/to/release.json /path/to/app-release.apk
+# For a server-only release, omit the APK argument.
+```
+
+Set `DATA_DIR` to the server's data directory if it differs from the default. The publisher
+requires `aapt` and `apksigner` on PATH. It inspects the package/version, verifies the APK
+signature and, after the first release, requires the same signer as the previous APK. It
+computes the size and SHA-256 and refuses a version downgrade or existing immutable file.
+If there is a legacy APK, its verified signer must also match; otherwise the first APK must
+be signed with the same key as installed clients. A server-only publication retains the latest Android
+metadata. The publisher writes the APK before atomically replacing `downloads/release.json`;
+an interrupted publication can leave an unused immutable APK. Never overwrite one to retry.
+The `.publish-lock` directory prevents concurrent publishers; if a publisher is interrupted,
+confirm none is running before removing that empty lock directory manually.
+
+The server checks for new release IDs at startup and every minute, and uses the existing
+web push and connected Android notification stream. Delivery is best effort, not exactly
+once: disconnected Android clients or failed sends may miss it, and a crash before the
+announcement marker is saved can cause a duplicate. The marker is saved after an attempt;
+within one server run a failed marker write is retried without sending again.
+
 ## First run
 
 1. Click **Connect Robinhood** and sign in. The agent trades only in the Robinhood MCP account.

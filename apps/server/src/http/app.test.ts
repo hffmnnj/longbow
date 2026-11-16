@@ -284,6 +284,24 @@ describe("app routes", () => {
       assert.equal(res.status, 200);
       assert.equal(res.headers.get("content-type"), "application/vnd.android.package-archive");
       assert.equal(await res.text(), "PK-apk-bytes");
+      const latest = await app.request("/api/releases/latest");
+      assert.equal(latest.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await latest.json(), { release: null });
+      mkdirSync(join(dataDir, "downloads", "releases"));
+      writeFileSync(join(dataDir, "downloads", "releases", "longbow-42.apk"), "new-apk");
+      const release = { id: "release-1", version: "1", title: "Update", notes: "", publishedAt: 123,
+        android: { versionCode: 42, versionName: "1", size: 7, sha256: "a".repeat(64) } };
+      writeFileSync(join(dataDir, "downloads", "release.json"), JSON.stringify(release));
+      assert.deepEqual(await (await app.request("/api/releases/latest")).json(), { release });
+      assert.equal(await (await app.request("/download/longbow.apk")).text(), "new-apk");
+      const immutable = await app.request("/download/releases/longbow-42.apk");
+      assert.equal(await immutable.text(), "new-apk");
+      assert.match(immutable.headers.get("cache-control")!, /immutable/);
+      assert.equal((await app.request("/download/releases/longbow-042.apk")).status, 404);
+      assert.equal((await app.request("/download/releases/longbow-2100000001.apk")).status, 404);
+      writeFileSync(join(dataDir, "downloads", "release.json"), "{broken");
+      assert.equal((await app.request("/api/releases/latest")).status, 503);
+      assert.equal((await app.request("/download/longbow.apk")).status, 503);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
