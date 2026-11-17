@@ -34,6 +34,11 @@ void main() {
       }
     });
 
+    test('release notification url opens updates, other settings values do not', () {
+      expect(parseDeepLink('/?settings=updates'), isA<UpdatesLink>());
+      expect(parseDeepLink('/?settings=other'), isNull);
+    });
+
     test('order wins over report, view, and action', () {
       final link = parseDeepLink('/?order=o1&report=r1&view=feed&action=kill');
       expect(link, isA<OrderLink>());

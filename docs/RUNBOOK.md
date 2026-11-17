@@ -48,6 +48,19 @@ once: disconnected Android clients or failed sends may miss it, and a crash befo
 announcement marker is saved can cause a duplicate. The marker is saved after an attempt;
 within one server run a failed marker write is retried without sending again.
 
+For Android releases, increment the build number in `apps/mobile/pubspec.yaml`, then run
+`scripts/publish.sh /absolute/path/to/notes.txt [title]` from `apps/mobile`. The script builds
+using the ignored `hosts.local.json` and calls the same verified publisher. Keep the existing
+signing certificate for in-place upgrades; this installation still uses its original debug
+certificate, not a production signing setup.
+
+Install the first updater-enabled APK manually from `/download/longbow.apk`. Subsequent
+builds are detected on launch, resume and reconnect, and while the opted-in foreground
+alerts service runs. Downloading is automatic, but installation always requires a tap and
+Android confirmation. If blocked, use **Open install settings**, allow Longbow as an install
+source, return and tap Install again. With alerts disabled and the app closed, there is no
+background update check. Web Settings also shows the latest release and APK download.
+
 ## First run
 
 1. Click **Connect Robinhood** and sign in. The agent trades only in the Robinhood MCP account.

@@ -12,7 +12,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -49,6 +51,7 @@ class AlertsService : Service() {
         private const val READ_TIMEOUT_MS = 70_000
         private const val MIN_BACKOFF_MS = 2_000L
         private const val MAX_BACKOFF_MS = 60_000L
+        private const val UPDATE_CHECK_MS = 60 * 60_000L
 
         fun isEnabled(context: Context): Boolean =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -97,6 +100,40 @@ class AlertsService : Service() {
             return if (isEnabled(context)) "on" else "off"
         }
 
+        /**
+         * Posts one alert on the trade-alerts channel. A repeated [tag]
+         * replaces the earlier notification; tapping it opens the app and
+         * forwards [url] to Dart.
+         */
+        fun notifyAlert(context: Context, title: String, body: String?, url: String?, tag: String?) {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(CHANNEL_ALERTS, "Trade alerts", NotificationManager.IMPORTANCE_HIGH),
+                )
+            }
+            val open = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                if (url != null) putExtra(MainActivity.EXTRA_URL, url)
+            }
+            val tap = PendingIntent.getActivity(
+                context,
+                tag?.hashCode() ?: 0,
+                open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+                .setSmallIcon(R.drawable.ic_alert)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setContentIntent(tap)
+                .setAutoCancel(true)
+                .setShowWhen(true)
+                .build()
+            manager.notify(tag?.hashCode() ?: 0, notification)
+        }
+
         fun start(context: Context) {
             val intent = Intent(context, AlertsService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -124,6 +161,15 @@ class AlertsService : Service() {
         super.onCreate()
         createChannels()
         watchConnectivity()
+        updateHandler.postDelayed(updateTick, UPDATE_CHECK_MS)
+    }
+
+    private val updateHandler = Handler(Looper.getMainLooper())
+    private val updateTick = object : Runnable {
+        override fun run() {
+            baseUrl(this@AlertsService)?.let { AppUpdater.check(applicationContext, it, false) }
+            updateHandler.postDelayed(this, UPDATE_CHECK_MS)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -153,6 +199,7 @@ class AlertsService : Service() {
 
     override fun onDestroy() {
         running = false
+        updateHandler.removeCallbacks(updateTick)
         try {
             connection?.disconnect()
         } catch (_: Exception) {
@@ -261,6 +308,8 @@ class AlertsService : Service() {
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
                 throw IllegalStateException("native-stream answered ${conn.responseCode}")
             }
+            // Each (re)connect is a cheap moment to look for a new release.
+            AppUpdater.check(applicationContext, base, false)
             BufferedReader(InputStreamReader(conn.inputStream, StandardCharsets.UTF_8)).use { reader ->
                 val event = StringBuilder()
                 while (running) {
@@ -296,28 +345,13 @@ class AlertsService : Service() {
         val url = json.optString("url").ifEmpty { null }
         val tag = json.optString("tag").ifEmpty { null }
         val base = baseUrl(this) ?: return
-
-        val open = Intent(this, MainActivity::class.java).apply {
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            if (url != null) putExtra(MainActivity.EXTRA_URL, url)
+        if (tag != null && tag.startsWith(AppUpdater.RELEASE_TAG_PREFIX)) {
+            // The live announcement is the alert; the updater must not post a
+            // second one for the same release. It also is the hint to fetch it now.
+            AppUpdater.markAnnounced(applicationContext, base, tag.removePrefix(AppUpdater.RELEASE_TAG_PREFIX))
+            AppUpdater.check(applicationContext, base, true)
         }
-        val tap = PendingIntent.getActivity(
-            this,
-            tag?.hashCode() ?: 0,
-            open,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(R.drawable.ic_alert)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setContentIntent(tap)
-            .setAutoCancel(true)
-            .setShowWhen(true)
-            .build()
-        getSystemService(NotificationManager::class.java)
-            ?.notify(tag?.hashCode() ?: 0, notification)
+        notifyAlert(this, title, body, url, tag)
     }
 
     private fun sleepInterruptible(ms: Long) {

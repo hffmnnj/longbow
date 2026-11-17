@@ -11,10 +11,10 @@ import 'package:longbow/models/models.dart';
 import 'settings_sections.dart';
 
 /// Opens the settings modal sheet (full height, with a pinned Save bar).
-Future<void> showSettingsSheet(BuildContext context) {
+Future<void> showSettingsSheet(BuildContext context, {bool focusUpdates = false}) {
   return showLbSheet<void>(
     context,
-    (_) => const SettingsSheet(),
+    (_) => SettingsSheet(focusUpdates: focusUpdates),
     title: 'Settings',
     fullHeight: true,
   );
@@ -24,7 +24,10 @@ Future<void> showSettingsSheet(BuildContext context) {
 /// cadence and the watchlist edit one form that saves as a single patch;
 /// Robinhood, alerts, theme and server address act immediately.
 class SettingsSheet extends ConsumerStatefulWidget {
-  const SettingsSheet({super.key});
+  const SettingsSheet({super.key, this.focusUpdates = false});
+
+  /// Lists App updates first, for a release notification tap.
+  final bool focusUpdates;
 
   @override
   ConsumerState<SettingsSheet> createState() => _SettingsSheetState();
@@ -44,6 +47,10 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
   Map<String, String> _serverErrors = {};
   bool _saving = false;
   bool _justSaved = false;
+
+  /// Decided once on open so the list does not reshuffle under the user: App
+  /// updates leads when a notification opened this or an update is waiting.
+  late final bool _updatesFirst = widget.focusUpdates || ref.read(appUpdateProvider).status == UpdateStatus.ready;
 
   bool get _dirty {
     final saved = _saved;
@@ -235,6 +242,7 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
     final canSave = dirty && errors.isEmpty && !_saving;
 
     final children = <Widget>[
+      if (_updatesFirst) _section('App updates', child: const UpdatesSection()),
       if (status != null && form != null) ...[
         _TradingSection(status: status),
         _section(
@@ -252,6 +260,7 @@ class _SettingsSheetState extends ConsumerState<SettingsSheet> {
       _section('Appearance', child: const AppearanceSection()),
       _section('Server', child: const ServerSection()),
       _section('About', child: const AboutSection()),
+      if (!_updatesFirst) _section('App updates', child: const UpdatesSection()),
       _section('Android app', child: const AndroidAppSection()),
     ];
 

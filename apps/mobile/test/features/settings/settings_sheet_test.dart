@@ -331,7 +331,7 @@ void main() {
 
   testWidgets('settings_server_showsAddressRetriesAndChangesHost', (tester) async {
     final h = await pumpApp(tester, const Scaffold(body: SettingsSheet()));
-    await _scrollTo(tester, find.text('Change host'));
+    await _scrollTo(tester, find.widgetWithText(OutlinedButton, 'Retry'));
 
     expect(find.text('https://longbow.example.ts.net:8443'), findsOneWidget);
     await tester.tap(find.widgetWithText(OutlinedButton, 'Retry'));
@@ -387,9 +387,12 @@ void main() {
 
     expect(find.textContaining('Settings load once the server responds'), findsOneWidget);
     expect(find.text('Risk limits'), findsNothing);
-    await _scrollTo(tester, find.text('About'));
+    await _scrollTo(tester, find.text('Appearance'));
     expect(find.text('Appearance'), findsOneWidget);
+    await _scrollTo(tester, find.text('Server'));
     expect(find.text('Server'), findsOneWidget);
+    await _scrollTo(tester, find.text('About'));
+    expect(find.text('About'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Save'), findsNothing, reason: 'there is no form to save');
   });
 

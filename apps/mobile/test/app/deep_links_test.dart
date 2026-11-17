@@ -48,6 +48,17 @@ void main() {
     expect(find.text('Feed body'), findsNothing);
   });
 
+  testWidgets('deepLink_releaseNotification_opensSettingsAtUpdatesAndRefreshesTheRelease', (tester) async {
+    final h = await _pump(tester);
+    h.native.updateChecks.clear();
+
+    h.native.emit('/?settings=updates');
+    await settle(tester, 20);
+
+    expect(find.text('App updates'), findsOneWidget);
+    expect(h.native.updateChecks.last.force, isTrue, reason: 'the tap refreshes release metadata');
+  });
+
   testWidgets('deepLink_liveAlias_goesToFeed', (tester) async {
     final h = await _pump(tester);
     h.native.emit('/?view=agent');

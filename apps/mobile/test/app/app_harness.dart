@@ -56,6 +56,41 @@ class FakeNative extends NativeBridge {
 
   @override
   Future<void> setBaseUrl(String url) async {}
+
+  // Updater: a scripted native snapshot (the map Kotlin sends), what the UI
+  // asked for, and a stream to push changes the way Kotlin does.
+  final StreamController<Object?> _updateEvents = StreamController<Object?>.broadcast();
+  Object? updateState;
+  final List<({String baseUrl, bool force})> updateChecks = [];
+  InstallOutcome installOutcome = InstallOutcome.started;
+  int installs = 0;
+  int installSettingsOpens = 0;
+
+  void emitUpdate(Object? snapshot) {
+    updateState = snapshot;
+    _updateEvents.add(snapshot);
+  }
+
+  @override
+  Stream<Object?> get updateStates => _updateEvents.stream;
+
+  @override
+  Future<Object?> updatesState() async => updateState;
+
+  @override
+  Future<Object?> updatesCheck(String baseUrl, {bool force = false}) async {
+    updateChecks.add((baseUrl: baseUrl, force: force));
+    return updateState;
+  }
+
+  @override
+  Future<InstallOutcome> updatesInstall() async {
+    installs++;
+    return installOutcome;
+  }
+
+  @override
+  Future<void> openInstallSettings() async => installSettingsOpens++;
 }
 
 /// A locator whose state tests set by hand; records what the UI asked of it.

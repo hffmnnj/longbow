@@ -50,6 +50,13 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     ref.listenManual<List<DeepLink>>(deepLinkQueueProvider, (_, queue) {
       if (queue.isNotEmpty) _scheduleDrain();
     }, fireImmediately: true);
+    // Look for a new release on launch and whenever the live stream comes
+    // back. The updater coalesces and rate-limits these.
+    ref.listenManual<ConnectionStatus>(harnessProvider.select((s) => s.connection), (prev, next) {
+      if (next == ConnectionStatus.live && prev != ConnectionStatus.live) {
+        unawaited(ref.read(appUpdateProvider.notifier).check());
+      }
+    }, fireImmediately: true);
   }
 
   @override
@@ -64,6 +71,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
       case AppLifecycleState.resumed:
         ref.read(clockProvider.notifier).resume();
         ref.read(serverLocatorProvider.notifier).onForeground();
+        unawaited(ref.read(appUpdateProvider.notifier).check());
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         ref.read(clockProvider.notifier).pause();
@@ -103,6 +111,10 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
         await AppNav.report(context, id);
       case SectionLink(:final section):
         await _openSection(section);
+      case UpdatesLink():
+        // The tap says a release exists: refresh its metadata, then show it.
+        unawaited(ref.read(appUpdateProvider.notifier).check(force: true));
+        await AppNav.settings(context, focusUpdates: true);
       case KillSwitchLink():
         await _confirmKill();
     }
@@ -166,6 +178,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     ref.listen(simProvider, (_, _) {});
     ref.listen(clockProvider, (_, _) {});
     ref.listen(preferencesProvider, (_, _) {});
+    ref.listen(appUpdateProvider, (_, _) {});
     ref.listen(toastEventsProvider, (_, next) {
       next.whenData((event) => showToastEvent(context, event, onOpenReport: (id) => AppNav.report(context, id)));
     });

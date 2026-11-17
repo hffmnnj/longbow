@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_update.dart';
 import 'deep_link.dart';
 
 /// Alert-service state reported by the Kotlin foreground service.
@@ -13,8 +14,11 @@ enum NotificationState { on, off, blocked }
 /// foreground alert service streams from, a shortcut into the Tailscale app,
 /// and the deep link a notification tap carried.
 ///
-/// Every call is a safe no-op returning a default when the channel is
-/// missing (plain tests, desktop): no plugin, no crash.
+/// Notification, Tailscale and link calls stay safe no-ops returning a default
+/// when the channel is missing (plain tests, desktop): no plugin, no crash.
+/// Updater calls instead surface platform failures to the caller so the
+/// settings section can stay honest; a missing updater plugin throws
+/// [MissingPluginException] rather than pretending the state is idle.
 class NativeBridge {
   NativeBridge({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel('longbow/native');
@@ -40,7 +44,52 @@ class NativeBridge {
       final args = call.arguments;
       final url = args is Map ? args['url'] : null;
       if (url is String && url.isNotEmpty) _links.add(url);
+    } else if (call.method == 'updateState') {
+      _updates.add(call.arguments);
     }
+  }
+
+  final _updates = StreamController<Object?>.broadcast();
+
+  /// Updater state pushed by Kotlin whenever it changes (raw native maps).
+  Stream<Object?> get updateStates {
+    _ensureHandler();
+    return _updates.stream;
+  }
+
+  /// The updater's current state. Throws when the native side reports a
+  /// failure or the plugin is missing so the caller can show it.
+  Future<Object?> updatesState() async {
+    _ensureHandler();
+    return _channel.invokeMethod<Object?>('updatesState');
+  }
+
+  /// Asks the updater to check [baseUrl] (it coalesces and rate-limits unless
+  /// [force]) and returns its state. Throws on native failure or a missing
+  /// plugin.
+  Future<Object?> updatesCheck(String baseUrl, {bool force = false}) async {
+    _ensureHandler();
+    return _channel.invokeMethod<Object?>('updatesCheck', {'baseUrl': baseUrl, 'force': force});
+  }
+
+  /// Verifies the downloaded APK again and opens the system installer on it.
+  /// Throws when the native side cannot answer so the UI can explain why.
+  Future<InstallOutcome> updatesInstall() async {
+    _ensureHandler();
+    final value = await _channel.invokeMethod<String>('updatesInstall');
+    return switch (value) {
+      'started' => InstallOutcome.started,
+      'needsPermission' => InstallOutcome.needsPermission,
+      'invalid' => InstallOutcome.invalid,
+      _ => InstallOutcome.notReady,
+    };
+  }
+
+  /// Opens Android's "Install unknown apps" screen for Longbow.
+  /// Throws when the native side cannot open it.
+  Future<void> openInstallSettings() async {
+    _ensureHandler();
+    await _channel.invokeMethod<void>('updatesOpenInstallSettings');
   }
 
   /// Deep links forwarded from notification taps while the app runs.
@@ -114,6 +163,7 @@ class NativeBridge {
 
   void dispose() {
     unawaited(_links.close());
+    unawaited(_updates.close());
   }
 }
 
