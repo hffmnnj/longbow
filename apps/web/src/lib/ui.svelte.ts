@@ -4,6 +4,8 @@ export const SECTIONS: readonly Section[] = ["feed", "portfolio", "markets", "pe
 /** Which overlay is open. Sheets and the palette read and write this from anywhere. */
 export const ui = $state({
   settings: false,
+  /** Settings section to scroll into view when the sheet opens. */
+  settingsFocus: null as "updates" | null,
   palette: false,
   /** Symbol shown in the chart sheet. */
   symbol: null as string | null,

@@ -12,6 +12,10 @@
   import { PUSH_LABEL } from "$lib/push";
   import { push } from "$lib/pwa.svelte";
   import { harness } from "$lib/store.svelte";
+  import { ui } from "$lib/ui.svelte";
+  import { etDay } from "$lib/format";
+  import { releaseApkHref } from "$lib/releases";
+  import type { SoftwareRelease } from "@rh/shared";
   import {
     RISK_GROUPS,
     buildPatch,
@@ -42,6 +46,36 @@
       tickerInput = "";
       tickerError = null;
     }
+  });
+
+  type ReleaseState =
+    | { status: "loading" }
+    | { status: "error" }
+    | { status: "ready"; release: SoftwareRelease | null };
+  let releaseState = $state<ReleaseState>({ status: "loading" });
+  let releaseRun = 0;
+
+  async function loadRelease() {
+    const run = ++releaseRun;
+    releaseState = { status: "loading" };
+    try {
+      const { release } = await harness.requireApi().latestRelease();
+      if (run === releaseRun) releaseState = { status: "ready", release };
+    } catch {
+      if (run === releaseRun) releaseState = { status: "error" };
+    }
+  }
+
+  $effect(() => {
+    if (open) void loadRelease();
+    else releaseRun++;
+  });
+
+  // Deep link from a release notification: bring the updates section into view.
+  $effect(() => {
+    if (!open || !form || ui.settingsFocus !== "updates") return;
+    ui.settingsFocus = null;
+    queueMicrotask(() => document.getElementById("s-updates")?.scrollIntoView({ block: "start" }));
   });
 
   const clientErrors = $derived(form ? validate(form) : {});
@@ -217,12 +251,38 @@
           {/if}
         </section>
 
-        <section class="flex flex-col gap-3" aria-labelledby="s-android">
-          <h3 id="s-android" class="label-caps">Android app</h3>
-          <p class="text-muted-foreground text-[12.5px] leading-snug">Install or update the native app. Downloads the current build from this server.</p>
-          <Button type="button" variant="outline" class="h-10 self-start md:h-9" href="/download/longbow.apk" download="longbow.apk">
-            Download Android app
-          </Button>
+        <section id="s-updates" class="flex scroll-mt-2 flex-col gap-3" aria-labelledby="s-android" aria-busy={releaseState.status === "loading"}>
+          <h3 id="s-android" class="label-caps">Updates</h3>
+          <div aria-live="polite" class="flex flex-col gap-1.5">
+            {#if releaseState.status === "loading"}
+              <p class="text-muted-foreground text-[13px]">Checking for updates…</p>
+            {:else if releaseState.status === "error"}
+              <p class="text-muted-foreground text-[13px]">Could not check for updates.</p>
+            {:else if releaseState.release}
+              {@const release = releaseState.release}
+              <p class="text-[13px] font-medium">{release.title}</p>
+              <p class="text-muted-foreground num text-[12.5px]">Version {release.version} · {etDay(release.publishedAt)}</p>
+              {#if release.notes}
+                <p class="text-muted-foreground max-h-40 overflow-y-auto text-[12.5px] leading-snug whitespace-pre-line">{release.notes}</p>
+              {/if}
+            {:else}
+              <p class="text-muted-foreground text-[13px]">No release notes yet.</p>
+            {/if}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              class="h-10 md:h-9"
+              href={releaseApkHref(releaseState.status === "ready" ? releaseState.release : null)}
+              download="longbow.apk"
+            >
+              Download Android app
+            </Button>
+            {#if releaseState.status === "error"}
+              <Button type="button" variant="ghost" class="h-10 md:h-9" onclick={() => void loadRelease()}>Retry</Button>
+            {/if}
+          </div>
         </section>
 
         {#if harness.status?.broker.state === "connected"}

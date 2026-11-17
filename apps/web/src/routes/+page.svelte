@@ -56,8 +56,13 @@
     const target = sectionFromParam(view);
     if (target) ui.section = target;
     if (url.searchParams.get("action") === "kill") ui.confirmKill = true;
-    for (const key of ["view", "action"]) url.searchParams.delete(key);
-    if (view || ui.confirmKill) history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+    const openUpdates = url.searchParams.get("settings") === "updates";
+    if (openUpdates) {
+      ui.settings = true;
+      ui.settingsFocus = "updates";
+    }
+    for (const key of ["view", "action", "settings"]) url.searchParams.delete(key);
+    if (view || ui.confirmKill || openUpdates) history.replaceState(history.state, "", url.pathname + url.search + url.hash);
 
     return () => {
       stopClock();

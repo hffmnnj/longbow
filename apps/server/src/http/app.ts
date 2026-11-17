@@ -32,6 +32,7 @@ import type {
 } from "../ports.ts";
 import type { CyclePoint } from "../scheduler/cycles.ts";
 import type { SystemOneClient } from "../systemone/client.ts";
+import { apkPath, readRelease, regularApk } from "../releases/store.ts";
 
 export interface AppDeps {
   config: Config;
@@ -363,18 +364,40 @@ export function createApp(deps: AppDeps): Hono {
     });
   });
 
-  // The Android app, published to <DATA_DIR>/downloads by apps/mobile/scripts/publish.sh; tailnet-only like the rest.
-  app.get("/download/longbow.apk", (c) => {
-    const apk = join(deps.config.DATA_DIR, "downloads", "longbow.apk");
-    if (!existsSync(apk)) return c.text("The Android app has not been published yet.", 404);
+  app.get("/api/releases/latest", (c) => {
+    c.header("Cache-Control", "no-store");
+    try {
+      return c.json({ release: readRelease(deps.config.DATA_DIR) });
+    } catch {
+      return c.json({ error: "Release manifest is invalid or unavailable" }, 503);
+    }
+  });
+
+  const download = (apk: string, immutable: boolean): Response => {
+    if (!regularApk(apk)) return new Response("The Android app has not been published yet.", { status: 404 });
     return new Response(Readable.toWeb(createReadStream(apk)) as ReadableStream, {
       headers: {
         "Content-Type": "application/vnd.android.package-archive",
         "Content-Disposition": 'attachment; filename="longbow.apk"',
         "Content-Length": String(statSync(apk).size),
-        "Cache-Control": "no-store",
+        "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-store",
       },
     });
+  };
+  app.get("/download/releases/:name", (c) => {
+    const match = /^longbow-([1-9][0-9]*)\.apk$/.exec(c.req.param("name"));
+    if (match === null || Number(match[1]) > 2_100_000_000) return c.text("Not found", 404);
+    return download(apkPath(deps.config.DATA_DIR, Number(match[1])), true);
+  });
+  app.get("/download/longbow.apk", (c) => {
+    try {
+      const release = readRelease(deps.config.DATA_DIR);
+      if (release === null) return download(join(deps.config.DATA_DIR, "downloads", "longbow.apk"), false);
+      if (release.android === undefined) return c.text("The Android app has not been published yet.", 404);
+      return download(apkPath(deps.config.DATA_DIR, release.android.versionCode), false);
+    } catch {
+      return c.text("Release manifest is invalid or unavailable", 503);
+    }
   });
 
   // Static UI for everything else, with an index.html SPA fallback.

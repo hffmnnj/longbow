@@ -36,6 +36,7 @@ class StatusHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.lb;
     final killed = ref.watch(harnessProvider.select((s) => s.feed.status?.settings.killSwitch ?? false));
+    final updateReady = ref.watch(appUpdateProvider.select((s) => s.status == UpdateStatus.ready));
     final pad = MediaQuery.paddingOf(context);
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     final showMark = scale <= 1.15;
@@ -71,7 +72,16 @@ class StatusHeader extends ConsumerWidget {
                   ],
                   const Expanded(child: _EquityBlock()),
                   IconButton(tooltip: 'Jump to', onPressed: onSearch, icon: const LbIcon(LbIcons.search01)),
-                  IconButton(tooltip: 'Settings', onPressed: onSettings, icon: const LbIcon(LbIcons.settings02)),
+                  IconButton(
+                    tooltip: updateReady ? 'Settings, update ready' : 'Settings',
+                    onPressed: onSettings,
+                    icon: Badge(
+                      isLabelVisible: updateReady,
+                      smallSize: 8,
+                      backgroundColor: c.primary,
+                      child: const LbIcon(LbIcons.settings02),
+                    ),
+                  ),
                   IconButton(tooltip: 'More', onPressed: onMore, icon: const LbIcon(LbIcons.moreHorizontal)),
                 ],
               ),

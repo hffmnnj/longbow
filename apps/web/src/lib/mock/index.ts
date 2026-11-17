@@ -205,6 +205,7 @@ export function createMockApi(): Api {
     pushSubscribe: async () => {},
     pushUnsubscribe: async () => {},
     pushTest: async () => delay({ sent: 1, removed: 0 }, 400),
+    latestRelease: async () => delay({ release: null }),
     subscribe(h) {
       listeners.add(h);
       queueMicrotask(h.onOpen);

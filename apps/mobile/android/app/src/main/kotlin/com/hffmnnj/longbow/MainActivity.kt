@@ -4,6 +4,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -43,9 +45,55 @@ class MainActivity : FlutterActivity() {
                 "setBaseUrl" -> handleSetBaseUrl(call.argument("baseUrl"), result)
                 "openTailscale" -> result.success(openTailscale())
                 "getInitialUrl" -> result.success(intent?.getStringExtra(EXTRA_URL))
+                "updatesState" -> try {
+                    result.success(AppUpdater.toMap(this))
+                } catch (_: Exception) {
+                    result.error("failed", "Could not read the update state.", null)
+                }
+                "updatesCheck" -> {
+                    val base = call.argument<String>("baseUrl")
+                    if (base.isNullOrEmpty()) {
+                        result.error("no-base", "updatesCheck needs { baseUrl }", null)
+                    } else {
+                        try {
+                            AppUpdater.check(this, base, call.argument<Boolean>("force") ?: false)
+                            result.success(AppUpdater.toMap(this))
+                        } catch (_: Exception) {
+                            result.error("failed", "Could not check for updates.", null)
+                        }
+                    }
+                }
+                "updatesInstall" -> try {
+                    AppUpdater.install(this) { result.success(it) }
+                } catch (_: Exception) {
+                    result.error("failed", "Could not start the installer.", null)
+                }
+                "updatesOpenInstallSettings" -> try {
+                    AppUpdater.openInstallSettings(this)
+                    result.success(null)
+                } catch (_: Exception) {
+                    result.error("failed", "Could not open the install settings.", null)
+                }
                 else -> result.notImplemented()
             }
         }
+        // Job threads publish state changes; hop to the main thread and read the
+        // current snapshot there so a queued event never delivers stale state.
+        val mainHandler = Handler(Looper.getMainLooper())
+        AppUpdater.store.listener = { _ ->
+            mainHandler.post {
+                try {
+                    channel.invokeMethod("updateState", AppUpdater.toMap(applicationContext))
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        AppUpdater.store.listener = null
+        methodChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -64,6 +112,8 @@ class MainActivity : FlutterActivity() {
             return
         }
         AlertsService.updateBaseUrl(this, baseUrl)
+        // A new or rediscovered server: check it (a different one cancels the old job).
+        AppUpdater.check(this, baseUrl, false)
         result.success(null)
     }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:longbow/core/core.dart';
 import 'package:longbow/data/data.dart' hide ToastTone;
 import 'package:longbow/data/state/toast.dart' as data_toast show ToastTone;
@@ -305,7 +306,7 @@ class AndroidAppSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Install or update this app from the server you are connected to.',
+          'Download the APK in your browser if updating inside the app does not work.',
           style: LbText.muted(context, size: 12.5),
         ),
         const SizedBox(height: LbSpace.gap),
@@ -346,3 +347,124 @@ Future<void> _openAndroidApkDownload(WidgetRef ref, Uri baseUrl) async {
     );
   }
 }
+
+/// New Android builds from the connected server: the app downloads and checks
+/// them in the background, and the user decides when to install. Shows this
+/// build, the latest release, and a plain status with the one next action.
+class UpdatesSection extends ConsumerWidget {
+  const UpdatesSection({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(appUpdateProvider);
+    final alertsOn = ref.watch(preferencesProvider.select((p) => p.notificationsEnabled));
+    final controller = ref.read(appUpdateProvider.notifier);
+    final c = context.lb;
+    final release = update.release;
+    final android = update.android;
+
+    final (String label, StatusTone tone) = switch (update.status) {
+      UpdateStatus.idle => ('Not checked', StatusTone.neutral),
+      UpdateStatus.checking => ('Checking', StatusTone.neutral),
+      UpdateStatus.downloading => (
+          update.progress == null ? 'Downloading' : 'Downloading ${(update.progress! * 100).floor()}%',
+          StatusTone.live,
+        ),
+      UpdateStatus.ready => ('Ready to install', StatusTone.gain),
+      UpdateStatus.current => ('Up to date', StatusTone.neutral),
+      UpdateStatus.error => ('Update failed', StatusTone.loss),
+      UpdateStatus.offline => ('Offline', StatusTone.warn),
+    };
+
+    final Widget? action = switch (update.status) {
+      UpdateStatus.ready => FilledButton.icon(
+          onPressed: update.installing ? null : controller.install,
+          icon: const LbIcon(LbIcons.arrowDown01, size: 16),
+          label: Text(android == null ? 'Install update' : 'Install ${android.versionName}'),
+        ),
+      UpdateStatus.error || UpdateStatus.offline => OutlinedButton.icon(
+          onPressed: () => controller.check(force: true),
+          icon: const LbIcon(LbIcons.refresh, size: 16),
+          label: const Text('Try again'),
+        ),
+      UpdateStatus.idle || UpdateStatus.current => OutlinedButton.icon(
+          onPressed: () => controller.check(force: true),
+          icon: const LbIcon(LbIcons.refresh, size: 16),
+          label: const Text('Check now'),
+        ),
+      UpdateStatus.checking || UpdateStatus.downloading => null,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          liveRegion: true,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [StatusChip(label, tone: tone)],
+          ),
+        ),
+        if (update.status == UpdateStatus.downloading) ...[
+          const SizedBox(height: LbSpace.gap),
+          LinearProgressIndicator(
+            value: update.progress,
+            minHeight: 4,
+            semanticsLabel: 'Update download',
+            semanticsValue: update.progress == null ? null : '${(update.progress! * 100).floor()}%',
+          ),
+        ],
+        if ((update.status == UpdateStatus.error || update.status == UpdateStatus.offline)) ...[
+          const SizedBox(height: 6),
+          Text(
+            update.status == UpdateStatus.offline
+                ? 'Could not reach the server. Longbow tries again when it is back.'
+                : update.errorMessage ?? 'The update failed.',
+            style: LbText.muted(context).copyWith(color: update.status == UpdateStatus.error ? c.destructive : c.warn),
+          ),
+        ],
+        const SizedBox(height: LbSpace.gap),
+        KeyValueList(
+          rows: [
+            KeyValueRow('This app', value: update.installedLabel),
+            KeyValueRow('Latest release', value: release == null ? 'None yet' : release.version),
+            if (android != null) KeyValueRow('Android build', value: '${android.versionName} (${android.versionCode}) \u00b7 ${_size(android.size)}'),
+          ],
+        ),
+        if (release != null && (release.title.isNotEmpty || release.notes.isNotEmpty)) ...[
+          const SizedBox(height: LbSpace.gap),
+          if (release.title.isNotEmpty) Text(release.title, style: Theme.of(context).textTheme.titleSmall),
+          Text(DateFormat.yMMMd().format(release.publishedAt), style: LbText.muted(context, size: 12.5)),
+          if (release.notes.isNotEmpty) Disclosure(title: 'Release notes', child: LbMarkdown(release.notes)),
+        ],
+        if (update.installDenied) ...[
+          const SizedBox(height: LbSpace.gap),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              'Android needs your OK before Longbow can install an update. Turn on Allow from this source for Longbow, come back here, and tap Install again.',
+              style: LbText.muted(context).copyWith(color: c.warn),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonal(onPressed: controller.openInstallSettings, child: const Text('Open install settings')),
+          ),
+        ],
+        if (action != null) ...[
+          const SizedBox(height: LbSpace.gap),
+          Align(alignment: Alignment.centerLeft, child: action),
+        ],
+        if (!alertsOn) ...[
+          const SizedBox(height: 8),
+          Text('Trade alerts are off, so Longbow only looks for updates while it is open.', style: LbText.muted(context, size: 12.5)),
+        ],
+      ],
+    );
+  }
+}
+
+String _size(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';

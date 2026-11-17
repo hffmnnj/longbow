@@ -35,6 +35,11 @@ final class SectionLink extends DeepLink {
   final AppSectionKey section;
 }
 
+/// `/?settings=updates`: the release notification opens Settings at app updates.
+final class UpdatesLink extends DeepLink {
+  const UpdatesLink();
+}
+
 final class KillSwitchLink extends DeepLink {
   const KillSwitchLink();
 }
@@ -51,7 +56,7 @@ AppSectionKey? _sectionFromParam(String value) {
 /// null, empty, or unparsable input, for non-HTTP schemes such as
 /// `javascript:`, and when no known query parameter is present.
 ///
-/// Precedence when several match: order, report, view, action. This preserves
+/// Precedence when several match: order, report, view, settings, action. This preserves
 /// the old WebView bridge contract (`resolveLaunchUrl`): foreign or opaque
 /// input never routes anywhere.
 DeepLink? parseDeepLink(String? urlOrPath) {
@@ -73,6 +78,7 @@ DeepLink? parseDeepLink(String? urlOrPath) {
     if (section == null) return null;
     return SectionLink(section);
   }
+  if (query['settings'] == 'updates') return const UpdatesLink();
   if (query['action'] == 'kill') return const KillSwitchLink();
   return null;
 }

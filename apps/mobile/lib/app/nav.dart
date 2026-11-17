@@ -43,7 +43,8 @@ abstract final class AppNav {
   static Future<void> suite(BuildContext context, String suiteId) =>
       _push(context, SuitePage(suiteId: suiteId));
 
-  static Future<void> settings(BuildContext context) => showSettingsSheet(context);
+  static Future<void> settings(BuildContext context, {bool focusUpdates = false}) =>
+      showSettingsSheet(context, focusUpdates: focusUpdates);
 
   /// Pushed pages reached from the More menu, search and deep links. Each
   /// draws its own app bar.
