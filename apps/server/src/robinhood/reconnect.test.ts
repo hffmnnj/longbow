@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rmdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { McpHttpError, StreamableHttpTransport } from "@earendil-works/pi-mcp";
+import { McpHttpError, McpTimeoutError, StreamableHttpTransport } from "@earendil-works/pi-mcp";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { OrderIntent } from "@rh/shared";
 import { loadConfig } from "../config.ts";
@@ -151,5 +151,41 @@ test("broker diagnostics redact untrusted failures and never retry ambiguous pla
       { msg: "Robinhood tool request failed", fields: { operation: "place_equity_order", name: "McpHttpError", status: 503 } },
     ]);
     assert.doesNotMatch(JSON.stringify({ warnings: f.warnings, result, advancedResult }), /secret|503.*body/i);
+  } finally { await f.cleanup(); }
+});
+
+test("broker diagnostics classify only bounded allowlisted transport causes", async () => {
+  const codes = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
+    "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET"];
+  const coded = (code: string) => Object.assign(new Error("secret cause"), { code });
+  const failures: Error[] = [
+    ...codes.map((code) => new TypeError("secret outer", { cause: coded(code) })),
+    new TypeError("secret outer", { cause: coded("secret code") }),
+    new TypeError("secret outer"),
+    new TypeError("secret outer", { cause: { code: "ECONNRESET", message: "secret object" } }),
+    new TypeError("secret outer", { cause: new Error("secret", { cause: new Error("secret", {
+      cause: new Error("secret", { cause: coded("ECONNRESET") }),
+    }) }) }),
+    new McpTimeoutError(30_000),
+  ];
+  let calls = 0;
+  const f = await fixture("transient", async () => { throw failures[calls++]; });
+  try {
+    await untilState(f.broker, "error");
+    f.makeAvailable();
+    const connected = untilState(f.broker, "connected");
+    f.timers[0]!.fire();
+    await connected;
+    f.warnings.length = 0;
+    for (const _failure of failures) {
+      await assert.rejects(f.broker.snapshot(), { message: "Robinhood tool request failed; reconcile any uncertain order before retrying" });
+    }
+    assert.equal(calls, failures.length);
+    assert.equal(JSON.stringify(f.warnings).includes("secret"), false, "diagnostic logs must not contain untrusted text");
+    assert.deepEqual(f.warnings, [
+      ...codes.map((code) => ({ msg: "Robinhood tool request failed", fields: { operation: "get_portfolio", name: "Error", code } })),
+      ...["Error", "TypeError", "TypeError", "Error"].map((name) => ({ msg: "Robinhood tool request failed", fields: { operation: "get_portfolio", name } })),
+      { msg: "Robinhood tool request failed", fields: { operation: "get_portfolio", name: "McpTimeoutError" } },
+    ]);
   } finally { await f.cleanup(); }
 });
