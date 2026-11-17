@@ -95,9 +95,9 @@ export function createRobinhoodBroker(deps: {
     let code: string | undefined;
     let status: number | undefined;
     for (let i = 0; i < 4 && current instanceof Error; i++) {
-      if (/^(Error|TypeError|AbortError|TimeoutError|OAuthError|OAuthInsecureEndpointError|OAuthIssuerMismatchError|McpHttpError|McpAuthRequiredError|McpSessionExpiredError|BrokerMappingError|RobinhoodRefreshUnavailableError)$/.test(current.name)) name = current.name;
+      if (/^(Error|TypeError|AbortError|TimeoutError|OAuthError|OAuthInsecureEndpointError|OAuthIssuerMismatchError|McpHttpError|McpAuthRequiredError|McpSessionExpiredError|McpTimeoutError|BrokerMappingError|RobinhoodRefreshUnavailableError)$/.test(current.name)) name = current.name;
       const candidate = (current as Error & { code?: unknown }).code;
-      if (typeof candidate === "string" && /^(invalid_grant|invalid_client|unauthorized_client|server_error|temporarily_unavailable)$/.test(candidate)) code = candidate;
+      if (typeof candidate === "string" && /^(invalid_grant|invalid_client|unauthorized_client|server_error|temporarily_unavailable|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT|UND_ERR_SOCKET)$/.test(candidate)) code = candidate;
       if (current instanceof McpHttpError && Number.isInteger(current.status) && current.status >= 100 && current.status <= 599) status = current.status;
       current = current.cause;
     }
