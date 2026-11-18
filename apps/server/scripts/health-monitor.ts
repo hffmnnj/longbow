@@ -132,11 +132,12 @@ function readDb(dataDir: string, now: number): DbRows {
 }
 
 async function main(): Promise<void> {
-  const now = Date.now();
   try {
     const base = resolveBaseUrl();
     const dataDir = process.env["HARNESS_DATA_DIR"] ?? join(homedir(), ".local", "share", "robinhood-harness");
     const fetched = await fetchStatus(base);
+    // A cycle can start while the request is in flight.
+    const now = Date.now();
     const rows = readDb(dataDir, now);
     const report = buildHealthReport({
       now,
@@ -155,7 +156,7 @@ async function main(): Promise<void> {
   } catch (error) {
     console.log(
       JSON.stringify({
-        generatedAt: now,
+        generatedAt: Date.now(),
         ok: false,
         coverage: "unavailable",
         findings: [{ code: "MONITOR_FAILED", severity: "error", message: shortError(error) }],
