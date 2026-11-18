@@ -218,6 +218,42 @@ describe("daily facts", () => {
     assert.deepEqual(facts.decisions.map((e) => e.id), ["j1", "j2"]);
   });
 
+  it("uses_broker_realizations_once_and_keeps_separate_same_symbol_exits", async () => {
+    const exit = etMorning("2026-10-26");
+    const buy = filledOrder(1, "NVDA", "buy", 100, exit - 3600_000);
+    const sell = filledOrder(2, "NVDA", "sell", 95, exit + 12_908);
+    // The broker reports the local exit in two lots and also has a nearby
+    // manual exit. The local row uses the average price and observation time.
+    const first = { symbol: "NVDA", closedAt: exit, quantity: 4, exitPrice: 94.75, pnl: -21 };
+    const second = { symbol: "NVDA", closedAt: exit + 1000, quantity: 6, exitPrice: 95.17, pnl: -29 };
+    const manual = { symbol: "NVDA", closedAt: exit + 2000, quantity: 1, exitPrice: 95.10, pnl: 4 };
+    const { deps: d } = deps({ orders: [buy, sell], broker: fakeBroker("connected", [manual, second, first]) });
+
+    const facts = await buildDailyFacts(d, "2026-10-26");
+
+    assert.equal(facts.realizedPnl, -46);
+    assert.deepEqual(facts.trades, [first, second, manual].map((trade) => ({ ...trade, source: "robinhood" })));
+    assert.equal(facts.avgR, undefined);
+  });
+
+  for (const outcome of ["empty", "failing"] as const) {
+    it(`uses_harness_realizations_when_connected_broker_history_is_${outcome}`, async () => {
+      const exit = etMorning("2026-10-26");
+      const broker = fakeBroker("connected");
+      if (outcome === "failing") broker.tradeHistory = async () => { throw new Error("history unavailable"); };
+      const { deps: d } = deps({
+        orders: [filledOrder(1, "NVDA", "buy", 100, exit - 3600_000), filledOrder(2, "NVDA", "sell", 105, exit)],
+        broker,
+      });
+
+      const facts = await buildDailyFacts(d, "2026-10-26");
+
+      assert.equal(facts.realizedPnl, 49.97);
+      assert.deepEqual(facts.trades.map((trade) => trade.source), ["harness"]);
+      assert.equal(facts.avgR, 0.4997);
+    });
+  }
+
   it("keeps_at_most_20_decisions_newest_first", async () => {
     const journals: JournalEntry[] = Array.from({ length: 22 }, (_, i) => ({
       id: `j${i}`,
