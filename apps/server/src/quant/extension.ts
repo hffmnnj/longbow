@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { AccountSnapshot, Bar, RiskConfig } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";

@@ -1,4 +1,4 @@
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import { ReportNarrativeSchema } from "@rh/shared";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { publishReport, type ReportServiceDeps } from "./service.ts";

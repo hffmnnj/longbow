@@ -54,7 +54,7 @@ export interface Config {
   DATA_DIR: string;
   /** Real orders and cancels reach Robinhood only when HARNESS_LIVE_TRADING=1; otherwise the broker is read-only. */
   LIVE_TRADING: boolean;
-  /** Main agent model, MAIN_MODEL as "provider/model#thinking", default openai-codex/gpt-6.1-sol#xhigh. */
+  /** Main agent model, MAIN_MODEL as "provider/model#thinking", default openai-codex/gpt-6.2-sol#xhigh. */
   MAIN_MODEL: ModelSpec;
   /** Subagent fleet model, SUBAGENT_MODEL, default meta/muse-spark-1.3-contributor#xhigh; also the main fallback. */
   SUBAGENT_MODEL: ModelSpec;

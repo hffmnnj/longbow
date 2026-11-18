@@ -23,7 +23,7 @@
 | 17 | Agent UI on the shadcn Trace component; resting protective stops | frontend-minion + coordinator | done |
 | 18 | Integration, systemd service, live simulation test, QA, PR | coordinator | done |
 | 19 | Live Robinhood sign-in and real tool-schema mapping, harness-held fractional stops, live-trading lock | coordinator + engineer | done |
-| 20 | Main agent on ChatGPT gpt-6.1-sol xhigh, subagents on Muse xhigh, long-running background subagents | coordinator + minion | done |
+| 20 | Main agent on ChatGPT gpt-6.2-sol xhigh, subagents on Muse xhigh, long-running background subagents | coordinator + minion | done |
 | 21 | Longbow redesign: logo, dithered charts, Portfolio, Markets, Performance, control room, decision cards; analytics endpoints; helper reports in the feed | frontend + minions + coordinator | done |
 | 22 | Sector cap fed by SEC industry codes (Robinhood reports no sector) | coordinator | done |
 | 23 | Daily, weekly and trade reports: agent narrative, server figures, push, report view with print | minion + frontend-minion + coordinator | done |
@@ -35,7 +35,7 @@
 | 29 | Local-timezone timestamps; chat messages steer a running cycle instead of queueing behind it | coordinator | done (2026-10-26) |
 | 30 | Native Flutter Android app replacing the WebView shell: models, data layer, design system, all screens | frontend + frontend-minions + minions + coordinator | done |
 | 31 | System One (Jev) decision layer: typed client, agent tools, entry second opinion, prompt and skill, settings and status chip, on web and Android | minions + frontend-minion + coordinator | done (PR #3); agent seen calling jev_* live |
-| 32 | Native Codex remote compaction, gated to openai-codex/gpt-6.1-sol; Muse and subagents keep text compaction | engineer + coordinator | in progress |
+| 32 | Native Codex remote compaction, gated to openai-codex/gpt-6.2-sol; Muse and subagents keep text compaction | engineer + coordinator | in progress |
 | 33 | Crypto sleeve: capped BTC/ETH skill, gate rules, prompt and docs | minions + coordinator | in progress |
 
 ## Follow-ups

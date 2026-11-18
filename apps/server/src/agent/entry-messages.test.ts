@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Conversation, EntryRecord, LiveState } from "@earendil-works/pi-durable";
+import type { Conversation, EntryRecord, LiveState, WatchCall } from "@earendil-works/pi-durable";
 import type { AgentStatus, ServerEvent } from "@rh/shared";
 import { entryToMessages, TradingAgent } from "./runtime.ts";
 import { HELPER_REPORT_ENTRY_KIND } from "./background-subagents.ts";
@@ -163,14 +163,14 @@ describe("compaction watch presentation", () => {
   it("uses the lead lifecycle, discards stale snapshots, and emits a card only for a committed entry", async () => {
     type Frame = { entries: EntryRecord[]; docs: { "pi.live"?: LiveState } };
     function fakeWatch(initial: Frame): { conversation: Conversation; emit: (frame: Frame) => Promise<void> } {
-      let callback: ((frame: Frame) => Promise<void>) | undefined;
+      let callback: ((call: WatchCall<Frame>) => Promise<void>) | undefined;
       return {
         conversation: {
-          watch: async () => ({ value: initial, start: (listener: (frame: Frame) => Promise<void>) => { callback = listener; } }),
+          watch: async () => ({ value: initial, start: (listener: (call: WatchCall<Frame>) => Promise<void>) => { callback = listener; } }),
         } as unknown as Conversation,
         emit: async (frame) => {
           assert.ok(callback, "watch must be started");
-          await callback(frame);
+          await callback({ kind: "value", value: frame, ops: [], retired: false });
         },
       };
     }

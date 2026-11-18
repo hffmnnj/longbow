@@ -18,7 +18,7 @@ void main() {
     expect(status.settings.mode, TradingMode.auto);
     expect(status.halts, isEmpty);
     expect(status.liveTrading, isTrue);
-    expect(status.models.main, contains('gpt-6.1-sol'));
+    expect(status.models.main, contains('gpt-6.2-sol'));
     expect(status.dayPnl, closeTo(-2.62, 1e-4));
     expect(status.account, isNotNull);
   });

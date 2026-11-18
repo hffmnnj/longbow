@@ -38,7 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ALLOWED_ORIGINS: (env["HARNESS_ORIGINS"] ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== ""),
     DATA_DIR: str(env, "DATA_DIR", join(home, ".local", "share", "robinhood-harness")),
     LIVE_TRADING: env["HARNESS_LIVE_TRADING"] === "1",
-    MAIN_MODEL: parseModelSpec(str(env, "MAIN_MODEL", "openai-codex/gpt-6.1-sol#xhigh")),
+    MAIN_MODEL: parseModelSpec(str(env, "MAIN_MODEL", "openai-codex/gpt-6.2-sol#xhigh")),
     SUBAGENT_MODEL: parseModelSpec(str(env, "SUBAGENT_MODEL", "meta/muse-spark-1.3-contributor#xhigh")),
     MUSE_AUTH_FILE: str(env, "MUSE_AUTH_FILE", join(home, ".config", "muse", "auth.json")),
     EXA_KEY_FILE: str(env, "EXA_KEY_FILE", join(home, ".config", "robinhood-harness", "exa.key")),
@@ -53,7 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
-/** "provider/model#thinking", e.g. "openai-codex/gpt-6.1-sol#xhigh"; thinking defaults to high. */
+/** "provider/model#thinking", e.g. "openai-codex/gpt-6.2-sol#xhigh"; thinking defaults to high. */
 export function parseModelSpec(spec: string): ModelSpec {
   const match = /^([a-z0-9-]+)\/([^#\s]+)(?:#([a-z]+))?$/.exec(spec.trim());
   if (!match) throw new Error(`Invalid model spec "${spec}"; expected provider/model#thinking`);

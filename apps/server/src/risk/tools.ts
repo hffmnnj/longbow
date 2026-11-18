@@ -1,4 +1,4 @@
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { countDayTrades, countSubmittedBuysToday, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import type { Broker, Clock, MarketCalendar, OrderGate, Store } from "../ports.ts";

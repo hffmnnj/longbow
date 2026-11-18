@@ -4,7 +4,8 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Type, type FauxResponseStep, type Message } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { type FauxResponseStep, type Message } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
   fauxAssistantMessage,
@@ -18,8 +19,8 @@ import {
   defineTool,
   Harness,
   MemoryStorage,
-  watchEvents,
   type ConversationId,
+  type TaskGraph,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Logger } from "../ports.ts";
@@ -140,21 +141,20 @@ async function collectChildIds(harness: Harness, rootId: ConversationId): Promis
   stop: () => Promise<void>;
 }> {
   const ids: ConversationId[] = [];
-  const stream = await watchEvents(harness, rootId, context);
-  stream.start(async (events) => {
-    for (const event of events) {
-      const details =
-        event.type === "tool_execution_update"
-          ? (event.details as { conversationId?: unknown } | undefined)
-          : event.type === "tool_execution_end"
-            ? (event.result?.details as { conversationId?: unknown } | undefined)
-            : undefined;
-      if (typeof details?.conversationId === "number" && !ids.includes(details.conversationId as ConversationId)) {
-        ids.push(details.conversationId as ConversationId);
+  const pull = (graph: TaskGraph): void => {
+    for (const node of Object.values(graph.tasks)) {
+      for (const id of node.conversations) {
+        if (id !== rootId && !ids.includes(id)) ids.push(id);
       }
     }
+  };
+  const watch = await harness.watchTaskGraph(context);
+  pull(watch.value);
+  watch.start(async (call) => {
+    if (call.kind !== "value") return;
+    pull(call.value);
   });
-  return { ids, stop: () => stream.stop().then(() => {}) };
+  return { ids, stop: () => watch.stop().then(() => {}) };
 }
 
 describe("subagent delegate tool", () => {

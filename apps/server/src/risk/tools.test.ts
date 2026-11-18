@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { DEFAULT_SETTINGS, type HaltReason, type OrderIntent, type OrderRecord } from "@rh/shared";
 import { createRiskExtension } from "./tools.ts";

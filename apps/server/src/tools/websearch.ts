@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { Logger } from "../ports.ts";
 
