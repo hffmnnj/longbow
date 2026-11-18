@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { SimSuite } from "@rh/shared";
 import type { SimService } from "./runner.ts";

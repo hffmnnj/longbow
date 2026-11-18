@@ -11,7 +11,7 @@ describe("loadConfig", () => {
     assert.equal(config.LIVE_TRADING, false, "live trading is locked unless explicitly unlocked");
     assert.equal(loadConfig({ HARNESS_LIVE_TRADING: "true" }).LIVE_TRADING, false, "only the exact value 1 unlocks");
     assert.equal(loadConfig({ HARNESS_LIVE_TRADING: "1" }).LIVE_TRADING, true);
-    assert.deepEqual(config.MAIN_MODEL, { provider: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "xhigh" });
+    assert.deepEqual(config.MAIN_MODEL, { provider: "openai-codex", modelId: "gpt-6.2-sol", thinkingLevel: "xhigh" });
     assert.deepEqual(config.SUBAGENT_MODEL, { provider: "meta", modelId: "muse-spark-1.3-contributor", thinkingLevel: "xhigh" });
     assert.equal(config.ROBINHOOD_MCP_URL, "https://agent.robinhood.com/mcp/trading");
     assert.match(config.DATA_DIR, /robinhood-harness$/);
@@ -52,8 +52,8 @@ describe("loadConfig", () => {
   });
 
   it("parses model specs and rejects malformed ones", () => {
-    assert.deepEqual(parseModelSpec("openai-codex/gpt-6.1-sol"), { provider: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "high" });
-    assert.throws(() => parseModelSpec("gpt-6.1-sol#xhigh"), /provider\/model/);
+    assert.deepEqual(parseModelSpec("openai-codex/gpt-6.2-sol"), { provider: "openai-codex", modelId: "gpt-6.2-sol", thinkingLevel: "high" });
+    assert.throws(() => parseModelSpec("gpt-6.2-sol#xhigh"), /provider\/model/);
     assert.throws(() => parseModelSpec("meta/muse#extreme"), /thinking level/);
   });
 });

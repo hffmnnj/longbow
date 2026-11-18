@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Context } from "@earendil-works/chord";
-import { Type, type AssistantMessage, type Static, type ThinkingLevel } from "@earendil-works/pi-ai";
+import type { Context } from "@earendil-works/chord/context";
+import { Type, type Static } from "typebox";
+import { type AssistantMessage, type ThinkingLevel } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
   configure,

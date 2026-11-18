@@ -32,8 +32,9 @@ export function nativeCompactionHook(log: Logger): CompactionHooks["beforeCompac
     if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
     try {
       const agent = await api.snapshot(AgentDoc, api.conversationId, context);
-      if (!isNativeModel(agent?.model)) return undefined;
-      const model = api.models.getModel("openai-codex", "gpt-6.1-sol");
+      const ref = agent?.model;
+      if (ref === undefined || !isNativeModel(ref)) return undefined;
+      const model = api.models.getModel(ref.provider, ref.modelId);
       if (model === undefined) throw new Error("model_unavailable");
       const messages = compaction.instructions === undefined ? compaction.messages : [
         ...compaction.messages,

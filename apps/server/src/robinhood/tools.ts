@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, hook, ToolTask, type Extension } from "@earendil-works/pi-durable";
 import type { CallToolResult, Tool } from "@earendil-works/pi-mcp";
 import type { BrokerStatus } from "@rh/shared";

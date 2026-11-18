@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { Type, validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import type { Tool } from "@earendil-works/pi-mcp";
 import type { AccountSnapshot, OrderIntent, OrderRecord, Position, Quote } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { createMuseProvider } from "pi-muse-code-adapter";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import {
   createRegistry,
@@ -21,6 +20,7 @@ import { CODEMODE_TOOL_NAME, createCodemodeExtension, type CodemodeNamespace } f
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import type { AgentStatus, ChatMessage, CycleKind, StatusResponse, ToolCallSummary } from "@rh/shared";
 import type { AgentControl, Clock, Config, EventBus, Logger, ModelSpec } from "../ports.ts";
+import { codexProvider } from "./codex-models.ts";
 import { nativeCompactionExtension, withCompactionReplay } from "../compaction/index.ts";
 import { HELPER_REPORT_ENTRY_KIND } from "./background-subagents.ts";
 import {
@@ -273,7 +273,7 @@ export class TradingAgent implements AgentControl {
     const credentials = new FileCredentialStore(this.deps.credentialFile ?? credentialFilePath(config.DATA_DIR));
     const models = createModels({ credentials });
     models.setProvider(withCompactionReplay(createMuseProvider({ providerId: "meta", useCliAuth: false })));
-    models.setProvider(withCompactionReplay(openaiCodexProvider()));
+    models.setProvider(withCompactionReplay(codexProvider()));
     const main = await this.resolveMainModel(credentials);
     this.activeModel = main;
     const registry = createRegistry();
@@ -619,7 +619,9 @@ export class TradingAgent implements AgentControl {
       this.maybePublishStatus();
     };
     updateCompaction(watch.value.docs["pi.live"] as LiveState | undefined);
-    watch.start(async (value) => {
+    watch.start(async (call) => {
+      if (call.kind !== "value") return;
+      const value = call.value;
       for (const entry of value.entries) {
         const id = String(entry.id);
         if (seenEntryIds.has(id)) continue;

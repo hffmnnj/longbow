@@ -76,10 +76,10 @@ background update check. Web Settings also shows the latest release and APK down
 - Roll back: `git checkout <previous commit> && bun install && bun run build:web && systemctl --user restart robinhood-harness`.
 - Muse sign-in expired (agent shows "needs login"): run `muse` to sign in again; the server re-seeds from
   `~/.config/muse/auth.json` on the next start.
-- Models: the main agent runs `MAIN_MODEL` (default `openai-codex/gpt-6.1-sol#xhigh`, ChatGPT sign-in) and subagents
+- Models: the main agent runs `MAIN_MODEL` (default `openai-codex/gpt-6.2-sol#xhigh`, ChatGPT sign-in) and subagents
   run `SUBAGENT_MODEL` (default `meta/muse-spark-1.3-contributor#xhigh`). Without a ChatGPT login the main agent falls
   back to the subagent model and logs a warning.
-- This installation currently overrides the main model to `openai-codex/gpt-6.1-sol#high` in the local env file as a responsiveness trial. Compare observed cycle latency and decision quality before retaining it; an initial SSE frame is not a measurement of model or browser latency. Risk settings and live-trading controls are unchanged by this trial.
+- This installation currently overrides the main model to `openai-codex/gpt-6.2-sol#high` in the local env file as a responsiveness trial. Compare observed cycle latency and decision quality before retaining it; an initial SSE frame is not a measurement of model or browser latency. Risk settings and live-trading controls are unchanged by this trial.
 - ChatGPT sign-in (missing or expired): in `apps/server`, run `node scripts/codex-login.ts`, open the URL and code it
   writes to `codex-login-status.txt` in the system temp directory, then `systemctl --user restart robinhood-harness`. It is
   the harness's own login, separate from OpenCode's, because OpenAI refresh tokens are single use.

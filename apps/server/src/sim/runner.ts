@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
 import { DEFAULT_SETTINGS, SimRunConfigSchema, type Bar, type ChatMessage, type CycleKind, type JournalEntry, type OrderRecord, type Settings, type SimRun, type SimRunConfigInput } from "@rh/shared";
 import type { Config, EventBus, Logger, MarketCalendar, MarketData, SkillLibrary } from "../ports.ts";

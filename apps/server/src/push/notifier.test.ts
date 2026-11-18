@@ -72,7 +72,7 @@ function statusResponse(
 ): StatusResponse {
   return {
     liveTrading: false,
-    models: { main: "openai-codex/gpt-6.1-sol#xhigh", subagents: "meta/muse-spark-1.3-contributor#xhigh" },
+    models: { main: "openai-codex/gpt-6.2-sol#xhigh", subagents: "meta/muse-spark-1.3-contributor#xhigh" },
     agent: { state: agentState, model: "muse-spark" },
     broker: { state: brokerState, tools: [] },
     market: {

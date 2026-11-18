@@ -1,4 +1,4 @@
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
 import type { Notes, SkillLibrary } from "../ports.ts";
 

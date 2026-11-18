@@ -4,17 +4,17 @@ import { zstdDecompressSync } from "node:zlib";
 import { BACKGROUND_CONTEXT as CTX } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore, type Message } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
 import { createRegistry, Harness, MemoryStorage, type Conversation } from "@earendil-works/pi-durable";
 import type { Logger } from "../ports.ts";
 import { encodeCheckpoint, FALLBACK, replayPayload } from "./checkpoint.ts";
 import { nativeCompactionExtension, withCompactionReplay } from "./index.ts";
+import { codexProvider } from "../agent/codex-models.ts";
 import { compactRemotely } from "./remote.ts";
 
 const item = { type: "compaction" as const, encrypted_content: "opaque-test-only" };
 const messages: Message[] = [{ role: "user", content: "Remember the test portfolio.", timestamp: 1 }];
-const modelRef = { provider: "openai-codex", modelId: "gpt-6.1-sol" };
+const modelRef = { provider: "openai-codex", modelId: "gpt-6.2-sol" };
 const wrapped = (summary: string): string => `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${summary}\n</summary>`;
 const markerMessage = (summary: string) => ({ role: "user", content: [{ type: "input_text", text: wrapped(summary) }] });
 
@@ -56,7 +56,7 @@ async function testModels(fakeFetch?: typeof fetch) {
   await credentials.modify("openai-codex", async () => ({ type: "oauth", access: `test.${claims}.test`, refresh: "test", expires: Date.now() + 3_600_000 }));
   await credentials.modify("meta", async () => ({ type: "oauth", access: `test.${claims}.test`, refresh: "test", expires: Date.now() + 3_600_000 }));
   const models = createModels({ credentials });
-  const provider = withCompactionReplay(openaiCodexProvider());
+  const provider = withCompactionReplay(codexProvider());
   models.setProvider(fakeFetch === undefined ? provider : {
     ...provider,
     streamSimple(model, context, options) {
@@ -75,7 +75,7 @@ test("remote request uses Codex Responses, a final compaction trigger, and valid
     requests++;
     assert.equal(String(url), "https://chatgpt.com/backend-api/codex/responses");
     const body = await requestBody(init);
-    assert.equal(body["model"], "gpt-6.1-sol");
+    assert.equal(body["model"], "gpt-6.2-sol");
     assert.equal(body["store"], false);
     assert.equal(body["stream"], true);
     assert.deepEqual(body["input"], [
@@ -105,7 +105,7 @@ for (const [name, response] of [
 test("replay replaces only the exact wrapped summary and preserves later inputs without mutating stored text", () => {
   const summary = encodeCheckpoint(item);
   const later = { role: "user", content: [{ type: "input_text", text: "Continue" }] };
-  const payload = { model: "gpt-6.1-sol", input: [markerMessage(summary), later] };
+  const payload = { model: "gpt-6.2-sol", input: [markerMessage(summary), later] };
   assert.deepEqual(replayPayload(payload, true), { ...payload, input: [item, later] });
   assert.equal(payload.input[0]?.content[0]?.text, wrapped(summary));
   assert.deepEqual(replayPayload(payload, false), { ...payload, input: [markerMessage(`${FALLBACK}\n${FALLBACK}`), later] });
@@ -182,7 +182,7 @@ for (const scenario of ["native", "network failure", "invalid response", "meta",
     registry.install(nativeCompactionExtension(log));
     const harness = await Harness.open(new MemoryStorage(), { models, registry, settings: { compaction: { enabled: false, keepRecentTokens: 50 } } }, CTX);
     try {
-      const root = await harness.root(CTX, { agent: { model: scenario === "meta" ? { ...modelRef, provider: "meta" } : scenario === "other codex model" ? { ...modelRef, modelId: "gpt-5.5" } : modelRef } });
+      const root = await harness.root(CTX, { agent: { model: scenario === "meta" ? { ...modelRef, provider: "meta" } : scenario === "other codex model" ? { ...modelRef, modelId: "gpt-6.1-terra" } : modelRef } });
       const conversation = scenario === "child" ? await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: modelRef } }, CTX) : root;
       await populate(conversation);
       const task = await conversation.compact(undefined, CTX);

@@ -119,7 +119,7 @@ To run it as a service, copy `ops/robinhood-harness.service` to `~/.config/syste
 
 ### Models
 
-The lead agent defaults to `openai-codex/gpt-6.1-sol` at `xhigh` reasoning through its own ChatGPT sign-in (`node apps/server/scripts/codex-login.ts`), and subagents default to `meta/muse-spark-1.3-contributor` through a Muse CLI login. Both are overridable with `MAIN_MODEL` and `SUBAGENT_MODEL` in `provider/model#thinking` form. Without a ChatGPT login the lead falls back to the subagent model. On `gpt-6.1-sol`, long conversations compact natively through Codex's own compaction item; every other model, including Muse, uses regular text summaries.
+The lead agent defaults to `openai-codex/gpt-6.2-sol` at `xhigh` reasoning through its own ChatGPT sign-in (`node apps/server/scripts/codex-login.ts`), and subagents default to `meta/muse-spark-1.3-contributor` through a Muse CLI login. Both are overridable with `MAIN_MODEL` and `SUBAGENT_MODEL` in `provider/model#thinking` form. Without a ChatGPT login the lead falls back to the subagent model. On `gpt-6.2-sol`, long conversations compact natively through Codex's own compaction item; every other model, including Muse, uses regular text summaries.
 
 ### Configuration
 

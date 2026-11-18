@@ -1,7 +1,8 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { SubagentRun } from "@rh/shared";
 import { awaitWithContext } from "@earendil-works/chord/context";
-import { Type, type AssistantMessage, type Static, type ThinkingLevel } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
+import { type AssistantMessage, type ThinkingLevel } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
   configure,

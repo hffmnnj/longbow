@@ -2,8 +2,12 @@ import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import type { Models, ModelsSimpleStreamOptions } from "@earendil-works/pi-ai/models";
 import { isRecord, replayPayload, validateItem, type CompactionItem } from "./checkpoint.ts";
 
+/** Sol models compact through Codex's own compaction item; 6.1 stays for old checkpoints. */
+const NATIVE_SOL_MODELS: readonly string[] = ["gpt-6.1-sol", "gpt-6.2-sol"];
+
 export function isNativeModel(model: { provider: string; id?: string; modelId?: string } | undefined): boolean {
-  return model?.provider === "openai-codex" && (model.id ?? model.modelId) === "gpt-6.1-sol";
+  if (model?.provider !== "openai-codex") return false;
+  return NATIVE_SOL_MODELS.includes(model.id ?? model.modelId ?? "");
 }
 
 /** Use pi-ai's request construction, OAuth refresh, SSE parser and cancellation rather than duplicating them. */
