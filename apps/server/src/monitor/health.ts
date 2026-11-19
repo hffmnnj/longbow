@@ -168,6 +168,16 @@ export function buildHealthReport(input: HealthInput): HealthReport {
     error("DB_READ_FAILED", `read-only app.sqlite queries failed${input.dbError ? `: ${input.dbError}` : ""}; journal and order counts are unknown.`);
   }
 
+  // The agent can report a non-working state while every cached input still
+  // looks fresh. Report only fixed explanations: lastError is raw provider
+  // text and must never be echoed into this report.
+  const agentState = input.status?.agent.state;
+  if (agentState === "error") {
+    error("AGENT_ERROR", "agent reports an error state; cycles may not complete. Inspect service logs for the raw error; it is intentionally excluded here.");
+  } else if (agentState === "needs_login") {
+    error("AGENT_NEEDS_LOGIN", "agent needs authentication before it can run cycles; no credentials or auth material are included in this report.");
+  }
+
   const settings = input.status?.settings;
   const isOpen = input.status?.market.isOpen ?? false;
   const cycleMinutes = settings === undefined ? 30 : isOpen ? settings.cycleMinutesOpen : settings.cycleMinutesClosed;

@@ -281,6 +281,42 @@ describe("buildHealthReport", () => {
     assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
   });
 
+  it("agent_error_state_breaks_an_otherwise_fresh_report", () => {
+    const status = statusResponse();
+    status.agent.state = "error";
+    status.agent.lastError = "provider raw failure: token=SECRET-RAW-DETAIL";
+    const report = buildHealthReport(baseInput({ status }));
+    assert.equal(report.coverage, "full");
+    assert.equal(report.lastCycle.stale, false);
+    assert.equal(report.ok, false);
+    const finding = report.findings.find((f) => f.code === "AGENT_ERROR");
+    assert.equal(finding?.severity, "error");
+    assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
+    assert.equal(report.findings.filter((f) => f.severity === "error").length, 1);
+    assert.equal(JSON.stringify(report).includes("SECRET-RAW-DETAIL"), false);
+  });
+
+  it("agent_needs_login_is_an_error_not_healthy", () => {
+    const status = statusResponse();
+    status.agent.state = "needs_login";
+    status.agent.lastError = "auth material SECRET-AUTH-DETAIL rejected";
+    const report = buildHealthReport(baseInput({ status }));
+    assert.equal(report.ok, false);
+    const finding = report.findings.find((f) => f.code === "AGENT_NEEDS_LOGIN");
+    assert.equal(finding?.severity, "error");
+    assert.equal(report.findings.some((f) => f.code === "HEALTHY"), false);
+    assert.equal(report.findings.some((f) => f.code === "AGENT_ERROR"), false);
+    assert.equal(JSON.stringify(report).includes("SECRET-AUTH-DETAIL"), false);
+  });
+
+  it("a_running_agent_stays_healthy", () => {
+    const status = statusResponse();
+    status.agent.state = "running";
+    const report = buildHealthReport(baseInput({ status }));
+    assert.equal(report.ok, true);
+    assert.ok(report.findings.some((f) => f.code === "HEALTHY"));
+  });
+
   it("stale_cycle_uses_open_cadence_plus_grace", () => {
     const report = buildHealthReport(baseInput({ status: statusResponse({ lastCycleAt: NOW - 60 * MIN }) }));
     assert.equal(report.lastCycle.stale, true);
