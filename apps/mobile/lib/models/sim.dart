@@ -605,6 +605,7 @@ class SimSuite {
     required this.runs,
     required this.summary,
     this.comparison,
+    this.unverifiedPairs,
     this.finishedAt,
   });
 
@@ -623,6 +624,10 @@ class SimSuite {
   final SimComparison? comparison;
   final int? finishedAt;
 
+  /// Finished pairs left out of [comparison] because their market inputs
+  /// could not be verified as identical. Absent when none were excluded.
+  final int? unverifiedPairs;
+
   SimSuite copyWith({
     String? id,
     int? createdAt,
@@ -632,6 +637,7 @@ class SimSuite {
     List<SimSuiteRunEntry>? runs,
     List<SimSuiteVariantSummary>? summary,
     SimComparison? comparison,
+    int? unverifiedPairs,
     int? finishedAt,
   }) {
     return SimSuite(
@@ -643,6 +649,7 @@ class SimSuite {
       runs: runs ?? this.runs,
       summary: summary ?? this.summary,
       comparison: comparison ?? this.comparison,
+      unverifiedPairs: unverifiedPairs ?? this.unverifiedPairs,
       finishedAt: finishedAt ?? this.finishedAt,
     );
   }

@@ -301,7 +301,7 @@ function cleanReplayCoverageFixture(dataDir: string, sim: ReturnType<typeof crea
   const root = join(dataDir, "sim");
   for (const run of sim.list()) {
     const runDir = join(root, run.id);
-    for (const name of ["run.json", "journal.json", "orders.json", "app.sqlite", "app.sqlite-wal", "app.sqlite-shm"]) {
+    for (const name of ["run.json", "journal.json", "orders.json", "app.sqlite", "app.sqlite-wal", "app.sqlite-shm", "market-fingerprint.json"]) {
       const path = join(runDir, name);
       if (existsSync(path)) unlinkSync(path);
     }
@@ -592,6 +592,15 @@ test("suite bootstrap runs share one source cutoff when a queued run executes on
     assert.deepEqual(doneB.calendar, doneA.calendar, "the shared snapshot produces the same synthetic calendar");
     assert.deepEqual(doneB.aliases, doneA.aliases, "the shared snapshot produces the same alias map");
     assert.deepEqual(doneB.equity.map((point) => point.benchmark), doneA.equity.map((point) => point.benchmark));
+    const aFingerprint = sim.marketFingerprint(a.id);
+    const bFingerprint = sim.marketFingerprint(b.id);
+    assert.ok(aFingerprint !== undefined, "the first suite run must persist an internal market marker");
+    assert.ok(bFingerprint !== undefined, "the queued suite run must persist an internal market marker");
+    assert.match(aFingerprint, /^scenario-v1:[0-9a-f]{64}$/);
+    assert.equal(bFingerprint, aFingerprint,
+      "both runs must hash the same pinned market snapshot despite their different transport dates");
+    assert.equal(JSON.parse(readFileSync(join(dataDir, "sim", a.id, "market-fingerprint.json"), "utf8")), aFingerprint);
+    assert.equal(JSON.parse(readFileSync(join(dataDir, "sim", b.id, "market-fingerprint.json"), "utf8")), bFingerprint);
   } finally {
     await sim.close();
     rmSync(dataDir, { recursive: true, force: true });

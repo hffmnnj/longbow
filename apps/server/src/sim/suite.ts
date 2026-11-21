@@ -13,6 +13,7 @@ import {
 import type { EventBus as Bus, Logger } from "../ports.ts";
 import { scenarioById } from "./scenarios.ts";
 import type { SimStartOptions } from "./runner.ts";
+import { isMarketFingerprint } from "./market-fingerprint.ts";
 
 /**
  * Narrow view of the run service a suite needs.
@@ -22,6 +23,7 @@ export interface SuiteRunner {
   start(config: Omit<SimRunConfigInput, "days"> & { days?: number }, startedBy: "user" | "agent", options?: SimStartOptions): Promise<SimRun>;
   get(id: string): SimRun | undefined;
   stop(id: string): Promise<SimRun | undefined>;
+  marketFingerprint(id: string): string | undefined;
 }
 
 export interface SuiteService {
@@ -156,19 +158,13 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
     deps.bus.publish({ type: "sim_suite", suite: clone(suite) });
   }
 
-  function refresh(suite: SimSuite, updated?: SimRun): void {
-    const byId = new Map<string, SimRun>();
-    for (const entry of suite.runs) {
-      const run = updated?.id === entry.runId ? updated : deps.runner.get(entry.runId);
-      if (run !== undefined) byId.set(entry.runId, run);
-    }
-    suite.summary = suite.config.variants.map((variant) =>
-      summarizeVariant(variant.label, suite.runs.filter((e) => e.variant === variant.label).map((e) => byId.get(e.runId)).filter((r): r is SimRun => r !== undefined)));
+  function refreshComparison(suite: SimSuite, runById: (id: string) => SimRun | undefined, reportedPairs = 0): void {
+    let excluded = 0;
     if (suite.config.variants.length === 2) {
       const [a, b] = suite.config.variants.map((v) => v.label);
       const markets = new Map<string, { a?: SimRun; b?: SimRun }>();
       for (const entry of suite.runs) {
-        const run = byId.get(entry.runId);
+        const run = runById(entry.runId);
         if (run?.status !== "done" || run.metrics === undefined) continue;
         const key = marketKey(entry);
         const pair = markets.get(key) ?? {};
@@ -176,9 +172,22 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
         else if (entry.variant === b) pair.b = run;
         markets.set(key, pair);
       }
-      const diffs = [...markets.values()]
-        .filter((pair): pair is { a: SimRun; b: SimRun } => pair.a !== undefined && pair.b !== undefined)
-        .map((pair) => (pair.b.metrics!.returnPct - pair.b.metrics!.benchmarkReturnPct) - (pair.a.metrics!.returnPct - pair.a.metrics!.benchmarkReturnPct));
+      const diffs: number[] = [];
+      let completePairs = 0;
+      for (const { a: left, b: right } of markets.values()) {
+        if (left?.metrics === undefined || right?.metrics === undefined) continue;
+        completePairs++;
+        const fingerprint = left.config.mode === "historical" ? undefined : deps.runner.marketFingerprint(left.id);
+        if (!isMarketFingerprint(fingerprint) || right.config.mode !== left.config.mode ||
+            fingerprint !== deps.runner.marketFingerprint(right.id)) {
+          excluded++;
+          continue;
+        }
+        diffs.push((right.metrics.returnPct - right.metrics.benchmarkReturnPct) -
+          (left.metrics.returnPct - left.metrics.benchmarkReturnPct));
+      }
+      // Legacy terminal suites can retain a reported comparison after its run files have gone.
+      excluded += Math.max(0, reportedPairs - completePairs);
       suite.comparison = diffs.length === 0 ? undefined : {
         metric: "excessReturnPct",
         meanDiff: diffs.reduce((x, y) => x + y, 0) / diffs.length,
@@ -188,6 +197,19 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
     } else {
       suite.comparison = undefined;
     }
+    if (excluded > 0) suite.unverifiedPairs = excluded;
+    else delete suite.unverifiedPairs;
+  }
+
+  function refresh(suite: SimSuite, updated?: SimRun): void {
+    const byId = new Map<string, SimRun>();
+    for (const entry of suite.runs) {
+      const run = updated?.id === entry.runId ? updated : deps.runner.get(entry.runId);
+      if (run !== undefined) byId.set(entry.runId, run);
+    }
+    suite.summary = suite.config.variants.map((variant) =>
+      summarizeVariant(variant.label, suite.runs.filter((e) => e.variant === variant.label).map((e) => byId.get(e.runId)).filter((r): r is SimRun => r !== undefined)));
+    refreshComparison(suite, (id) => byId.get(id));
     const known = suite.runs.map((e) => byId.get(e.runId));
     if (known.every((r) => r !== undefined && ended(r))) {
       const statuses = known.map((r) => r!.status);
@@ -205,7 +227,11 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
         const suite = JSON.parse(readFileSync(join(root, entry), "utf8")) as SimSuite;
         if (suite.id !== entry.replace(/\.json$/, "")) continue;
         suites.set(suite.id, suite);
-        if (!terminal(suite)) {
+        if (terminal(suite)) {
+          // Preserve the saved record, but don't display a comparison absent match evidence.
+          const reportedPairs = (suite.comparison?.pairs ?? 0) + (suite.unverifiedPairs ?? 0);
+          refreshComparison(suite, (id) => deps.runner.get(id), reportedPairs);
+        } else {
           const before = JSON.stringify(suite);
           if (suite.runs.some((e) => deps.runner.get(e.runId) === undefined)) {
             suite.status = "failed";

@@ -13,11 +13,17 @@ export interface FinishSpec {
   avgR?: number;
   costsPct?: number;
   brier?: number;
+  /** Override the stored market marker; `null` models a run whose marker could not be written. */
+  fingerprint?: string | null;
 }
+
+/** A fixed, valid marker shared by every blind/bootstrap suite run in the fake. */
+const DEFAULT_FINGERPRINT = `scenario-v1:${"0f".repeat(32)}`;
 
 /** In-memory stand-in for the run service: starts runs instantly and finishes them on demand. */
 export class FakeRunner implements SuiteRunner {
   runs = new Map<string, SimRun>();
+  fingerprints = new Map<string, string>();
   started: { config: SimRunConfig; startedBy: "user" | "agent"; options?: { suiteId?: string; variant?: string } }[] = [];
   seq = 0;
   bus: EventBus | undefined;
@@ -40,6 +46,9 @@ export class FakeRunner implements SuiteRunner {
       suiteId: options?.suiteId, variant: options?.variant, status: "queued",
       progress: { day: 0, days: full.days, cycle: 0, cyclesPerDay: full.cyclesPerDay }, equity: [], positions: [], fills: [] };
     this.runs.set(id, run);
+    // Production persists a marker only for a suite's blind/bootstrap markets,
+    // and only once that market snapshot exists; the fake starts with one fixed digest.
+    if (options?.suiteId !== undefined && full.mode !== "historical") this.fingerprints.set(id, DEFAULT_FINGERPRINT);
     this.started.push({ config: full, startedBy, options });
     this.publish(run);
     return structuredClone(run);
@@ -76,8 +85,14 @@ export class FakeRunner implements SuiteRunner {
     run.metrics = metrics;
     run.status = spec.status ?? "done";
     run.finishedAt = Date.now();
+    if (spec.fingerprint === null) this.fingerprints.delete(id);
+    else if (spec.fingerprint !== undefined) this.fingerprints.set(id, spec.fingerprint);
     this.publish(run);
     return structuredClone(run);
+  }
+
+  marketFingerprint(id: string): string | undefined {
+    return this.fingerprints.get(id);
   }
 
   private publish(run: SimRun): void {

@@ -115,6 +115,7 @@ SimSuite _suite(
   SimRunStatus status = SimRunStatus.running,
   List<SimSuiteRunEntry> runs = const [],
   SimComparison? comparison,
+  int? unverifiedPairs,
   List<SimVariant> variants = const [SimVariant(label: 'A')],
 }) =>
     SimSuite(
@@ -136,6 +137,7 @@ SimSuite _suite(
       runs: runs,
       summary: const [],
       comparison: comparison,
+      unverifiedPairs: unverifiedPairs,
     );
 
 void main() {
@@ -446,6 +448,7 @@ void main() {
       List<double> ci95, {
       int pairs = 2,
       SimRunStatus status = SimRunStatus.done,
+      int? unverifiedPairs,
     }) => _suite(
       's',
       status: status,
@@ -459,6 +462,7 @@ void main() {
         ci95: ci95,
         pairs: pairs,
       ),
+      unverifiedPairs: unverifiedPairs,
     );
 
     test('reads a lead plainly without claiming a live edge', () {
@@ -520,6 +524,59 @@ void main() {
     test('is null with no comparison or no pairs', () {
       expect(comparisonReading(_suite('s')), isNull);
       expect(comparisonReading(suite(0.8, [-0.3, 1.9], pairs: 0)), isNull);
+    });
+
+    test('ignores an absent or zero exclusion count', () {
+      expect(
+        comparisonReading(suite(0.8, [-0.3, 1.9], unverifiedPairs: 0)),
+        'B led A by 0.8 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.3 to 1.9. '
+        'Does not establish a live edge.',
+      );
+      expect(unverifiedPairsSentence(null), isNull);
+      expect(unverifiedPairsSentence(0), isNull);
+    });
+
+    test('supplies the display text when every pair was excluded', () {
+      expect(
+        comparisonReading(_suite('s', unverifiedPairs: 3)),
+        '3 completed pairs were excluded: their market data could not be verified as matching.',
+      );
+    });
+
+    test('uses the singular when one pair was excluded', () {
+      expect(
+        unverifiedPairsSentence(1),
+        '1 completed pair was excluded: its market data could not be verified as matching.',
+      );
+      expect(
+        comparisonReading(_suite('s', unverifiedPairs: 1)),
+        '1 completed pair was excluded: its market data could not be verified as matching.',
+      );
+    });
+
+    test('appends one exclusion sentence to verified stats', () {
+      expect(
+        comparisonReading(suite(0.8, [-0.3, 1.9], unverifiedPairs: 3)),
+        'B led A by 0.8 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.3 to 1.9. '
+        'Does not establish a live edge. '
+        '3 completed pairs were excluded: their market data could not be verified as matching.',
+      );
+    });
+
+    test('keeps the running qualifier on the stats when exclusions are appended',
+        () {
+      expect(
+        comparisonReading(
+          suite(0.8, [-0.3, 1.9],
+              status: SimRunStatus.running, unverifiedPairs: 1),
+        ),
+        'So far: B led A by 0.8 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.3 to 1.9. '
+        'Does not establish a live edge. '
+        '1 completed pair was excluded: its market data could not be verified as matching.',
+      );
     });
   });
 

@@ -29,6 +29,7 @@ import { calculateMetrics } from "./metrics.ts";
 import { assertReplayBenchmarkCoverage, etInstant, tradingDays } from "./path.ts";
 import { scenarioById } from "./scenarios.ts";
 import { buildScenarioMarket, createStaticSectorDirectory, type ScenarioMarket } from "./scenario-market.ts";
+import { isMarketFingerprint, marketFingerprint } from "./market-fingerprint.ts";
 import { jsonValue } from "./json.ts";
 
 export interface SimStartOptions {
@@ -46,6 +47,7 @@ export interface SimService {
   messages(id: string, limit: number, conversationId?: string): Promise<ChatMessage[]>;
   journal(id: string): JournalEntry[];
   orders(id: string): OrderRecord[];
+  marketFingerprint(id: string): string | undefined;
   close(): Promise<void>;
   defaultStartDate(days: number): Promise<string>;
 }
@@ -237,6 +239,11 @@ export function createSimService(deps: SimServiceDeps): SimService {
       now = etInstant(simDays[0]!, 9);
     }
     if (run.status !== "running") return; // A stop may have arrived while loading market data.
+    if (scenario !== undefined && run.suiteId !== undefined && run.seed !== undefined) {
+      const fingerprint = await marketFingerprint(scenario, run.seed, run.config);
+      if (run.status !== "running") return;
+      if (fingerprint !== undefined) atomic(join(runDir, "market-fingerprint.json"), fingerprint);
+    }
     const store = openStore(join(runDir, "app.sqlite"), clock);
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
     store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
@@ -503,6 +510,15 @@ export function createSimService(deps: SimServiceDeps): SimService {
     },
     journal(id) { return artifacts.get(id)?.journal() ?? readJson<JournalEntry[]>(join(dir(id), "journal.json"), []); },
     orders(id) { return artifacts.get(id)?.orders() ?? readJson<OrderRecord[]>(join(dir(id), "orders.json"), []); },
+    marketFingerprint(id) {
+      if (!runs.has(id)) return undefined;
+      try {
+        const fingerprint = readJson<unknown>(join(dir(id), "market-fingerprint.json"), undefined);
+        return isMarketFingerprint(fingerprint) ? fingerprint : undefined;
+      } catch {
+        return undefined;
+      }
+    },
     async close() {
       closed = true;
       const running = [...active];

@@ -887,7 +887,7 @@ export const SimVariantSchema = z.object({
 });
 export type SimVariant = z.infer<typeof SimVariantSchema>;
 
-/** A batch: every variant runs on every scenario and every bootstrap seed, so variants are compared on identical markets. */
+/** A batch: every variant runs on every specified scenario and bootstrap seed. */
 export const SimSuiteConfigSchema = z.object({
   name: z.string().min(1).max(80),
   scenarios: z.array(z.string().min(1).max(40)).max(12).default([]),
@@ -937,6 +937,8 @@ export interface SimSuite {
   summary: SimSuiteVariantSummary[];
   /** With two variants: B minus A on excess return over paired markets, with a bootstrap 95% interval. */
   comparison?: { metric: "excessReturnPct"; meanDiff: number; ci95: [number, number]; pairs: number };
+  /** Completed pairs omitted because their market inputs could not be verified as identical. */
+  unverifiedPairs?: number;
   finishedAt?: number;
 }
 
