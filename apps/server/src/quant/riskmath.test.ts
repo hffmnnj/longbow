@@ -12,7 +12,8 @@ import {
 } from "./riskmath.ts";
 
 function dated(returns: number[]): DatedReturn[] {
-  return returns.map((r, i) => ({ date: `2024-01-${String(i + 1).padStart(2, "0")}`, r }));
+  return returns.map((r, i) => ({ from: i === 0 ? "2023-12-31" : `2024-01-${String(i).padStart(2, "0")}`,
+    date: `2024-01-${String(i + 1).padStart(2, "0")}`, r }));
 }
 
 describe("correlationMatrix", () => {
@@ -63,7 +64,7 @@ describe("alignLast", () => {
     const { dates, matrix } = alignLast(
       new Map([
         ["A", dated([0.01, 0.02, 0.03])],
-        ["B", [...dated([0.05, 0.06]), { date: "2024-01-04", r: 0.07 }]],
+        ["B", [...dated([0.05, 0.06]), { from: "2024-01-02", date: "2024-01-04", r: 0.07 }]],
       ]),
       ["A", "B"],
       10,

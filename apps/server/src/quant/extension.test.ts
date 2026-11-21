@@ -180,6 +180,21 @@ describe("quant extension", () => {
     assert.ok(Math.abs((trial.candidate?.deltaBeta ?? NaN) - 0.02) < 1e-9, "identical returns imply 0.02 more beta at 2% weight");
   });
 
+  it("portfolio_risk cannot pair a return spanning a missing session with a one-session return", async () => {
+    const complete = [100, 120, 100, 110, 99].map((close, i) => ({
+      date: `2026-11-${10 + i}`, open: close, high: close, low: close, close, volume: 1_000_000,
+    }));
+    const market = { ...fakeMarket(), history: async (symbol: string) => ({
+      symbol, bars: symbol === "NVDA" ? complete.filter((_, i) => i !== 1) : complete, source: "fixture", asOf: 0,
+    }) };
+    const tool = createQuantExtension(deps({ market })).tools?.find((t) => t.name === "portfolio_risk");
+    assert.ok(tool);
+    const result = await tool.execute({}, API, CTX);
+    const data = (result as { structuredOutput: { beta: number; stress: { date: string }[] } }).structuredOutput;
+    assert.ok(Math.abs(data.beta - 0.5) < 1e-12, `only perfectly tracking returns at a 50% weight: ${data.beta}`);
+    assert.deepEqual(data.stress.map((p) => p.date), ["2026-11-13", "2026-11-14"]);
+  });
+
   it("portfolio_risk_does_not_treat_an_unpriced_holding_as_cash", async () => {
     const market = fakeMarket();
     const history = market.history;

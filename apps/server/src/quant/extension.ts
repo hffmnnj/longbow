@@ -8,6 +8,7 @@ import {
   alignLast,
   annualizedVol,
   correlationMatrix,
+  datedReturns,
   portfolioBeta,
   portfolioSeries,
   varEs95,
@@ -16,7 +17,7 @@ import {
 } from "./riskmath.ts";
 import { computeSize } from "./sizing.ts";
 import { UNIVERSE_SECTORS } from "./universe.ts";
-import { atr, dailyReturns } from "../market/indicators.ts";
+import { atr } from "../market/indicators.ts";
 
 export interface QuantDeps {
   market: MarketData;
@@ -412,7 +413,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "the top pairwise correlation, portfolio beta and annualized volatility on 1y of " +
       "daily returns at current weights, 1-day 95% historical VaR and expected shortfall, sector concentration " +
       "against the risk cap, and a stress replay of the benchmark's five worst days in the past year. " +
-      "With a candidate, compares the portfolio with and without the candidate on the same overlapping dates " +
+      "With a candidate, compares the portfolio with and without the candidate on matching return intervals " +
       "and reports its highest correlation with another holding. The base portfolio readout does not change. " +
       "A portfolio addition uses current cash only; it does not assume a sale or borrowing. " +
       "Portfolio metrics are unavailable when a holding has no usable return history.",
@@ -453,7 +454,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
         else missing.push(f.symbol);
       }
       const rets = new Map<string, DatedReturn[]>();
-      for (const [s, bars] of bySymbol) rets.set(s, dailyReturns(bars));
+      for (const [s, bars] of bySymbol) rets.set(s, datedReturns(bars));
 
       if (!account || positions.length === 0) {
         const note = fundingNote !== undefined
@@ -476,14 +477,9 @@ export function createQuantExtension(deps: QuantDeps): Extension {
             }),
           };
         }
-        const cRed = rets.get(candidate.symbol) ?? [];
-        const bRet = rets.get(benchmark) ?? [];
-        const common = new Map(bRet.map((p) => [p.date, p.r] as const));
-        const paired = cRed.filter((p) => common.has(p.date));
-        const cVec = paired.map((p) => p.r);
-        const bVec = paired.map((p) => common.get(p.date) ?? 0);
-        const year = cVec.slice(-252);
-        const yearB = bVec.slice(-252);
+        const { matrix } = alignLast(rets, [...new Set([candidate.symbol, benchmark])], 252);
+        const year = matrix.get(candidate.symbol) ?? [];
+        const yearB = matrix.get(benchmark) ?? [];
         const betaV = portfolioBeta(year, yearB);
         const vol = annualizedVol(year);
         const ve = varEs95(year);
