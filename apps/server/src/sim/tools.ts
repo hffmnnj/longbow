@@ -35,7 +35,7 @@ export function comparisonReading(suite: SimSuite): string {
 
 export function createSimToolsExtension({ sim, suites }: { sim: SimService; suites?: SuiteService }): Extension {
   return defineExtension({ name: "simulations", tools: [
-    defineTool({ name: "sim_start", description: "Test a strategy with a full Muse agent and the order gate in an accelerated historical paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. Historical earnings schedules are not point-in-time, and model memory can contaminate results. Use sim_suite_start for paired price-only comparisons across blind scenarios and bootstrap markets.",
+    defineTool({ name: "sim_start", description: "Test a strategy with a Muse agent and the order gate in an accelerated paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. Historical mode blocks new entries when earnings blackout is enabled because point-in-time schedules are unavailable. Blind and bootstrap modes are price-only and do not evaluate the earnings blackout. Prefer them for strategy tests and use sim_suite_start for paired comparisons.",
       parameters: Type.Object({ days: Type.Integer({ minimum: 1, maximum: 20 }), startDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
         scenario: Type.Optional(Type.String()), mode: Type.Optional(ModeParam), seed: Type.Optional(Type.Integer({ minimum: 0, maximum: 2147483647 })),
         execution: Type.Optional(ExecutionParam), model: Type.Optional(ModelParam),
@@ -70,7 +70,7 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
       async execute() {
         return { output: [{ type: "text", text: JSON.stringify(SCENARIOS) }], structuredOutput: jsonValue(SCENARIOS) };
       } }),
-    defineTool({ name: "sim_suite_start", description: "Compare up to two variants (A against B) on the same markets. Each variant receives the same blind scenarios and seeded bootstrap markets. To test one change, vary only that factor; model, risk and strategy can all affect results. Agent suites hold at most 8 runs and default to the cheaper subagent model.",
+    defineTool({ name: "sim_suite_start", description: "Compare up to two variants (A against B) on the same markets. Blind and seeded bootstrap runs are price-only; they do not evaluate earnings blackout. Historical runs block new entries when earnings blackout is enabled because point-in-time schedules are unavailable. To test one change, vary only that factor. Agent suites hold at most 8 runs and default to the cheaper subagent model.",
       parameters: Type.Object({ name: Type.String({ minLength: 1, maxLength: 80 }),
         scenarios: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 12 })),
         bootstrapRuns: Type.Optional(Type.Integer({ minimum: 0, maximum: 10 })),

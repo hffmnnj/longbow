@@ -246,6 +246,11 @@
             </ToggleGroup.Item>
           {/each}
         </ToggleGroup.Root>
+        {#if mode === "historical"}
+          <p class="text-muted-foreground text-[12px] leading-snug">Historical can't verify the earnings schedule. If earnings blackout is on, new entries are blocked.</p>
+        {:else}
+          <p class="text-muted-foreground text-[12px] leading-snug">Price-only replay: earnings blackout is not evaluated.</p>
+        {/if}
       </div>
 
       {#if !bootstrap && scenarioId === null}

@@ -123,8 +123,11 @@ async function fetchMarketInputs(
   symbol: string,
 ): Promise<MarketInputs> {
   if (market === undefined) return { marketDataAvailable: false };
+  const nextEarnings = market.earningsCoverage === undefined
+    ? withTimeout(market.nextEarnings(symbol), MARKET_DATA_TIMEOUT_MS)
+    : Promise.resolve(undefined);
   const [earnings, volume] = await Promise.all([
-    withTimeout(market.nextEarnings(symbol), MARKET_DATA_TIMEOUT_MS).then(
+    nextEarnings.then(
       (value) => ({ ok: true as const, value }),
       () => ({ ok: false as const, value: undefined as string | undefined }),
     ),
@@ -391,6 +394,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         ...(marketInputs.nextEarningsDate === undefined
           ? {}
           : { nextEarningsDate: marketInputs.nextEarningsDate }),
+        ...(marketData?.earningsCoverage === undefined ? {} : { earningsCoverage: marketData.earningsCoverage }),
         ...(marketInputs.avgDollarVolume20 === undefined
           ? {}
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
@@ -613,6 +617,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         ...(marketInputs.nextEarningsDate === undefined
           ? {}
           : { nextEarningsDate: marketInputs.nextEarningsDate }),
+        ...(marketData?.earningsCoverage === undefined ? {} : { earningsCoverage: marketData.earningsCoverage }),
         ...(marketInputs.avgDollarVolume20 === undefined
           ? {}
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),

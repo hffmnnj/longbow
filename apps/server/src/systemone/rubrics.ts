@@ -40,7 +40,8 @@ export interface CandidateFeatures {
   above200?: boolean;
   /** Recent volume against its average. */
   volumeRatio?: number;
-  earningsDaysAway?: number;
+  /** Null means unavailable; undefined means no report was found. */
+  earningsDaysAway?: number | null;
   /** Expected reward over risk, e.g. 2 means 2 to 1. */
   rewardRisk?: number;
 }
@@ -82,7 +83,7 @@ export function candidateRubric(features: CandidateFeatures): { state: Candidate
       volatility: atrBand(features.atrPct),
       momentum: rsiBand(features.rsi14),
       volume: volumeBand(features.volumeRatio),
-      earnings: earningsBand(features.earningsDaysAway),
+      earnings: features.earningsDaysAway === null ? "unknown" : earningsBand(features.earningsDaysAway),
       reward_to_risk: rewardToRiskBand(features.rewardRisk),
     },
   };

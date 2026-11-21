@@ -386,9 +386,9 @@ export function createSystemOneExtension(deps: SystemOneToolsDeps): Extension {
       }
       const fetched = await mapPool(symbols, 4, async (symbol) => {
         const bars = await fetchBars(deps, symbol, "2y");
-        let earnings: string | undefined;
+        let earnings: string | null | undefined;
         try {
-          earnings = await deps.market.nextEarnings(symbol);
+          earnings = deps.market.earningsCoverage === undefined ? await deps.market.nextEarnings(symbol) : null;
         } catch {
           earnings = undefined;
         }
@@ -427,7 +427,7 @@ export function createSystemOneExtension(deps: SystemOneToolsDeps): Extension {
             above50: sma50 === undefined || last === undefined ? undefined : last > sma50,
             above200: sma200 === undefined || last === undefined ? undefined : last > sma200,
             volumeRatio: avg5 === undefined || avg20 === undefined || avg20 <= 0 ? undefined : avg5 / avg20,
-            earningsDaysAway: tradingDaysAway(deps.clock.now(), f.earnings),
+            earningsDaysAway: f.earnings === null ? null : tradingDaysAway(deps.clock.now(), f.earnings),
           },
         });
       }

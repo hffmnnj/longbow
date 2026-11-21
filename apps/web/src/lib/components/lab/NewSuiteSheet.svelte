@@ -185,7 +185,11 @@
               </ToggleGroup.Item>
             {/each}
           </ToggleGroup.Root>
-          <p class="text-muted-foreground text-[12px] leading-snug">Blind is recommended: it hides dates and tickers so memory cannot help.</p>
+          {#if scenarioMode === "historical"}
+            <p class="text-muted-foreground text-[12px] leading-snug">Historical can't verify the earnings schedule. If earnings blackout is on, new entries are blocked.</p>
+          {:else}
+            <p class="text-muted-foreground text-[12px] leading-snug">Blind is recommended: it hides dates and tickers. Price-only replay: earnings blackout is not evaluated.</p>
+          {/if}
         </div>
       {/if}
 

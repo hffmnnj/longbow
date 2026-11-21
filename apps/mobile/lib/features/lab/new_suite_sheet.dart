@@ -281,7 +281,9 @@ class _NewSuiteFormState extends ConsumerState<NewSuiteForm> {
         if (_picked.isNotEmpty)
           FormBlock(
             label: 'Scenarios run',
-            note: 'Blind is recommended: it hides dates and tickers so memory cannot help.',
+            note: _scenarioMode == ScenarioMode.historical
+                ? "Historical can't verify the earnings schedule. If earnings blackout is on, new entries are blocked."
+                : 'Blind hides dates and tickers; earnings blackout is not evaluated.',
             child: LbSegmented<ScenarioMode>(
               semanticLabel: 'Scenarios run',
               selected: _scenarioMode,

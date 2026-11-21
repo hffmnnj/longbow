@@ -200,6 +200,7 @@ export class MarketStore {
   }
 
   async nextEarnings(symbol: string): Promise<string | undefined> {
+    if (this.deps.asOf !== undefined) throw new Error("Point-in-time earnings schedules are unavailable.");
     const anchor = this.cutoff();
     const horizon = new Date(`${anchor}T12:00:00Z`).getTime() + 30 * 86_400_000;
     try {
@@ -226,6 +227,7 @@ export class MarketStore {
 export function createMarketData(deps: MarketDataDeps): MarketData {
   const store = new MarketStore(deps);
   return {
+    ...(deps.asOf === undefined ? {} : { earningsCoverage: "historical_unavailable" as const }),
     history: (symbol, range, options) => store.history(symbol, range, options),
     nextEarnings: (symbol) => store.nextEarnings(symbol),
     avgDollarVolume: (symbol, days) => store.avgDollarVolume(symbol, days),
@@ -236,12 +238,12 @@ export function createMarketData(deps: MarketDataDeps): MarketData {
  * Point-in-time view over any `MarketData` implementation for a simulated
  * ET date: `history` counts the range back from asOf over a longer (5y)
  * underlying fetch and drops every bar after asOf; `avgDollarVolume` uses
- * the last `days` bars on or before asOf; `nextEarnings` delegates to the
- * base, so pass an as-of-aware base (e.g. a `MarketStore` built with `asOf`,
- * or the `market_earnings` tool) for historical replay.
+ * the last `days` bars on or before asOf. The base earnings lookup cannot
+ * establish what was scheduled at that cutoff and is never called.
  */
 export function createPointInTimeMarketData(base: MarketData, asOf: () => string): MarketData {
   return {
+    earningsCoverage: "historical_unavailable",
     history: async (symbol, range) => {
       const cutoff = asOf();
       const underlying = await base.history(symbol, "5y");
@@ -250,7 +252,7 @@ export function createPointInTimeMarketData(base: MarketData, asOf: () => string
       const window = bars.length > want ? bars.slice(bars.length - want) : bars;
       return { symbol, bars: window, source: underlying.source, asOf: endOfEtDateMs(cutoff) };
     },
-    nextEarnings: (symbol) => base.nextEarnings(symbol),
+    nextEarnings: async () => undefined,
     avgDollarVolume: async (symbol, days) => {
       const cutoff = asOf();
       const underlying = await base.history(symbol, "5y");

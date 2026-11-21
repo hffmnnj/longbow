@@ -170,6 +170,8 @@ export interface OrderGate {
 
 /** Free public market data (Nasdaq daily bars and earnings calendar), cached under `${DATA_DIR}/cache`. */
 export interface MarketData {
+  /** When set by a replay, the schedule is unavailable or outside the scope of the scenario. */
+  readonly earningsCoverage?: "historical_unavailable" | "price_only";
   /** For reports, fetch and cache separately until the requested session's close is present. */
   history(symbol: string, range: HistoryRange, options?: { requireCloseOn: string }): Promise<PriceHistory>;
   /** Next scheduled earnings date (ET, YYYY-MM-DD) within the next 30 days, or undefined when none is found. */

@@ -272,8 +272,20 @@ describe("createPointInTimeMarketData", () => {
     assert.equal(got, want);
   });
 
-  it("delegates_next_earnings_to_the_base", async () => {
-    assert.equal(await pit.nextEarnings("SPY"), "2025-05-01");
+  it("declares_historical_coverage_and_never_asks_the_base_for_earnings", async () => {
+    let earningsCalls = 0;
+    const base: MarketData = {
+      history: async (symbol) => ({ symbol, bars: bars.map((b) => ({ ...b })), source: "fake", asOf: 0 }),
+      nextEarnings: async () => {
+        earningsCalls += 1;
+        return "2025-05-01";
+      },
+      avgDollarVolume: async () => undefined,
+    };
+    const covered = createPointInTimeMarketData(base, () => ASOF);
+    assert.equal(covered.earningsCoverage, "historical_unavailable");
+    assert.equal(await covered.nextEarnings("SPY"), undefined);
+    assert.equal(earningsCalls, 0);
   });
 });
 
@@ -334,16 +346,18 @@ describe("MarketStore_point_in_time", () => {
     assert.deepEqual(await store.barsBetween("SPY", "2025-04-30", "2025-03-01"), []);
   });
 
-  it("next_earnings_searches_forward_from_asof", async () => {
+  it("next_earnings_rejects_asof_replay_without_a_vendor_call", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "pit-earn-"));
+    const calls: string[] = [];
     const store = new MarketStore({
       dataDir,
       log: silent,
       clock: fixedClock(Date.parse("2026-10-24T12:00:00Z")),
       asOf: () => ASOF,
-      fetchImpl: fakeFetchImpl(marketRoutes()),
+      fetchImpl: fakeFetchImpl(marketRoutes(), calls),
     });
-    assert.equal(await store.nextEarnings("AAPL"), "2025-04-20");
+    await assert.rejects(() => store.nextEarnings("AAPL"), /Point-in-time earnings schedules are unavailable/);
+    assert.equal(calls.length, 0);
   });
 
   it("avg_dollar_volume_uses_bars_on_or_before_asof", async () => {
