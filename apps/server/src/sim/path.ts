@@ -92,10 +92,6 @@ function gaussian(rng: () => number): () => number {
   };
 }
 
-function clamp(value: number, low: number, high: number): number {
-  return Math.min(high, Math.max(low, value));
-}
-
 /** One bridge segment between two pinned anchors, scaled to stay strictly inside (low, high). */
 function bridgeInto(prices: number[], fromIdx: number, fromPrice: number, toIdx: number, toPrice: number,
   range: number, gauss: () => number, low: number, high: number): void {
@@ -127,13 +123,14 @@ function buildRealisticPath(bar: Bar, symbol: string, seed: number, close: numbe
   const count = Math.max(3, Math.round((close - open) / (5 * 60_000)));
   const step = (close - open) / count;
   const at = (i: number): number => open + i * step;
-  const low = Math.min(bar.low, bar.high);
-  const high = Math.max(bar.low, bar.high);
+  // Even an inconsistent vendor range must not silently replace the quoted open or close.
+  const reportedLow = Math.min(bar.low, bar.high);
+  const reportedHigh = Math.max(bar.low, bar.high);
+  const low = Math.min(reportedLow, bar.open, bar.close);
+  const high = Math.max(reportedHigh, bar.open, bar.close);
   if (!(high > low)) {
     return Array.from({ length: count + 1 }, (_, i) => ({ at: at(i), price: bar.open }));
   }
-  const start = clamp(bar.open, low, high);
-  const end = clamp(bar.close, low, high);
   const rng = mulberry32(hashSeed(`${seed}|${symbol}|${bar.date}`));
   const lowFirst = rng() < (bar.close >= bar.open ? 0.65 : 0.35);
   let first = 1 + Math.floor(rng() * (count - 1));
@@ -145,7 +142,10 @@ function buildRealisticPath(bar: Bar, symbol: string, seed: number, close: numbe
   const highIdx = lowFirst ? Math.max(first, second) : Math.min(first, second);
   const gauss = gaussian(rng);
   const prices = new Array<number>(count + 1);
-  const anchors: Array<[number, number]> = [[0, start], [lowIdx, low], [highIdx, high], [count, end]];
+  const anchors: Array<[number, number]> = [[0, bar.open], [count, bar.close]];
+  // An expanded extreme is already observed at an endpoint, not separately inside the session.
+  if (low === reportedLow) anchors.push([lowIdx, low]);
+  if (high === reportedHigh) anchors.push([highIdx, high]);
   anchors.sort((a, b) => a[0] - b[0]);
   for (let s = 0; s < anchors.length - 1; s++) {
     const from = anchors[s]!;
@@ -157,9 +157,9 @@ function buildRealisticPath(bar: Bar, symbol: string, seed: number, close: numbe
 
 /**
  * Seeded Brownian bridge through a session: starts at the open, ends at the
- * close, and touches the high and the low exactly once each (at seeded
- * interior points, low first with a direction-weighted draw). Stays within
- * the bar's high and low. The stream derives from seed, symbol and date, and
+ * close, and draws a visit to each extreme at seeded interior points.
+ * An inconsistent high/low is expanded only enough to include observed endpoints.
+ * The stream derives from seed, symbol and date, and
  * the path is cached, so a symbol and date always map to the same path.
  */
 export function realisticPath(bar: Bar, symbol: string, seed: number, close = etInstant(bar.date, 16)): { at: number; price: number }[] {
