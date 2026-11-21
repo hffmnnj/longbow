@@ -1,6 +1,6 @@
 import type { RiskConfig } from "@rh/shared";
 
-export type SizeBound = "risk" | "position" | "notional" | "buying_power" | "none";
+export type SizeBound = "risk" | "position" | "sector" | "notional" | "buying_power" | "none";
 
 export type SizeCheck = {
   rule: string;
@@ -33,6 +33,7 @@ export type SizeInputs = {
   buyingPower: number;
   settledCash?: number;
   existingMarketValue: number;
+  sectorExposure?: { name: string; marketValue: number };
   risk: RiskConfig;
 }
 
@@ -46,14 +47,14 @@ function money(v: number): string {
 
 /**
  * Long position sizing mirroring the risk engine's entry rules. Quantity is
- * floored to 6 decimals, then capped by the max position percent, the max
- * order notional, effective buying power (the smaller of buying power and a
+ * floored to 6 decimals, then capped by position and known sector exposure,
+ * max order notional, effective buying power (the smaller of buying power and a
  * settled-cash mark when given), and the max risk per trade. A requested
  * riskPct above maxRiskPerTradePct is clamped and named in the check detail.
  * Pure: no network, no clock.
  */
 export function computeSize(input: SizeInputs): SizeResult | { error: string } {
-  const { symbol, entry, riskPct, equity, buyingPower, settledCash, existingMarketValue, risk } = input;
+  const { symbol, entry, riskPct, equity, buyingPower, settledCash, existingMarketValue, sectorExposure, risk } = input;
   if (!(entry > 0)) return { error: "entry must be positive" };
   if (!(equity > 0)) return { error: "equity must be positive" };
   let stop = input.stop;
@@ -73,6 +74,7 @@ export function computeSize(input: SizeInputs): SizeResult | { error: string } {
   const qRisk = floorQty(riskAllowance / rPerShare);
   const positionAllowance = (equity * risk.maxPositionPct) / 100;
   const qPosition = floorQty(Math.max(0, (positionAllowance - existingMarketValue) / entry));
+  const sectorAllowance = equity * (risk.maxSectorPct / 100);
   const qNotional = floorQty(risk.maxOrderNotionalUsd / entry);
   const cashBound = settledCash === undefined ? buyingPower : Math.min(buyingPower, settledCash);
   const qPower = floorQty(cashBound / entry);
@@ -80,6 +82,7 @@ export function computeSize(input: SizeInputs): SizeResult | { error: string } {
   const candidates: { bound: SizeBound; qty: number }[] = [
     { bound: "risk", qty: qRisk },
     { bound: "position", qty: qPosition },
+    ...(sectorExposure === undefined ? [] : [{ bound: "sector" as const, qty: floorQty(Math.max(0, (sectorAllowance - sectorExposure.marketValue) / entry)) }]),
     { bound: "notional", qty: qNotional },
     { bound: "buying_power", qty: qPower },
   ];
@@ -115,6 +118,12 @@ export function computeSize(input: SizeInputs): SizeResult | { error: string } {
         `existing ${money(existingMarketValue)} + order ${money(notional)} = ${money(existingMarketValue + notional)} ` +
         `vs ${money(positionAllowance)} (${risk.maxPositionPct}% of equity ${money(equity)})`,
     },
+    ...(sectorExposure === undefined ? [] : [{
+      rule: "sector",
+      ok: sectorExposure.marketValue + notional <= sectorAllowance,
+      detail: `${sectorExposure.name} exposure ${money(sectorExposure.marketValue)} + order ${money(notional)} ` +
+        `vs ${money(sectorAllowance)} (${risk.maxSectorPct}% of equity)`,
+    }]),
     {
       rule: "notional_cap",
       ok:
