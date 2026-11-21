@@ -75,6 +75,27 @@ describe("breakout_20d", () => {
   });
 });
 
+describe("daily trailing stops", () => {
+  it("does not use a session's eventual high to stop at that session's earlier open", () => {
+    const bars = mkBars([...new Array(20).fill(100), 102, 111, 99], {
+      opens: [...new Array(20).fill(100), 102, 102, 99],
+      highs: [...new Array(20).fill(100.5), 102.5, 112, 100],
+      lows: [...new Array(20).fill(99.5), 101.5, 101, 98],
+    });
+    const result = runBacktest(new Map([["AAA", bars]]), {
+      entry: "breakout_20d", exit: { stopAtr: 5, trailAtr: 2, timeStopDays: 20 }, years: 1, costBps: 0,
+    });
+    const trade = result.symbols[0]?.lastTrades[0];
+    assert.equal(result.symbols[0]?.trades, 1);
+    assert.ok(trade);
+    assert.equal(trade.entryPrice, 102);
+    assert.equal(trade.exitDate, "2024-01-23");
+    assert.equal(trade.exitPrice, 99);
+    assert.equal(trade.exitReason, "trail");
+    assert.ok(trade.pnlR < 0);
+  });
+});
+
 describe("costs_and_r_accounting", () => {
   it("subtracts_costs_per_side_from_pnl_and_returns", () => {
     const flat = new Array(20).fill(100);

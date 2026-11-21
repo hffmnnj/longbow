@@ -355,7 +355,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
           stopAtr: Type.Optional(Type.Number({ description: "Stop distance in ATR multiples.", minimum: 0.1, maximum: 20 })),
           targetR: Type.Optional(Type.Number({ description: "Profit target in R multiples.", minimum: 0.1, maximum: 50 })),
           timeStopDays: Type.Optional(Type.Number({ description: "Sessions then exit at the close.", minimum: 1, maximum: 252 })),
-          trailAtr: Type.Optional(Type.Number({ description: "Trailing stop in ATR multiples.", minimum: 0.1, maximum: 20 })),
+          trailAtr: Type.Optional(Type.Number({ description: "Trailing stop in ATR multiples; highs from completed sessions ratchet it for the next session.", minimum: 0.1, maximum: 20 })),
         }),
       ),
       years: Type.Optional(Type.Number({ description: "Lookback in years, 1 to 5; default 3.", minimum: 1, maximum: 5 })),

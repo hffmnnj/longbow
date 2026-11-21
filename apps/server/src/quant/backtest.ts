@@ -23,7 +23,7 @@ export type BacktestExit = {
   targetR?: number;
   /** Sessions after entry, then exit at the close. */
   timeStopDays: number;
-  /** Optional trailing stop in ATR multiples, ratcheted from the highest high since entry. */
+  /** Optional trailing stop in ATR multiples, ratcheted for the next session after each bar. */
   trailAtr?: number;
 }
 
@@ -243,11 +243,10 @@ export function runBacktest(
         continue;
       }
       const target = exit.targetR === undefined ? undefined : entryPrice + exit.targetR * risk;
-      let high = entryBar.high;
+      let high = entryPrice;
       let done: BacktestTrade | undefined;
       for (let j = i + 1; j < bars.length; j++) {
         const bar = bars[j]!;
-        if (bar.high > high) high = bar.high;
         let effStop = stop;
         let reason: ExitReason = "stop";
         if (exit.trailAtr !== undefined) {
@@ -290,6 +289,9 @@ export function runBacktest(
           i = j + 1;
           break;
         }
+        // Daily OHLC does not tell us whether today's high came before its
+        // low. Only ratchet after this session's exit checks are complete.
+        high = Math.max(high, bar.high);
       }
       if (done === undefined) {
         // Still open at the end of history: close at the last close ("end").
