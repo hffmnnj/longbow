@@ -62,6 +62,9 @@ describe("breakout_20d", () => {
     assert.equal(trade.exitReason, "stop");
     assert.equal(trade.exitPrice, 98);
     assert.ok(trade.pnlR < 0);
+    // One losing close still draws down from the zero starting point.
+    assert.equal(result.pooled.trades, 1);
+    assert.equal(result.pooled.maxDrawdownR, trade.pnlR);
   });
 
   it("exits_a_failed_breakout_at_the_time_stop_close", () => {
@@ -154,6 +157,44 @@ describe("pooled_stats", () => {
     assert.ok(result.pooled.maxDrawdownR !== undefined && result.pooled.maxDrawdownR <= 0);
     assert.ok(result.pooled.buyHoldReturn !== undefined);
     assert.ok(result.symbols.every((s) => s.lastTrades.length <= 5));
+  });
+
+  it("drawdown_uses_one_net_total_for_same_day_exits_whatever_the_symbol_order", () => {
+    const signal = [...new Array(20).fill(100), 102];
+    // Both fill at 101 on the signal's next open and time-stop at that same day's close.
+    const winner = mkBars([...signal, 102], { opens: [...new Array(21).fill(100), 101] });
+    const loser = mkBars([...signal, 99.5], {
+      opens: [...new Array(21).fill(100), 101],
+      highs: [...new Array(20).fill(100.5), 102.5, 101.5],
+      lows: [...new Array(20).fill(99.5), 101.5, 99.1],
+    });
+    const run = (entries: Map<string, Bar[]>) =>
+      runBacktest(entries, {
+        entry: "breakout_20d",
+        exit: { stopAtr: 2, timeStopDays: 1 },
+        years: 3,
+        costBps: 0,
+      });
+
+    const forward = run(new Map([["WIN", winner], ["LOSS", loser]]));
+    const reverse = run(new Map([["LOSS", loser], ["WIN", winner]]));
+
+    assert.equal(forward.pooled.trades, 2);
+    for (const trade of forward.pooled.lastTrades) {
+      assert.equal(trade.exitDate, "2024-01-22");
+      assert.equal(trade.exitReason, "time");
+    }
+    const winR = forward.pooled.lastTrades.find((t) => t.symbol === "WIN")?.pnlR;
+    const lossR = forward.pooled.lastTrades.find((t) => t.symbol === "LOSS")?.pnlR;
+    assert.ok(winR !== undefined);
+    assert.ok(lossR !== undefined);
+    assert.ok(winR > 0 && lossR < 0, `expected one winner and one loser, got ${winR} and ${lossR}`);
+    const dayR = winR + lossR;
+    assert.ok(dayR < 0, `expected the day to net a loss, got ${dayR}R`);
+    // Both close on the same date, so the trough is that day's net loss,
+    // not the first trade's excursion nor a function of insertion order.
+    assert.equal(forward.pooled.maxDrawdownR, dayR);
+    assert.equal(reverse.pooled.maxDrawdownR, dayR);
   });
 });
 

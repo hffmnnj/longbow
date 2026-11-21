@@ -151,7 +151,7 @@ const symbolBacktestSchema = Type.Object({
   avgR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
   expectancyR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
   profitFactor: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
-  maxDrawdownR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  maxDrawdownR: Type.Optional(numOrNull("Drawdown of cumulative closed trade R by exit date; not marked portfolio equity.")),
   avgHoldingDays: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
   timeInvestedPct: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
   buyHoldReturn: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
@@ -171,7 +171,7 @@ const backtestSchema = Type.Object({
     avgR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     expectancyR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     profitFactor: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
-    maxDrawdownR: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+    maxDrawdownR: Type.Optional(numOrNull("Drawdown of cumulative closed trade R by exit date; not marked portfolio equity.")),
     avgHoldingDays: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     timeInvestedPct: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     buyHoldReturn: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
@@ -339,7 +339,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "Deterministic rule backtest over daily bars: signals use the signal day's close and fill at the " +
       "next open (no look-ahead); stops and targets fill at the open on gap-through bars; one position per " +
       "symbol; costs applied per side. Reports per-symbol and pooled trades, win rate, average R, expectancy, " +
-      "profit factor, max drawdown in R, holding days, time invested, buy-and-hold, and the last five trades. " +
+      "profit factor, closed-trade drawdown in R by exit date, holding days, time invested, buy-and-hold, and the last five trades. " +
       "Under 30 pooled trades the result is suggestive, not conclusive. Prices are raw and unadjusted; " +
       "open-to-prior-close moves of at least 35% are flagged in the pooled warning as possibly unadjusted " +
       "corporate actions, but this heuristic cannot catch every such event.",
@@ -397,7 +397,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       const text =
         `${entry} ${years}y costs ${costBps}bps/side: ${p.trades} pooled trades, ` +
         `win rate ${fmtPct(p.winRate)} avgR ${fmtNum(p.avgR)} expectancy ${fmtNum(p.expectancyR)}R ` +
-        `profit factor ${fmtNum(p.profitFactor)} maxDD ${fmtNum(p.maxDrawdownR)}R ` +
+        `profit factor ${fmtNum(p.profitFactor)} closed maxDD ${fmtNum(p.maxDrawdownR)}R ` +
         `avg hold ${fmtNum(p.avgHoldingDays, 1)}d invested ${fmtNum(p.timeInvestedPct, 1)}% ` +
         `buy-hold ${fmtPct(p.buyHoldReturn)}` +
         (missing.length === 0 ? "" : ` (no data: ${missing.join(", ")})`) +
