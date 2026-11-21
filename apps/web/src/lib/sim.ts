@@ -236,6 +236,13 @@ export function metricGroups(run: SimRun): MetricGroup[] {
   if (n) {
     risk.push({ label: "Return", pnl: n.returnPct });
     risk.push({ label: "Vs benchmark", pnl: n.returnPct - n.benchmarkReturnPct, sub: `SPY ${n.benchmarkReturnPct.toFixed(1)}%` });
+    // Second, neutral yardstick: cash at the start, then market exposure
+    // matched to the prior close. Optional until the server sends it; older
+    // runs without the field show nothing. True 0 must still display.
+    const exposureRaw = (m as (SimMetrics & { priorCloseExposureBenchmarkReturnPct?: unknown }) | undefined)
+      ?.priorCloseExposureBenchmarkReturnPct;
+    const exposure = typeof exposureRaw === "number" && Number.isFinite(exposureRaw) ? exposureRaw : undefined;
+    if (exposure !== undefined) risk.push({ label: "Exposure-matched market", pnl: exposure });
   }
   if (m?.alphaPct !== undefined) risk.push({ label: "Alpha", pnl: m.alphaPct });
   if (m?.beta !== undefined) risk.push({ label: "Beta", text: m.beta.toFixed(2) });

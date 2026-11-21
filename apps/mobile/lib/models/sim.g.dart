@@ -157,6 +157,8 @@ SimMetrics _$SimMetricsFromJson(Map<String, dynamic> json) => SimMetrics(
       ) ??
       {},
   feesPaid: (json['feesPaid'] as num?)?.toDouble(),
+  priorCloseExposureBenchmarkReturnPct:
+      (json['priorCloseExposureBenchmarkReturnPct'] as num?)?.toDouble(),
 );
 
 SimProgress _$SimProgressFromJson(Map<String, dynamic> json) => SimProgress(

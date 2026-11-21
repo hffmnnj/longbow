@@ -173,7 +173,13 @@ export function simFixtures(now = Date.now()): SimRun[] {
     equity: doneEq,
     positions: POSITIONS,
     fills: doneFills,
-    metrics: metricsFrom(doneEq, 1200, doneFills, 3, { max_positions: 2, sector: 1 }),
+    // Browser QA target: completed fixture with the exposure-matched yardstick
+    // (illustrative 0.9, not computed). sim-defensive stays without the field
+    // to cover legacy runs.
+    metrics: {
+      ...metricsFrom(doneEq, 1200, doneFills, 3, { max_positions: 2, sector: 1 }),
+      priorCloseExposureBenchmarkReturnPct: 0.9,
+    } as SimMetrics,
     finishedAt: now - 3 * 3_600_000 + 31 * 60_000,
   };
 

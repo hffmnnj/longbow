@@ -247,6 +247,7 @@ class SimMetrics {
     required this.costsPct,
     required this.riskBlocks,
     this.feesPaid,
+    this.priorCloseExposureBenchmarkReturnPct,
   });
 
   factory SimMetrics.fromJson(Map<String, dynamic> json) =>
@@ -317,6 +318,10 @@ class SimMetrics {
 
   /// Regulatory fees alone, dollars (included in costsPaid).
   final double? feesPaid;
+
+  /// Exposure-matched market yardstick, percent: cash at the start, then
+  /// market exposure matched to the prior close. Older stored runs omit it.
+  final double? priorCloseExposureBenchmarkReturnPct;
 }
 
 @JsonSerializable(createToJson: false)

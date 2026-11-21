@@ -270,6 +270,44 @@ describe("metricGroups", () => {
     });
     expect(metricGroups(noFees).find((g) => g.title === "Costs")!.rows.map((r) => r.label)).not.toContain("Fees");
   });
+  it("shows the exposure-matched yardstick right after Vs benchmark when present", () => {
+    const r = run("a", {
+      equity: [point("1", 1100)],
+      metrics: {
+        ...baseMetrics,
+        returnPct: 5,
+        benchmarkReturnPct: 1,
+        priorCloseExposureBenchmarkReturnPct: 0.9,
+      } as SimMetrics,
+    });
+    const risk = metricGroups(r).find((g) => g.title === "Return and risk")!;
+    expect(risk.rows.find((x) => x.label === "Vs benchmark")).toEqual({
+      label: "Vs benchmark",
+      pnl: 4,
+      sub: "SPY 1.0%",
+    });
+    expect(risk.rows.find((x) => x.label === "Exposure-matched market")).toEqual({
+      label: "Exposure-matched market",
+      pnl: 0.9,
+    });
+    const labels = risk.rows.map((x) => x.label);
+    expect(labels.indexOf("Exposure-matched market")).toBe(labels.indexOf("Vs benchmark") + 1);
+  });
+  it("displays a true zero exposure but hides legacy runs without the field", () => {
+    const zero = run("a", {
+      equity: [point("1", 1100)],
+      metrics: { ...baseMetrics, priorCloseExposureBenchmarkReturnPct: 0 } as SimMetrics,
+    });
+    expect(metricGroups(zero).find((g) => g.title === "Return and risk")!.rows.find((x) => x.label === "Exposure-matched market")).toEqual({
+      label: "Exposure-matched market",
+      pnl: 0,
+    });
+    const legacy = run("b", { equity: [point("1", 1100)], metrics: { ...baseMetrics } });
+    expect(metricGroups(legacy).find((g) => g.title === "Return and risk")!.rows.map((r) => r.label)).not.toContain(
+      "Exposure-matched market",
+    );
+    expect(metricGroups(run("z")).flatMap((g) => g.rows).map((r) => r.label)).not.toContain("Exposure-matched market");
+  });
 });
 
 describe("fillCost", () => {

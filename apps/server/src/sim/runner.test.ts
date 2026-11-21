@@ -276,6 +276,11 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     assert.equal(sells[0]!.at, etInstant(dates[2]!, 9, 30));
     assert.ok(sells[0]!.price < 90 && sells[0]!.price > 89);
     assert.equal(sim.orders(run.id).find((o) => o.id === protectionId)?.status, "filled");
+    const firstClose = result.equity[0]!;
+    // 0.5 × $100 held at the first close; the proxy carries that exposure into the next session's 10% gap.
+    const expectedProxy = -10 * 50 / firstClose.equity;
+    const saved = JSON.parse(readFileSync(join(dataDir, "sim", run.id, "run.json"), "utf8")) as SimRun;
+    assert.ok(Math.abs((saved.metrics?.priorCloseExposureBenchmarkReturnPct ?? NaN) - expectedProxy) < 1e-9);
   } finally {
     await sim.close();
     rmSync(dataDir, { recursive: true, force: true });

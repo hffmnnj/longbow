@@ -84,6 +84,7 @@ SimMetrics _metrics({
   double costsPct = 0,
   double? feesPaid,
   double? brier,
+  double? priorCloseExposureBenchmarkReturnPct,
   Map<String, int> riskBlocks = const {},
 }) =>
     SimMetrics(
@@ -107,6 +108,7 @@ SimMetrics _metrics({
       avgHoldingDays: avgHoldingDays,
       feesPaid: feesPaid,
       brier: brier,
+      priorCloseExposureBenchmarkReturnPct: priorCloseExposureBenchmarkReturnPct,
     );
 
 SimSuite _suite(
@@ -411,6 +413,58 @@ void main() {
             .rows
             .map((r) => r.label),
         isNot(contains('Fees')),
+      );
+    });
+
+    test('shows the exposure-matched yardstick right after Vs benchmark when present',
+        () {
+      final r = _run('a',
+          equity: [_point('1', 1100)],
+          metrics: _metrics(
+            returnPct: 5,
+            benchmarkReturnPct: 1,
+            priorCloseExposureBenchmarkReturnPct: 0.9,
+          ));
+      final risk =
+          metricGroups(r).firstWhere((g) => g.title == 'Return and risk');
+      expect(
+        risk.rows.firstWhere((x) => x.label == 'Vs benchmark'),
+        const MetricRow(
+            label: 'Vs benchmark', pnl: 4, sub: 'SPY 1.0%'),
+      );
+      expect(
+        risk.rows.firstWhere((x) => x.label == 'Exposure-matched market'),
+        const MetricRow(label: 'Exposure-matched market', pnl: 0.9),
+      );
+      final labels = risk.rows.map((x) => x.label).toList();
+      expect(labels.indexOf('Exposure-matched market'),
+          labels.indexOf('Vs benchmark') + 1);
+    });
+
+    test('displays a true zero exposure but hides legacy runs without the field',
+        () {
+      final zero = _run('a',
+          equity: [_point('1', 1100)],
+          metrics: _metrics(priorCloseExposureBenchmarkReturnPct: 0));
+      expect(
+        metricGroups(zero)
+            .firstWhere((g) => g.title == 'Return and risk')
+            .rows
+            .firstWhere((x) => x.label == 'Exposure-matched market'),
+        const MetricRow(label: 'Exposure-matched market', pnl: 0),
+      );
+      final legacy = _run('a',
+          equity: [_point('1', 1100)], metrics: _metrics());
+      expect(
+        metricGroups(legacy)
+            .firstWhere((g) => g.title == 'Return and risk')
+            .rows
+            .map((r) => r.label),
+        isNot(contains('Exposure-matched market')),
+      );
+      expect(
+        metricGroups(_run('z')).expand((g) => g.rows).map((r) => r.label),
+        isNot(contains('Exposure-matched market')),
       );
     });
   });

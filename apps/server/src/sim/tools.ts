@@ -60,7 +60,7 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
         const result = { id: run.id, status: run.status, estimatedMinutes: (args.days * (args.cyclesPerDay ?? 2) + 1) * 2 };
         return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: jsonValue(result) };
       } }),
-    defineTool({ name: "sim_results", description: "Read simulation progress, risk-adjusted metrics, equity, fills and the last five journal decisions. Simulations are synthetic paths, not reliable predictions of live performance.",
+    defineTool({ name: "sim_results", description: "Read simulation progress, risk-adjusted metrics, equity, fills and the last five journal decisions. The optional priorCloseExposureBenchmarkReturnPct starts in cash and weights each later market return by the account's previous closing exposure, without trading costs. Use it as context, not as attribution or trade-selection alpha. Simulations are not reliable predictions of live performance.",
       parameters: Type.Object({ id: Type.String() }), replay: "safe",
       structuredOutputSchema: Type.Object({ id: Type.String(), status: Type.String(), progress: Type.Any(), metrics: Type.Any(), equity: Type.Any(), fills: Type.Array(Type.Any()), journal: Type.Array(Type.String()), error: Type.Union([Type.String(), Type.Null()]) }),
       async execute({ id }) {
