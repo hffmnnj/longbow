@@ -256,6 +256,34 @@ describe("quant extension", () => {
     assert.ok(size.checks.some((c) => c.rule === "sector" && c.ok));
   });
 
+  it("size_position reserves working paper buys without double-counting their cash reservation", async () => {
+    const { getAccount } = deps();
+    const committed = [{ symbol: "MSFT", quantity: 8, limitPrice: 100, sector: "Other" }];
+    const d = deps({
+      getRisk: () => ({ ...DEFAULT_RISK, maxSectorPct: 59, maxOrderNotionalUsd: 2_000 }),
+      sectorOf: () => "Technology Services",
+    });
+    const size = async (symbol: string, pending: boolean, power: number, maxPositionPct = DEFAULT_RISK.maxPositionPct) => {
+      const extension = createQuantExtension({
+        ...d,
+        getRisk: () => ({ ...d.getRisk(), maxPositionPct }),
+        getAccount: async () => ({ ...(await getAccount())!, buyingPower: power, settledCash: power }),
+        ...(pending ? { openBuyCommitments: () => committed } : {}),
+      });
+      const tool = extension.tools?.find((t) => t.name === "size_position");
+      assert.ok(tool);
+      const result = await tool.execute({ symbol, entry: 100, stop: 99 }, API, CTX);
+      return (result as { structuredOutput: { quantity: number; boundBy: string } }).structuredOutput;
+    };
+    const reserved = await size("MSFT", true, 850);
+    assert.equal(reserved.quantity, 1, "$5,000 held plus $800 working leaves $100 of the sector cap; $850 cash already net");
+    assert.equal(reserved.boundBy, "sector");
+    assert.equal((await size("MSFT", false, 1_000)).quantity, 9, "without a commitment, held exposure determines headroom");
+    const sameName = await size("MSFT", true, 1_000, 8.5);
+    assert.equal(sameName.quantity, 0.5, "same-name commitments also count against the position cap");
+    assert.equal(sameName.boundBy, "position");
+  });
+
   it("size_position_rejects_a_bad_stop", async () => {
     const ext = createQuantExtension(deps());
     const tool = ext.tools?.find((t) => t.name === "size_position");
