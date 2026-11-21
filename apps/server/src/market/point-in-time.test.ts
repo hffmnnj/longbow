@@ -572,21 +572,24 @@ describe("market_tools_point_in_time", () => {
     }
   });
 
-  it("economic_calendar_refuses_future_dates_and_blanks_actual_on_asof", async () => {
-    const { ext } = setup(() => ASOF);
-    const future = await callTool(ext, "market_economic_calendar", { date: "2025-04-09" });
-    assert.equal(future.isError, true);
-    assert.ok(textOf(future).includes("not available in the simulation yet"));
-    assert.ok(textOf(future).startsWith(`As of ${ASOF}: `));
-    const on = await callTool(ext, "market_economic_calendar", { date: ASOF });
-    assert.equal(on.isError, undefined);
-    const onEvents = (on.structuredOutput as unknown as { events: Record<string, unknown>[] }).events;
-    assert.equal(onEvents.length, 1);
-    assert.ok(!("actual" in (onEvents[0] as object)));
-    assert.equal(onEvents[0]?.["consensus"], "0.2%");
-    const before = await callTool(ext, "market_economic_calendar", { date: "2025-04-01" });
-    const beforeEvents = (before.structuredOutput as unknown as { events: Record<string, unknown>[] }).events;
-    assert.equal(beforeEvents[0]?.["actual"], "0.3%");
+  it("live economic calendar retains the US row and historical replay never fetches retrospective rows", async () => {
+    const calls: string[] = [];
+    const { ext: historical } = setup(() => ASOF, { calls });
+    for (const date of [ASOF, "2025-04-01", "2025-04-09"]) {
+      const result = await callTool(historical, "market_economic_calendar", { date });
+      assert.equal(result.isError, true, date);
+      assert.match(textOf(result), /Point-in-time economic calendar unavailable/);
+      assert.equal(result.structuredOutput, undefined, date);
+    }
+    assert.deepEqual(calls, [], "a vendor snapshot with no as-of vintage is never a replay input");
+
+    const { ext: live } = setup(undefined, { calls });
+    const result = await callTool(live, "market_economic_calendar", { date: ASOF });
+    assert.equal(result.isError, undefined);
+    const { events } = result.structuredOutput as unknown as { events: Record<string, unknown>[] };
+    assert.deepEqual(events.map(({ country, actual, consensus, previous }) => ({ country, actual, consensus, previous })),
+      [{ country: "United States", actual: "0.3%", consensus: "0.2%", previous: "0.1%" }]);
+    assert.equal(calls.length, 1);
   });
 
   it("volatility_truncates_the_series_at_asof", async () => {

@@ -117,7 +117,7 @@ function paperTools(broker: PaperBroker, calendar: MarketCalendar, now: () => nu
 }
 
 function historicalPrompt(strategy: string | undefined): string {
-  return "This is a historical paper-account simulation. The simulated date is in each cycle. Web search and Robinhood tools are unavailable to prevent look-ahead. Use sim_quote for current prices and sim_orders to confirm fills and account state; sim_cancel_order cancels resting orders. Historical indicators exclude today's incomplete bar. Point-in-time earnings schedules are unavailable, so the order gate blocks new entries when earnings blackout is enabled. Never use remembered future events or prices.\n" + (strategy ?? "");
+  return "This is a historical paper-account simulation. The simulated date is in each cycle. Web search and Robinhood tools are unavailable to prevent look-ahead. Use sim_quote for current prices and sim_orders to confirm fills and account state; sim_cancel_order cancels resting orders. Historical indicators exclude today's incomplete bar. Point-in-time earnings schedules are unavailable, so the order gate blocks new entries when earnings blackout is enabled. The economic calendar is unavailable; do not assume there are no releases. Never use remembered future events or prices.\n" + (strategy ?? "");
 }
 
 function scenarioPrompt(scenario: ScenarioMarket, strategy: string | undefined): string {
