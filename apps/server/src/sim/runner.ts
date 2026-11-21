@@ -172,7 +172,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
       bars = (symbol: string): Promise<Bar[]> => {
         let promise = history.get(symbol);
         if (promise === undefined) {
-          const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
+          // Give the paper broker room for 20 prior returns (21 closes),
+          // including weekends and exchange holidays, before the first scored quote.
+          const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 45 * 86_400_000).toISOString().slice(0, 10);
           // Fetch through today for Nasdaq compatibility, but retain the historical path privately.
           promise = fetchBars(symbol, from, todayStr); history.set(symbol, promise);
         }

@@ -322,6 +322,73 @@ function cleanReplayCoverageFixture(dataDir: string, sim: ReturnType<typeof crea
   rmdirSync(dataDir);
 }
 
+/** Regular NYSE sessions in [from, to]; weekends and holidays come from the exchange calendar. */
+function regularSessionDates(from: string, to: string): string[] {
+  const calendar = createNyseCalendar();
+  const dates: string[] = [];
+  for (let at = Date.parse(`${from}T12:00:00Z`); ; at += 86_400_000) {
+    const date = new Date(at).toISOString().slice(0, 10);
+    if (date > to) break;
+    if (calendar.clock(etInstant(date, 12)).tradingDay === date) dates.push(date);
+  }
+  return dates;
+}
+
+test("historical execution warmup quotes from the full 20-session average dollar volume", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-execution-warmup-");
+  const tradeDate = "2026-09-01";
+  const sessions = regularSessionDates("2026-07-01", "2026-10-30");
+  const tradeIndex = sessions.indexOf(tradeDate);
+  assert.ok(tradeIndex >= 20, "the fixture needs 20 regular sessions before the trade date");
+  const fetchedSymbols = new Set<string>();
+  // Flat $100 bars: the latest 10 prior sessions trade 1M shares, the 10 before
+  // them 4M, so the 20-session average dollar volume is $250M (5 bp half-spread)
+  // while a window truncated to the latest 10 sees only $100M (15 bp).
+  const barsFor = (symbol: string, from: string, to: string): Bar[] => {
+    fetchedSymbols.add(symbol);
+    assert.ok(symbol === "SPY" || symbol === "AAPL", `unexpected history request for ${symbol}`);
+    return sessions.filter((date) => date >= from && date <= to).map((date) => {
+      const prior = tradeIndex - sessions.indexOf(date);
+      const volume = prior >= 11 && prior <= 20 ? 4_000_000 : 1_000_000;
+      return { date, open: 100, high: 100, low: 100, close: 100, volume };
+    });
+  };
+  let paper: PaperBroker | undefined;
+  const quotes: { symbol: string; at: number; last: number; ask: number }[] = [];
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills, calendar: createNyseCalendar(),
+    fetchBars: async (symbol, from, to) => barsFor(symbol, from, to),
+    buildExtensions: ({ broker }) => { paper = broker; return []; },
+    driver: async (run, ctx) => {
+      if (ctx.kind !== "intraday" || run.progress.cycle !== 1) return;
+      for (const symbol of ["SPY", ...ctx.symbols]) {
+        const quote = await paper!.quote(symbol);
+        quotes.push({ symbol, at: quote.at, last: quote.last, ask: quote.ask });
+      }
+    },
+  });
+  try {
+    const run = await sim.start({ startDate: tradeDate, days: 1, startingCash: 1200, cyclesPerDay: 2,
+      watchlist: ["AAPL"], execution: "realistic" }, "user");
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error ?? "execution warmup replay did not finish");
+    assert.deepEqual(done.equity.map((point) => point.date), [tradeDate]);
+    assert.deepEqual([...fetchedSymbols].sort(), ["AAPL", "SPY"], "every symbol must source history from the deterministic fixture");
+    assert.deepEqual(quotes.map((quote) => quote.symbol), ["SPY", "AAPL"]);
+    for (const quote of quotes) {
+      assert.equal(quote.at, etInstant(tradeDate, 10, 15));
+      assert.equal(quote.last, 100);
+      assert.equal(quote.ask, 100.05,
+        `${quote.symbol} ask must use the 20-session $250M average dollar volume, not the truncated 10-session $100M`);
+    }
+    assert.deepEqual(sim.orders(run.id), [], "measuring execution quotes must not submit an order");
+    assert.deepEqual(done.fills, []);
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
 test("missing SPY history rejects a historical replay instead of shifting to the next session", async () => {
   const dataDir = mkdtempSync("/tmp/sim-missing-spy-history-");
   const missing = "2026-04-20"; // Monday after Friday 2026-04-17; a regular NYSE session.
