@@ -1,4 +1,4 @@
-import type { SimMetrics, SimRun, SimRunConfig } from "@rh/shared";
+import { DEFAULT_SETTINGS, type SimMetrics, type SimRun, type SimRunConfig } from "@rh/shared";
 import type { EventBus } from "../ports.ts";
 import type { SuiteRunner } from "./suite.ts";
 
@@ -30,6 +30,10 @@ export class FakeRunner implements SuiteRunner {
 
   constructor(bus?: EventBus) {
     this.bus = bus;
+  }
+
+  captureBaseSettings() {
+    return structuredClone(DEFAULT_SETTINGS);
   }
 
   async start(

@@ -12,13 +12,13 @@ import {
 } from "@rh/shared";
 import type { EventBus as Bus, Logger } from "../ports.ts";
 import { scenarioById } from "./scenarios.ts";
-import type { SimStartOptions } from "./runner.ts";
+import type { SimService, SimStartOptions } from "./runner.ts";
 import { isMarketFingerprint } from "./market-fingerprint.ts";
 
 /**
  * Narrow view of the run service a suite needs.
  */
-export interface SuiteRunner {
+export interface SuiteRunner extends Pick<SimService, "captureBaseSettings"> {
   /** Scenario runs omit `days`/`startDate`: the runner resolves them from the scenario library. */
   start(config: Omit<SimRunConfigInput, "days"> & { days?: number }, startedBy: "user" | "agent", options?: SimStartOptions): Promise<SimRun>;
   get(id: string): SimRun | undefined;
@@ -274,6 +274,7 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
       if (total > MAX_RUNS) throw new Error(`A suite holds at most ${MAX_RUNS} runs; this config expands to ${total}`);
       if (startedBy === "agent" && total > AGENT_MAX_RUNS) throw new Error(`Agent suites hold at most ${AGENT_MAX_RUNS} runs; this config expands to ${total}`);
       const createdAt = now();
+      const baseSettings = deps.runner.captureBaseSettings();
       const id = `${new Date(createdAt).toISOString().replace(/\D/g, "")}-${randomBytes(3).toString("hex")}`;
       const suite: SimSuite = {
         id, createdAt, startedBy, config, status: "running",
@@ -292,13 +293,13 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
             const seed = suiteSeed(id, scenario);
             const run = await deps.runner.start(
               { ...base, name: `${config.name} · ${variant.label} · ${scenario}`, scenario, mode: config.scenarioMode, seed, model, ...overlay },
-              startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt });
+               startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt, baseSettings });
             suite.runs.push({ runId: run.id, variant: variant.label, scenario, seed, mode: config.scenarioMode as SimMode });
           }
           for (let seed = 1; seed <= config.bootstrapRuns; seed++) {
             const run = await deps.runner.start(
               { ...base, name: `${config.name} · ${variant.label} · bootstrap-${seed}`, mode: "bootstrap", days: config.bootstrapDays, seed, model, ...overlay },
-              startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt });
+               startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt, baseSettings });
             suite.runs.push({ runId: run.id, variant: variant.label, seed, mode: "bootstrap" });
           }
         }
