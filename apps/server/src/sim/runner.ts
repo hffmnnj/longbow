@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
-import { DEFAULT_SETTINGS, SimRunConfigSchema, type Bar, type ChatMessage, type CycleKind, type JournalEntry, type OrderRecord, type Settings, type SimRun, type SimRunConfigInput } from "@rh/shared";
+import { DEFAULT_SETTINGS, SimRunConfigSchema, type Bar, type ChatMessage, type CycleKind, type JournalEntry, type OrderIntent, type OrderRecord, type Settings, type SimRun, type SimRunConfigInput } from "@rh/shared";
 import type { Config, EventBus, Logger, MarketCalendar, MarketData, SkillLibrary } from "../ports.ts";
 import { openStore } from "../db/store.ts";
 import { TradingAgent } from "../agent/runtime.ts";
@@ -51,6 +51,7 @@ export interface SimDriverContext {
   asOf: () => string;
   symbols: string[];
   benchmark: string;
+  submit(intent: OrderIntent): Promise<OrderRecord>;
 }
 
 type SimCycleResult = Awaited<ReturnType<TradingAgent["runCycleAndWait"]>>;
@@ -286,10 +287,29 @@ export function createSimService(deps: SimServiceDeps): SimService {
       }
       const stepCycle = async (kind: CycleKind): Promise<SimCycleResult> => {
         if (deps.driver !== undefined) {
-          return await deps.driver(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark }) ?? "done";
+          return await deps.driver(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark, submit: gate.submit }) ?? "done";
         }
         return agent!.runCycleAndWait(kind, 8 * 60_000);
       };
+      async function advanceTo(date: string, target: number): Promise<void> {
+        const market = deps.calendar.clock(etInstant(date, 12));
+        if (market.tradingDay === date) {
+          // Fractional protection is harness-watched, not a resting limit. Only
+          // simulate quote checks while a local stop is armed.
+          const first = Math.max(market.nextOpen, now + 60_000);
+          for (let at = first; at <= target && at < market.nextClose && run.status === "running"; at += 60_000) {
+            if (!store.ordersSince(0).some((order) => order.status === "held")) break;
+            now = at;
+            await broker.advance();
+            await gate.tick();
+          }
+        }
+        if (run.status !== "running") return;
+        if (now === target) return; // Already advanced and reconciled in the watcher.
+        now = target;
+        await broker.advance();
+        await gate.sync();
+      }
       const times: [number, number, CycleKind][] = [
         ...(run.config.cyclesPerDay >= 3 ? [[9, 0, "pre_open"] as [number, number, CycleKind]] : []),
         [10, 15, "intraday"], ...(run.config.cyclesPerDay === 4 ? [[12, 30, "intraday"] as [number, number, CycleKind]] : []), [15, 30, "intraday"],
@@ -300,11 +320,12 @@ export function createSimService(deps: SimServiceDeps): SimService {
         run.progress.day = i + 1;
         for (let j = 0; j < times.length && run.status === "running"; j++) {
           const [hour, minute, kind] = times[j]!;
-          now = etInstant(date, hour, minute);
-          await broker.advance();
+          await advanceTo(date, etInstant(date, hour, minute));
+          if (run.status !== "running") break;
           run.progress.cycle = j + 1;
           save(run);
           const result = await stepCycle(kind);
+          await gate.sync();
           // Save diagnostics at the failed clock tick, not after the agent closes.
           await snapshot();
           if (run.status === "running" && result !== "done") {
@@ -312,8 +333,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
           }
         }
         if (run.status !== "running") break;
-        now = etInstant(date, 16);
-        await broker.advance();
+        await advanceTo(date, etInstant(date, 16));
+        if (run.status !== "running") break;
         const account = await broker.snapshot();
         run.equity.push({ date, equity: account.equity, cash: account.cash, benchmark: benchPrice(date) });
         await snapshot();
