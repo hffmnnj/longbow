@@ -92,6 +92,29 @@ describe("quant extension", () => {
     assert.match(textOf(result), /trend_template/);
   });
 
+  it("market_screen compares each stock to benchmark closes on the same two dates", async () => {
+    const past = bars(90, 100, 0.25);
+    const latestDate = past.at(-1)!.date;
+    const benchmark = past.map((b) => b.date === latestDate ? { ...b, close: b.close * 1.2 } : b);
+    const history = new Map([
+      ["SPY", benchmark],
+      ["LAG", past.slice(0, -1)],
+      ["MISS", past.map((b) => b.date === latestDate ? { ...b, date: "2024-05-01" } : b)],
+    ]);
+    const market = { ...fakeMarket(), history: async (symbol: string) => ({
+      symbol, bars: history.get(symbol) ?? [], source: "fixture", asOf: 0,
+    }) };
+    const tool = createQuantExtension(deps({ market })).tools?.find((t) => t.name === "market_screen");
+    assert.ok(tool);
+    const result = await tool.execute({ preset: "relative_strength", symbols: ["LAG", "MISS"] }, API, CTX);
+    const output = (result as { structuredOutput: {
+      rows: { symbol: string; relStrength: number }[];
+      dropped: { symbol: string; reason: string }[];
+    } }).structuredOutput;
+    assert.deepEqual(output.rows.map((r) => [r.symbol, r.relStrength]), [["LAG", 0]]);
+    assert.match(output.dropped.find((r) => r.symbol === "MISS")?.reason ?? "", /matching.*dates/);
+  });
+
   it("quant_backtest_reports_pooled_stats_and_a_warning", async () => {
     const ext = createQuantExtension(deps());
     const tool = ext.tools?.find((t) => t.name === "quant_backtest");

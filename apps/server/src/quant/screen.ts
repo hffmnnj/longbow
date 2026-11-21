@@ -162,7 +162,7 @@ export function evaluateScreen(ctx: ScreenContext, preset: ScreenPreset): Screen
       return { row: { ...base, score: 10 - rsi2 } };
     }
     case "relative_strength": {
-      if (relStrength === undefined) return { skip: "needs 3-month returns for the symbol and benchmark" };
+      if (relStrength === undefined) return { skip: "needs 3-month symbol and benchmark returns with matching endpoint dates" };
       return { row: { ...base, score: relStrength } };
     }
     case "volatility_contraction": {
