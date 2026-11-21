@@ -42,6 +42,14 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   const orders: PaperOrder[] = [];
   const fills: SimFill[] = [];
   const date = (): string => deps.calendar.etDate(deps.clock.now());
+  const sessions = new Map<string, ReturnType<MarketCalendar["clock"]>>();
+  function session(day: string): ReturnType<MarketCalendar["clock"]> {
+    const prior = sessions.get(day);
+    if (prior !== undefined) return prior;
+    const bounds = deps.calendar.clock(etInstant(day, 12));
+    sessions.set(day, bounds);
+    return bounds;
+  }
   function settle(): void {
     for (let i = proceeds.length - 1; i >= 0; i--) {
       if (proceeds[i]!.date < date()) { settled += proceeds[i]!.amount; proceeds.splice(i, 1); }
@@ -76,10 +84,10 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const bars = await deps.bars(symbol);
     const current = bars.find((b) => b.date === day);
     const previous = bars.filter((b) => b.date < day).at(-1);
-    const open = etInstant(day, 9, 30);
+    const { nextOpen: open, nextClose: close } = session(day);
     let last: number | undefined;
     if (at < open) last = previous?.close;
-    else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at)) : realisticPrice(current, symbol, seed, at);
+    else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at, close)) : realisticPrice(current, symbol, seed, at, close);
     if (last === undefined || !Number.isFinite(last) || last <= 0) throw new Error(`No historical quote for ${symbol} on ${day}`);
     const spread = execution === "ideal"
       ? last * (LIQUID.has(symbol) ? 1 : 3) / 10_000
@@ -88,7 +96,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   }
   function marketPrice(side: OrderIntent["side"], notional: number, history: Bar[], day: string, at: number, mid: number): number {
     const adv = avgDollarVolumeBefore(history, day);
-    const half = mid * halfSpreadBps(adv, Math.max(0, (at - etInstant(day, 9, 30)) / 60_000)) / 10_000;
+    const half = mid * halfSpreadBps(adv, Math.max(0, (at - session(day).nextOpen) / 60_000)) / 10_000;
     const slip = mid * slippageBps(notional, adv, returnVolatilityBefore(history, day)) / 10_000;
     return side === "buy" ? mid + half + slip : mid - half - slip;
   }
@@ -116,8 +124,9 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const bar = history.find((b) => b.date === day);
     if (bar === undefined) return undefined;
     // Latency: the order fills at the path price 60 seconds after it is placed.
-    const at = Math.min(createdAt + 60_000, etInstant(day, 16));
-    const mid = realisticPrice(bar, intent.symbol, seed, at);
+    const close = session(day).nextClose;
+    const at = Math.min(createdAt + 60_000, close);
+    const mid = realisticPrice(bar, intent.symbol, seed, at, close);
     const price = market
       ? marketPrice(intent.side, intent.quantity * mid, history, day, at, mid)
       : executablePrice(intent, history, day, at, mid);
@@ -136,10 +145,13 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const history = await deps.bars(intent.symbol);
       const bars = history.filter((b) => b.date >= deps.calendar.etDate(order.checkedAt) && b.date <= date());
       for (const bar of bars) {
+        const bounds = session(bar.date);
+        if (bounds.tradingDay !== bar.date) continue;
+        const close = bounds.nextClose;
         const from = Math.max(order.checkedAt, order.createdAt);
         const points = execution === "ideal"
-          ? pathSegment(bar, from, now)
-          : realisticSegment(bar, intent.symbol, seed, from, now);
+          ? pathSegment(bar, from, now, close)
+          : realisticSegment(bar, intent.symbol, seed, from, now, close);
         // A resting limit fills only on a trade through the limit: a touch is
         // not enough in realistic mode, so the level sits a cent beyond it.
         const through = execution === "ideal" ? intent.limitPrice : intent.limitPrice + (intent.side === "sell" ? 0.01 : -0.01);
@@ -166,7 +178,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
             }
           }
         }
-        if (order.status === "open" && intent.timeInForce === "day" && now >= etInstant(bar.date, 16)) order.status = "cancelled";
+        if (order.status === "open" && intent.timeInForce === "day" && now >= close) order.status = "cancelled";
         if (order.status !== "open") break;
       }
       order.checkedAt = now;
@@ -218,7 +230,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     },
     async placeOrder(intent) {
       settle();
-      if (deps.clock.now() < etInstant(date(), 9, 30) || deps.clock.now() >= etInstant(date(), 16)) throw new Error("Simulation market is closed");
+      if (!deps.calendar.clock(deps.clock.now()).isOpen) throw new Error("Simulation market is closed");
       if (intent.orderType === "stop_limit" && intent.stopPrice === undefined) throw new Error("Stop price required");
       if (intent.side === "buy" && intent.quantity * intent.limitPrice > settled - reservedCash() + 1e-8) throw new Error("Insufficient settled cash");
       const reservedShares = orders.filter((o) => o.status === "open" && o.intent.side === "sell" && o.intent.symbol === intent.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);

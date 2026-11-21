@@ -54,6 +54,23 @@ test("day orders cancel at close while GTC orders persist", async () => {
   assert.deepEqual(broker.orders().map((o) => o.status), ["cancelled", "open"]);
   assert.deepEqual(broker.fills(), []);
 });
+test("an early close ends both execution paths and expires day orders at 13:00 ET", async () => {
+  const date = "2026-12-24";
+  const bars: Bar[] = [{ date, open: 100, high: 112, low: 98, close: 109, volume: 1_000_000 }];
+  for (const execution of ["ideal", "realistic"] as const) {
+    const { broker, at } = barsFixture(bars, date, 1200, 1, execution);
+    const resting = await broker.placeOrder({ ...intent, limitPrice: 90 });
+    at(date, 13);
+    await broker.advance();
+    assert.deepEqual(await broker.orderState(resting.brokerOrderId), { status: "cancelled" });
+    assert.equal((await broker.quote("SPY")).last, 109);
+    await assert.rejects(broker.placeOrder(intent), /Simulation market is closed/);
+    at(date, 15, 30);
+    await broker.advance();
+    assert.equal((await broker.quote("SPY")).last, 109);
+    assert.deepEqual(broker.fills(), []);
+  }
+});
 test("sale cash cannot fund a same-day rebuy and settles on the next session", async () => {
   const { broker, at } = fixture(100.01);
   await broker.placeOrder({ ...intent, limitPrice: 100.01 });
