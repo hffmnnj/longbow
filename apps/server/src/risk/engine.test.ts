@@ -533,6 +533,52 @@ describe("risk engine", () => {
   });
 });
 
+describe("open buy commitments", () => {
+  it("reserve position size and sector headroom before the fills land", () => {
+    const plain = passingInput();
+    plain.openBuyCommitments = [];
+    assert.equal(evaluate(plain).approved, true);
+
+    const sameSymbol = passingInput();
+    sameSymbol.openBuyCommitments = [{ symbol: "AAPL", sector: "Technology", quantity: 1, limitPrice: 150 }];
+    assert.deepEqual(failedRules(sameSymbol), ["position_size"]);
+
+    const sameSector = passingInput();
+    sameSector.openBuyCommitments = [{ symbol: "MSFT", sector: "Technology", quantity: 4, limitPrice: 150 }];
+    assert.deepEqual(failedRules(sameSector), ["sector"]);
+
+    const otherSector = passingInput();
+    otherSector.openBuyCommitments = [{ symbol: "XOM", sector: "Energy", quantity: 4, limitPrice: 150 }];
+    assert.deepEqual(failedRules(otherSector), []);
+  });
+
+  it("reserve a distinct position slot until the fill lands", () => {
+    const input = passingInput();
+    input.account = { ...input.account, positions: [] };
+    input.intent = { ...input.intent, symbol: "MSFT" };
+    input.quote = { ...input.quote, symbol: "MSFT" };
+    input.settings.risk.maxPositions = 1;
+    assert.deepEqual(failedRules(input), []);
+
+    input.openBuyCommitments = [{ symbol: "NVDA", sector: "Technology", quantity: 1, limitPrice: 150 }];
+    assert.deepEqual(failedRules(input), ["max_positions"]);
+  });
+
+  it("never counts a commitment as inventory for an exit", () => {
+    const input = passingInput();
+    input.openBuyCommitments = [{ symbol: "AAPL", sector: "Technology", quantity: 5, limitPrice: 150 }];
+    input.intent = { ...input.intent, side: "sell", quantity: 1 };
+    const exit = evaluate(input);
+    assert.equal(exit.isExit, true);
+    assert.equal(exit.approved, true, JSON.stringify(exit.checks.filter((c) => !c.ok)));
+
+    input.intent = { ...input.intent, side: "sell", quantity: 2, invalidationPrice: 160 };
+    const oversell = evaluate(input);
+    assert.equal(oversell.isExit, false);
+    assert.equal(oversell.checks.find((c) => c.rule === "no_short")?.ok, false);
+  });
+});
+
 describe("crypto sleeve", () => {
   const SUNDAY = Date.UTC(2026, 10, 1, 15, 0, 0);
 
