@@ -136,7 +136,7 @@
   <Panel
     title="Portfolio heat"
     reading={perf?.heatPct !== undefined && cap !== undefined
-      ? `${pct(perf.heatPct)} of equity is at risk if every stop is hit, against a ${pct(cap)} cap`
+      ? `${pct(perf.heatPct)} of equity estimated at risk to known stop/invalidation levels, against a ${pct(cap)} reference`
       : undefined}
   >
     <div class="px-3.5 pb-3.5">
@@ -145,13 +145,15 @@
           value={perf.heatPct}
           max={cap}
           tone={perf.heatPct / cap > 0.85 ? "loss" : perf.heatPct / cap > 0.6 ? "warn" : "primary"}
-          label={`Portfolio heat ${pct(perf.heatPct)} of a ${pct(cap)} cap`}
+          label={`Portfolio heat ${pct(perf.heatPct)} of a ${pct(cap)} reference`}
         />
         <p class="num text-muted-foreground mt-1.5 flex justify-between text-[11.5px]">
-          <span>0%</span><span>cap {pct(cap)} = {risk?.maxPositions} positions × {pct(risk?.maxRiskPerTradePct ?? 0)}</span>
+          <span>0%</span><span>reference {pct(cap)} = {risk?.maxPositions} positions × {pct(risk?.maxRiskPerTradePct ?? 0)}</span>
         </p>
       {:else if harness.performance.state === "loading"}
         <div class="bg-muted/50 h-6 animate-pulse rounded" aria-hidden="true"></div>
+      {:else if perf && perf.exposure.length > 0}
+        <p class="text-muted-foreground text-[13px]">Stop-risk estimate unavailable for one or more holdings.</p>
       {:else}
         <p class="text-muted-foreground text-[13px]">No stops to measure yet.</p>
       {/if}

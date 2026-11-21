@@ -198,7 +198,7 @@ void main() {
     expect(find.text('+5.29%'), findsOneWidget);
     expect(find.text('stop \$327.19'), findsOneWidget);
     expect(find.text('risk \u22120.18%'), findsOneWidget);
-    expect(find.text('Heat 2.1% against a 6.0% cap'), findsOneWidget);
+    expect(find.text('Heat 2.1% against a 6.0% reference'), findsOneWidget);
     expect(
       find.text('Technology is the largest at 54.6% (cap 60%)'),
       findsOneWidget,

@@ -687,8 +687,10 @@ class _ExposurePanel extends StatelessWidget {
     final heat = summary.heatPct;
     final cap = risk == null ? null : heatCapPct(risk!);
     final reading = heat != null && cap != null && cap > 0
-        ? 'Heat ${heat.toStringAsFixed(1)}% against a ${cap.toStringAsFixed(1)}% cap'
-        : 'Loss to all stops as a percent of equity';
+        ? 'Heat ${heat.toStringAsFixed(1)}% against a ${cap.toStringAsFixed(1)}% reference'
+        : rows.isNotEmpty
+            ? 'Stop-risk estimate unavailable for one or more holdings.'
+            : 'Loss to all stops as a percent of equity';
     return Panel(
       title: 'Exposure and stops',
       reading: reading,
@@ -715,13 +717,13 @@ class _ExposurePanel extends StatelessWidget {
               marker: cap != null && cap > 0 ? cap : null,
               tone: cap != null && heat >= cap ? ChartTone.warn : ChartTone.primary,
               semanticsLabel: cap != null
-                  ? 'Portfolio heat ${heat.toStringAsFixed(1)}% of a ${cap.toStringAsFixed(1)}% cap'
+                  ? 'Portfolio heat ${heat.toStringAsFixed(1)}% of a ${cap.toStringAsFixed(1)}% reference'
                   : 'Portfolio heat ${heat.toStringAsFixed(1)}%',
             ),
             const SizedBox(height: 4),
             Text(
               cap != null
-                  ? '${heat.toStringAsFixed(1)}% of ${cap.toStringAsFixed(1)}% cap'
+                  ? '${heat.toStringAsFixed(1)}% of ${cap.toStringAsFixed(1)}% reference'
                   : '${heat.toStringAsFixed(1)}%',
               style: LbText.number(
                 context,
