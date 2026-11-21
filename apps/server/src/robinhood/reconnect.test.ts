@@ -8,6 +8,7 @@ import type { OrderIntent } from "@rh/shared";
 import { loadConfig } from "../config.ts";
 import type { Logger } from "../ports.ts";
 import { createRobinhoodBroker, type RobinhoodBroker } from "./broker.ts";
+import { PlacementQuoteUnavailableError } from "./mapping.ts";
 import { MCP_URL, type Authorize } from "./oauth.ts";
 import { TokenStore } from "./token-store.ts";
 
@@ -39,7 +40,7 @@ async function fixture(mode: "transient" | "invalid", handler?: Client["callTool
       await transport.options.authProvider?.token();
       return { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "fake", version: "1" } };
     },
-    async listTools() { return ["get_accounts", "get_portfolio", "get_advanced_orders", "get_sensitive_secret", "place_equity_order"].map((name) => ({ name, inputSchema: { type: "object", properties: { ref_id: { type: "string" } }, additionalProperties: true } })); },
+    async listTools() { return ["get_accounts", "get_portfolio", "get_advanced_orders", "get_sensitive_secret", "get_equity_quotes", "place_equity_order"].map((name) => ({ name, inputSchema: { type: "object", properties: { ref_id: { type: "string" } }, additionalProperties: true } })); },
     async callTool(name, args, options) {
       if (name === "get_accounts") return { content: [{ type: "text", text: JSON.stringify({ data: { accounts: [{ account_number: "mcp", agentic_allowed: true }] } }) }] };
       if (!handler) throw new Error("unexpected call");
@@ -187,5 +188,23 @@ test("broker diagnostics classify only bounded allowlisted transport causes", as
       ...["Error", "TypeError", "TypeError", "Error"].map((name) => ({ msg: "Robinhood tool request failed", fields: { operation: "get_portfolio", name } })),
       { msg: "Robinhood tool request failed", fields: { operation: "get_portfolio", name: "McpTimeoutError" } },
     ]);
+  } finally { await f.cleanup(); }
+});
+
+test("a failed fractional placement quote is classified as definitely unplaced", async () => {
+  const calls: string[] = [];
+  const f = await fixture("transient", async (name) => {
+    calls.push(name);
+    throw new McpTimeoutError(30_000);
+  });
+  try {
+    await untilState(f.broker, "error");
+    f.makeAvailable();
+    const connected = untilState(f.broker, "connected");
+    f.timers[0]!.fire();
+    await connected;
+    const intent = { symbol: "AAPL", side: "sell", quantity: 0.25, orderType: "limit", limitPrice: 100, timeInForce: "day" } as OrderIntent;
+    await assert.rejects(f.broker.placeOrder(intent), PlacementQuoteUnavailableError);
+    assert.deepEqual(calls, ["get_equity_quotes"]);
   } finally { await f.cleanup(); }
 });

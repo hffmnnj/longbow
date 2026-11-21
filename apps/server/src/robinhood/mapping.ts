@@ -12,6 +12,13 @@ export class BrokerMappingError extends Error {
 export class FractionalPreflightError extends BrokerMappingError {
   constructor(message: string) { super(message); this.name = "FractionalPreflightError"; }
 }
+/** Only a failed read of the equity placement quote, before any order request. */
+export class PlacementQuoteUnavailableError extends Error {
+  constructor() {
+    super("Final fractional equity quote unavailable; no placement request was sent.");
+    this.name = "PlacementQuoteUnavailableError";
+  }
+}
 export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BrokerMappingError("Expected an object in Robinhood response");
   return value as Record<string, unknown>;

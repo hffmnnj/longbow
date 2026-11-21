@@ -15,7 +15,7 @@ import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged, restingCryptoStops } from "./stops.ts";
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
-import { FractionalPreflightError } from "../robinhood/mapping.ts";
+import { FractionalPreflightError, PlacementQuoteUnavailableError } from "../robinhood/mapping.ts";
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -187,7 +187,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     try {
       return await broker.placeOrder(intent);
     } catch (error) {
-      if (error instanceof FractionalPreflightError) {
+      if (error instanceof FractionalPreflightError || error instanceof PlacementQuoteUnavailableError) {
         for (const stop of cancelledHeld) {
           orderChanged(deps, store.updateOrder(stop.id, { status: "held", updatedAt: clock.now() }));
         }

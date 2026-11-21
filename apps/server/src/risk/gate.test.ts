@@ -20,7 +20,7 @@ import {
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import { watchStops } from "./stops.ts";
-import { BrokerMappingError, FractionalPreflightError, fractionalExecution } from "../robinhood/mapping.ts";
+import { BrokerMappingError, FractionalPreflightError, PlacementQuoteUnavailableError, fractionalExecution } from "../robinhood/mapping.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 
@@ -594,6 +594,22 @@ describe("harness-held fractional protection", () => {
     }
     assert.equal(f.store.getOrder(other.id)?.status, "held");
     assert.equal(f.events.filter((e) => e.type === "order" && e.order.id === other.id).length, 0);
+    assert.equal(f.executions.length, 0);
+  });
+  it("restores held protection after a failed final quote without retrying placement", async () => {
+    const f = liveSetup();
+    const held = await f.gate.submit(f.stop);
+    assert.equal(held.status, "held");
+    f.broker.placeOrder = async () => {
+      f.broker.placeCalls++;
+      assert.equal(f.store.getOrder(held.id)?.status, "cancelled");
+      throw new PlacementQuoteUnavailableError();
+    };
+    const sell = await f.gate.submit({ ...f.stop, orderType: "limit", limitPrice: 149.95, invalidationPrice: 160 });
+    assert.equal(sell.status, "failed");
+    assert.match(sell.error ?? "", /quote unavailable; no placement request was sent/);
+    assert.equal(f.store.getOrder(held.id)?.status, "held");
+    assert.equal(f.broker.placeCalls, 1);
     assert.equal(f.executions.length, 0);
   });
   for (const mode of ["auto", "approve"] as const) {
