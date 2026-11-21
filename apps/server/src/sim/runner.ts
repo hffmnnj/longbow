@@ -292,6 +292,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
       }
       const stepCycle = async (kind: CycleKind): Promise<SimCycleResult> => {
         if (deps.driver !== undefined) {
+          const account = await broker.snapshot();
+          store.markEquity(now, deps.calendar.etDate(now), account.equity);
           return await deps.driver(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark, submit: gate.submit }) ?? "done";
         }
         return agent!.runCycleAndWait(kind, 8 * 60_000);
