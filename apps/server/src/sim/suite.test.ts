@@ -100,7 +100,7 @@ test("summaries pool finished runs per variant", async () => {
     assert.equal(summary.winRatePct, 80);
     assert.equal(summary.avgR, 1.6);
     assert.ok(Math.abs(summary.costsPct! - 0.3) < 1e-9);
-    assert.ok(Math.abs(summary.brier! - 0.15) < 1e-9);
+    assert.equal(summary.brier, undefined, "legacy profit-classification scores are not calibration");
     const pending = suites.get(suite.id)!.summary.find((s) => s.label === "B")!;
     assert.equal(pending.done, 0);
     assert.equal(pending.meanReturnPct, undefined);

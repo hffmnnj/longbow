@@ -165,7 +165,9 @@ void main() {
     expect(find.byType(ReportPage), findsOneWidget);
   });
 
-  testWidgets('performance_calibrationReading', (tester) async {
+  testWidgets('performance_forecastCalibrationQuiet', (tester) async {
+    // An old server or cached fixture can still send buckets and a nonzero
+    // Brier score: none of it may surface.
     final map = _performanceJson();
     map['calibration'] = [
       {'from': 0.5, 'to': 0.6, 'predicted': 0.55, 'realized': 0.4, 'count': 10},
@@ -178,15 +180,19 @@ void main() {
     addTearDown(harness.dispose);
     await _pumpLoaded(tester, harness);
 
+    expect(find.text('Forecast calibration'), findsWidgets);
     expect(
-      find.text('Realized win rate runs 15 points below predictions across 10 trades'),
+      find.text(
+        'Calibration needs a recorded target, invalidation level, and enough price data to tell which came first.',
+      ),
       findsOneWidget,
     );
-    expect(find.text('50\u201360%'), findsOneWidget);
-    expect(
-      find.text('Brier score 0.083 (0 is perfect, 0.25 is a coin flip)'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Brier'), findsNothing);
+    expect(find.text('50\u201360%'), findsNothing);
+    expect(find.textContaining('Realized win rate runs'), findsNothing);
+    // Realized outcome stats and closed trades stay visible.
+    expect(find.text('REALIZED P&L'), findsOneWidget);
+    expect(find.text('VRT'), findsOneWidget);
   });
 
   testWidgets('performance_exposureAndHeat', (tester) async {

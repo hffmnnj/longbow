@@ -2,8 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRecord } from "@rh/shared";
 import {
-  brierScore,
-  calibrationBuckets,
   classifyRegime,
   holdingsReplayValues,
   maxDrawdownPct,
@@ -158,29 +156,6 @@ describe("summarizeTrades", () => {
     assert.equal(summary.realizedPnl, 0);
     assert.equal(summary.winRatePct, undefined);
     assert.equal(summary.profitFactor, undefined);
-  });
-});
-
-describe("calibration and Brier", () => {
-  it("buckets harness trades by predicted probability", () => {
-    const buckets = calibrationBuckets([
-      { symbol: "A", closedAt: 1, quantity: 1, exitPrice: 1, pnl: 5, probabilityWin: 0.55, source: "harness" },
-      { symbol: "A", closedAt: 2, quantity: 1, exitPrice: 1, pnl: -5, probabilityWin: 0.59, source: "harness" },
-      { symbol: "A", closedAt: 3, quantity: 1, exitPrice: 1, pnl: 5, probabilityWin: 0.95, source: "harness" },
-    ]);
-    assert.equal(buckets.length, 2);
-    assert.deepEqual(buckets[0], { from: 0.5, to: 0.6, predicted: 0.55, realized: 0.5, count: 2 });
-    assert.deepEqual(buckets[1], { from: 0.9, to: 1, predicted: 0.95, realized: 1, count: 1 });
-  });
-
-  it("scores the Brier mean squared error", () => {
-    // (0.5-1)^2 + (0.5-0)^2 over 2 = 0.25
-    const brier = brierScore([
-      { symbol: "A", closedAt: 1, quantity: 1, exitPrice: 1, pnl: 5, probabilityWin: 0.5, source: "harness" },
-      { symbol: "A", closedAt: 2, quantity: 1, exitPrice: 1, pnl: -5, probabilityWin: 0.5, source: "harness" },
-    ]);
-    assert.equal(brier, 0.25);
-    assert.equal(brierScore([{ symbol: "A", closedAt: 1, quantity: 1, exitPrice: 1, pnl: 5, source: "robinhood" }]), undefined);
   });
 });
 

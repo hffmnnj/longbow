@@ -74,7 +74,7 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
                 child: Empty(
                   title: 'No closed trades yet',
                   message:
-                      'Win rate, R multiples and calibration appear once the first position is closed.',
+                      'Win rate and R multiples appear once the first position is closed.',
                 ),
               );
             }
@@ -427,8 +427,10 @@ class _TradeRow extends StatelessWidget {
 String _holdingDays(double days) =>
     '${days % 1 == 0 ? days.toStringAsFixed(0) : days.toStringAsFixed(1)}d';
 
-/// How honest the agent's stated win probabilities were, with the Brier
-/// score beneath the buckets.
+/// Forecast calibration stays quiet until a trade carries a recorded target
+/// and invalidation level with enough price data to tell which came first.
+/// Legacy calibration buckets and Brier scores are never shown, even when an
+/// old server or cached fixture still sends them.
 class _CalibrationPanel extends StatelessWidget {
   const _CalibrationPanel({required this.summary});
 
@@ -436,146 +438,13 @@ class _CalibrationPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = calibrationRows(summary.calibration);
-    final reading = calibrationReading(summary.calibration);
-    return Panel(
-      title: 'Calibration',
-      reading: reading,
-      child: rows.isEmpty
-          ? const Empty(
-              title: 'No calibration yet',
-              message:
-                  'Needs closed harness trades that carried a stated win probability.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CalibrationChart(
-                  points: rows
-                      .map(
-                        (r) => CalibrationPoint(
-                          predicted: r.predicted,
-                          realized: r.realized,
-                          count: r.count,
-                          label: r.label,
-                        ),
-                      )
-                      .toList(),
-                  semanticsLabel:
-                      reading ?? 'Predicted against realized win rate',
-                  height: 200,
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Said',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: LbText.caption(context),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 64,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'Predicted',
-                          style: LbText.caption(context),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 64,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'Realized',
-                          style: LbText.caption(context),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 52,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'Trades',
-                          style: LbText.caption(context),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                for (final r in rows)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            r.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: LbText.number(context, size: 12.5),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 64,
-                          child: Text(
-                            '${r.predicted.toStringAsFixed(0)}%',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: LbText.number(context, size: 12.5),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 64,
-                          child: Text(
-                            '${r.realized.toStringAsFixed(0)}%',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: LbText.number(
-                              context,
-                              size: 12.5,
-                              color: r.realized < r.predicted - 10
-                                  ? context.lb.loss
-                                  : null,
-                            ),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 52,
-                          child: Text(
-                            '${r.count}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: LbText.number(context, size: 12.5),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (summary.brier != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Brier score ${summary.brier!.toStringAsFixed(3)} (0 is perfect, 0.25 is a coin flip)',
-                    style: LbText.number(
-                      context,
-                      size: 11.5,
-                      color: context.lb.mutedForeground,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+    return const Panel(
+      title: 'Forecast calibration',
+      child: Empty(
+        title: 'Forecast calibration',
+        message:
+            'Calibration needs a recorded target, invalidation level, and enough price data to tell which came first.',
+      ),
     );
   }
 }

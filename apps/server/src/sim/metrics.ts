@@ -39,7 +39,7 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
   }
   interface Lot { fill: SimFill; remaining: number; pnl: number; holdingWeighted: number; intent: OrderRecord["intent"] | undefined }
   const lots = new Map<string, Lot[]>();
-  const outcomes: { pnl: number; risk: number; probability: number | undefined; holdingDays: number }[] = [];
+  const outcomes: { pnl: number; risk: number; holdingDays: number }[] = [];
   for (const fill of fills) {
     const queue = lots.get(fill.symbol) ?? [];
     if (fill.side === "buy") {
@@ -59,7 +59,7 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
         lot.remaining -= matched;
         if (lot.remaining < 1e-8) {
           outcomes.push({ pnl: lot.pnl, risk: lot.intent === undefined ? 0 : Math.abs(lot.intent.limitPrice - lot.intent.invalidationPrice) * lot.fill.quantity,
-            probability: lot.intent?.probabilityWin, holdingDays: lot.holdingWeighted / lot.fill.quantity });
+            holdingDays: lot.holdingWeighted / lot.fill.quantity });
           queue.shift();
         }
       }
@@ -121,8 +121,6 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
     metrics.winRatePct = outcomes.filter((o) => o.pnl > 0).length / outcomes.length * 100;
     const withRisk = outcomes.filter((o) => o.risk > 0);
     if (withRisk.length > 0) metrics.avgR = withRisk.reduce((sum, o) => sum + o.pnl / o.risk, 0) / withRisk.length;
-    const predicted = outcomes.filter((o) => o.probability !== undefined);
-    if (predicted.length > 0) metrics.brier = predicted.reduce((sum, o) => sum + (o.probability! - (o.pnl > 0 ? 1 : 0)) ** 2, 0) / predicted.length;
     const grossProfit = outcomes.filter((o) => o.pnl > 0).reduce((sum, o) => sum + o.pnl, 0);
     const grossLoss = -outcomes.filter((o) => o.pnl < 0).reduce((sum, o) => sum + o.pnl, 0);
     if (grossLoss > 0) metrics.profitFactor = grossProfit / grossLoss;

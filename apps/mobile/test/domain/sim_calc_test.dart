@@ -334,7 +334,7 @@ void main() {
       expect(groups.any((g) => g.title == 'Costs'), isFalse);
     });
 
-    test('shows each figure once: costs in dollars and percent, blocks as bars', () {
+    test('shows each figure once: costs in dollars and percent, blocks as bars, and never a Brier score', () {
       final r = _run('a',
           equity: [_point('1', 1100)],
           metrics: _metrics(
@@ -351,16 +351,19 @@ void main() {
         const MetricRow(
             label: 'Costs paid', text: '\$12.50', sub: '1.04% of start'),
       ]);
+      // Legacy Brier data from an old server is ignored: Discipline keeps
+      // only risk blocks.
       final discipline = byTitle['Discipline']!.rows;
       expect(
-        discipline[0],
-        const MetricRow(label: 'Risk blocks', bars: [
-          MetricBar(label: 'sector', value: 2),
-          MetricBar(label: 'max_positions', value: 1),
-        ]),
+        discipline,
+        const [
+          MetricRow(label: 'Risk blocks', bars: [
+            MetricBar(label: 'sector', value: 2),
+            MetricBar(label: 'max_positions', value: 1),
+          ]),
+        ],
       );
-      expect(discipline[1],
-          const MetricRow(label: 'Brier', text: '0.200', sub: 'lower is better'));
+      expect(discipline.map((x) => x.label), isNot(contains('Brier')));
       expect(
         byTitle['Return and risk']!.rows.firstWhere((x) => x.label == 'Sharpe'),
         const MetricRow(label: 'Sharpe', text: '1.20'),
