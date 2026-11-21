@@ -47,7 +47,10 @@ function money(v: number): string {
 /**
  * Long position sizing mirroring the risk engine's entry rules. Quantity is
  * floored to 6 decimals, then capped by the max position percent, the max
- * order notional, and buying power. Pure: no network, no clock.
+ * order notional, effective buying power (the smaller of buying power and a
+ * settled-cash mark when given), and the max risk per trade. A requested
+ * riskPct above maxRiskPerTradePct is clamped and named in the check detail.
+ * Pure: no network, no clock.
  */
 export function computeSize(input: SizeInputs): SizeResult | { error: string } {
   const { symbol, entry, riskPct, equity, buyingPower, settledCash, existingMarketValue, risk } = input;
@@ -64,12 +67,15 @@ export function computeSize(input: SizeInputs): SizeResult | { error: string } {
   const rPerShare = entry - stop;
   if (!(rPerShare > 0)) return { error: `stop ${stop} is at or above entry ${entry}; longs need the stop below entry` };
 
-  const riskAllowance = (equity * riskPct) / 100;
+  const cappedRisk = riskPct > risk.maxRiskPerTradePct;
+  const effectiveRiskPct = cappedRisk ? risk.maxRiskPerTradePct : riskPct;
+  const riskAllowance = (equity * effectiveRiskPct) / 100;
   const qRisk = floorQty(riskAllowance / rPerShare);
   const positionAllowance = (equity * risk.maxPositionPct) / 100;
   const qPosition = floorQty(Math.max(0, (positionAllowance - existingMarketValue) / entry));
   const qNotional = floorQty(risk.maxOrderNotionalUsd / entry);
-  const qPower = floorQty(buyingPower / entry);
+  const cashBound = settledCash === undefined ? buyingPower : Math.min(buyingPower, settledCash);
+  const qPower = floorQty(cashBound / entry);
 
   const candidates: { bound: SizeBound; qty: number }[] = [
     { bound: "risk", qty: qRisk },
@@ -98,7 +104,9 @@ export function computeSize(input: SizeInputs): SizeResult | { error: string } {
       ok: riskDollars <= riskAllowance,
       detail:
         `risk ${money(riskDollars)} (${quantity}x${money(rPerShare)}) vs allowance ` +
-        `${money(riskAllowance)} (${riskPct}% of equity ${money(equity)})`,
+        `${money(riskAllowance)} (${effectiveRiskPct}% of equity ${money(equity)}` +
+        (cappedRisk ? `; requested ${riskPct}% capped at maxRiskPerTradePct ${risk.maxRiskPerTradePct}%` : "") +
+        `)`,
     },
     {
       rule: "position_size",
