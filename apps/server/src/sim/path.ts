@@ -1,4 +1,6 @@
 import type { Bar } from "@rh/shared";
+import type { MarketCalendar } from "../ports.ts";
+import { NYSE_HOLIDAY_COVERAGE } from "../risk/calendar.ts";
 
 /** Convert an ET wall time without assuming a fixed DST offset. */
 export function etInstant(date: string, hour: number, minute = 0): number {
@@ -30,6 +32,22 @@ export function pathSegment(bar: Bar, from: number, to: number, close = etInstan
 
 export function tradingDays(bars: Bar[], startDate: string, days: number): Bar[] {
   return bars.filter((bar) => bar.date >= startDate).sort((a, b) => a.date.localeCompare(b.date)).slice(0, days);
+}
+
+/** In covered years, don't replace a missing scored session with a later one. */
+export function assertReplayBenchmarkCoverage(dates: string[], startDate: string, calendar: MarketCalendar): void {
+  const lastDate = dates.at(-1);
+  if (lastDate === undefined) return;
+  const first = startDate < NYSE_HOLIDAY_COVERAGE.first ? NYSE_HOLIDAY_COVERAGE.first : startDate;
+  const last = lastDate > NYSE_HOLIDAY_COVERAGE.last ? NYSE_HOLIDAY_COVERAGE.last : lastDate;
+  const observed = new Set(dates);
+  const through = Date.parse(`${last}T12:00:00Z`);
+  for (let at = Date.parse(`${first}T12:00:00Z`); at <= through; at += 86_400_000) {
+    const date = new Date(at).toISOString().slice(0, 10);
+    if (!observed.has(date) && calendar.clock(at).tradingDay === date) {
+      throw new Error(`Missing SPY bar for scheduled replay session ${date}`);
+    }
+  }
 }
 
 /** Intraday grid for realistic execution: 78 five-minute intervals from 09:30 to 16:00 ET. */

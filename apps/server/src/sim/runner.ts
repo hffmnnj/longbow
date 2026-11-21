@@ -26,7 +26,7 @@ import { createSystemOneExtension } from "../systemone/extension.ts";
 import { createPaperBroker, type PaperBroker } from "./broker.ts";
 import { createSimEventBus } from "./events.ts";
 import { calculateMetrics } from "./metrics.ts";
-import { etInstant, tradingDays } from "./path.ts";
+import { assertReplayBenchmarkCoverage, etInstant, tradingDays } from "./path.ts";
 import { scenarioById } from "./scenarios.ts";
 import { buildScenarioMarket, createStaticSectorDirectory, type ScenarioMarket } from "./scenario-market.ts";
 import { jsonValue } from "./json.ts";
@@ -155,13 +155,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const clock = { now: () => now };
     const sessionClose = (date: string): number => deps.calendar.clock(etInstant(date, 12)).nextClose;
     const bus = createSimEventBus(deps.bus, run.id);
-    const store = openStore(join(runDir, "app.sqlite"), clock);
-    artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
     const liveSettings = deps.settings?.() ?? DEFAULT_SETTINGS;
-    store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
-      watchlist: run.config.watchlist ?? liveSettings.watchlist, risk: { ...liveSettings.risk, ...run.config.risk },
-      // The paper broker only knows stocks and ETFs.
-      crypto: { ...liveSettings.crypto, enabled: false } });
     const universe = [...new Set(run.config.watchlist ?? liveSettings.watchlist)];
     let bars: (symbol: string) => Promise<Bar[]>;
     let market: MarketData;
@@ -188,6 +182,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       const days = tradingDays(spy, startDate, run.config.days);
       if (days.length !== run.config.days || days.some((b) => b.date >= todayStr)) throw new Error("Simulation range must contain the requested number of completed past trading days");
       simDays = days.map((b) => b.date);
+      assertReplayBenchmarkCoverage(simDays, startDate, deps.calendar);
       const closes = new Map(days.map((b) => [b.date, b.close]));
       const firstOpen = days[0]!.open;
       benchPrice = (date) => (closes.get(date) ?? NaN) / firstOpen * run.config.startingCash;
@@ -207,6 +202,11 @@ export function createSimService(deps: SimServiceDeps): SimService {
         watchlist: universe, days: run.config.days,
         ...(run.config.startDate === undefined ? {} : { startDate: run.config.startDate }),
         today: todayStr, fetch: fetchBars, sectors: sectorSource });
+      if (run.config.mode === "blind" && run.config.startDate !== undefined) {
+        const scoredDates = scenario.sourceDates.slice(-run.config.days);
+        assertReplayBenchmarkCoverage(scoredDates.filter((date) => date < todayStr), run.config.startDate, deps.calendar);
+        if (scoredDates.at(-1)! >= todayStr) throw new Error("Simulation range must contain the requested number of completed past trading days");
+      }
       aliasMaps.set(run.id, scenario.aliases);
       calendars.set(run.id, { ...scenario.calendar });
       bars = (symbol: string) => scenario!.bars(symbol);
@@ -225,6 +225,12 @@ export function createSimService(deps: SimServiceDeps): SimService {
       benchmark = scenario.benchmark;
       now = etInstant(simDays[0]!, 9);
     }
+    const store = openStore(join(runDir, "app.sqlite"), clock);
+    artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
+    store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
+      watchlist: run.config.watchlist ?? liveSettings.watchlist, risk: { ...liveSettings.risk, ...run.config.risk },
+      // The paper broker only knows stocks and ETFs.
+      crypto: { ...liveSettings.crypto, enabled: false } });
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed });
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
@@ -437,6 +443,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 800 * 86_400_000).toISOString().slice(0, 10);
         const spy = await fetchBars("SPY", from, today);
         const dates = spy.map((b) => b.date).sort();
+        assertReplayBenchmarkCoverage(dates.filter((date) => date >= startDate && date < today).slice(0, config.days), startDate, deps.calendar);
         const startIdx = dates.indexOf(startDate);
         if (startIdx < 300 || startIdx + config.days > dates.length || dates[startIdx + config.days - 1]! >= today) {
           throw new Error("Simulation range is not fully in the past or historical bars are missing");
@@ -444,6 +451,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       } else {
         const spy = await fetchBars("SPY", startDate, today);
         const days = tradingDays(spy, startDate, config.days);
+        assertReplayBenchmarkCoverage(days.map((b) => b.date).filter((date) => date < today), startDate, deps.calendar);
         if (days.length !== config.days || days.at(-1)!.date >= today) throw new Error("Simulation range is not fully in the past or historical bars are missing");
       }
       // Recheck after I/O so concurrent agent calls cannot both start.

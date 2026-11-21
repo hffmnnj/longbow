@@ -242,6 +242,122 @@ test("a historical early-close paper session stops cycles at the 13:00 close", a
   }
 });
 
+function cleanReplayCoverageFixture(dataDir: string, sim: ReturnType<typeof createSimService>): void {
+  const root = join(dataDir, "sim");
+  for (const run of sim.list()) {
+    const runDir = join(root, run.id);
+    for (const name of ["run.json", "journal.json", "orders.json", "app.sqlite", "app.sqlite-wal", "app.sqlite-shm"]) {
+      const path = join(runDir, name);
+      if (existsSync(path)) unlinkSync(path);
+    }
+    const workspace = join(runDir, "workspace");
+    const readme = join(workspace, "README.md");
+    if (existsSync(readme)) unlinkSync(readme);
+    if (existsSync(workspace)) rmdirSync(workspace);
+    rmdirSync(runDir);
+  }
+  rmdirSync(root);
+  rmdirSync(dataDir);
+}
+
+test("missing SPY history rejects a historical replay instead of shifting to the next session", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-missing-spy-history-");
+  const missing = "2026-04-20"; // Monday after Friday 2026-04-17; a regular NYSE session.
+  let cycles = 0;
+  const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    fetchBars: async (symbol, from, to) => {
+      const bars = fixtureBars(symbol, from, to);
+      return symbol === "SPY" ? bars.filter((bar) => bar.date !== missing) : bars;
+    },
+    driver: async () => { cycles++; } });
+  try {
+    assert.ok(fixtureBars("AAA", missing, missing).some((bar) => bar.date === missing),
+      "another symbol must keep a bar for the session SPY omits");
+    await assert.rejects(
+      sim.start({ startDate: "2026-04-17", days: 2, startingCash: 1200, cyclesPerDay: 2 }, "user"),
+      /Missing SPY bar for scheduled replay session 2026-04-20/);
+    assert.equal(cycles, 0, "the replay must not reach a driver cycle with a skipped session");
+    assert.deepEqual(sim.list(), [], "a rejected preflight must not create a run");
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
+test("a replay refuses a missing SPY session that appears only after preflight", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-tape-changed-");
+  let fetches = 0;
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir },
+    log, bus: createEventBus(), market, skills, calendar: createNyseCalendar(),
+    fetchBars: async (symbol, from, to) => {
+      assert.equal(symbol, "SPY");
+      const bars = fixtureBars(symbol, from, to);
+      return ++fetches === 1 ? bars : bars.filter((bar) => bar.date !== "2026-04-20");
+    },
+    driver: async () => { assert.fail("must not execute a scored cycle"); },
+  });
+  try {
+    const run = await sim.start({ startDate: "2026-04-17", days: 2, startingCash: 1200, cyclesPerDay: 2 }, "user");
+    const result = await waitForDone(sim, run.id);
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /Missing SPY bar for scheduled replay session 2026-04-20/);
+    assert.deepEqual(result.equity, []);
+    assert.deepEqual(result.fills, []);
+    assert.equal(existsSync(join(dataDir, "sim", run.id, "app.sqlite")), false);
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
+test("missing SPY history rejects a blind replay whose source window skips the session", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-missing-spy-blind-");
+  const missing = "2026-04-20";
+  let cycles = 0;
+  const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    fetchBars: async (symbol, from, to) => {
+      const bars = fixtureBars(symbol, from, to);
+      return symbol === "SPY" ? bars.filter((bar) => bar.date !== missing) : bars;
+    },
+    driver: async () => { cycles++; },
+    sectorSource: createStaticSectorDirectory({}) });
+  try {
+    await assert.rejects(
+      sim.start({ mode: "blind", startDate: "2026-04-17", days: 2, startingCash: 1200,
+        cyclesPerDay: 2, watchlist: ["AAA"] }, "user"),
+      /Missing SPY bar for scheduled replay session 2026-04-20/);
+    assert.equal(cycles, 0, "the blind build must not start a shifted replay");
+    assert.deepEqual(sim.list(), [], "a rejected preflight must not create a run");
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
+test("a known exchange closure without a bar is not a missing replay session", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-closure-gap-");
+  const closure = "2026-04-03"; // Good Friday: the exchange is closed, so source bars omit it.
+  const cycles: { date: string | undefined; kind: CycleKind }[] = [];
+  const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    fetchBars: async (symbol, from, to) => fixtureBars(symbol, from, to).filter((bar) => bar.date !== closure),
+    driver: async (run, ctx) => { cycles.push({ date: run.currentDate, kind: ctx.kind }); } });
+  try {
+    const run = await sim.start({ startDate: "2026-04-01", days: 3, startingCash: 1200, cyclesPerDay: 2 }, "user");
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error ?? "closure replay did not finish");
+    assert.deepEqual(done.equity.map((point) => point.date), ["2026-04-01", "2026-04-02", "2026-04-06"],
+      "the replay must span the closure rather than treat it as a session");
+    assert.deepEqual([...new Set(cycles.map((cycle) => cycle.date))], ["2026-04-01", "2026-04-02", "2026-04-06"]);
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
 test("resolves scenario config and records seed, suite, variant, and aliases", async () => {
   const dataDir = mkdtempSync("/tmp/sim-scenario-test-");
   const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,

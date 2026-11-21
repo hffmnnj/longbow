@@ -7,9 +7,11 @@ import type { MarketCalendar } from "../ports.ts";
  * `Intl.DateTimeFormat` in America/New_York so daylight saving is handled by
  * the platform, not by hand-rolled offsets.
  *
- * Full-closure and early-close tables cover 2026-2027. Dates after 2027 fall
- * back to weekdays only; extend the tables below for later years.
+ * Full-closure and early-close tables cover 2026-2027. Outside that range
+ * the calendar falls back to weekdays only.
  */
+
+export const NYSE_HOLIDAY_COVERAGE = { first: "2026-01-01", last: "2027-12-31" } as const;
 
 const FULL_CLOSURES = new Set<string>([
   // 2026: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
@@ -164,10 +166,7 @@ function weekdayOfEtDate(date: string): number {
 function isTradingDay(date: string): boolean {
   const wd = weekdayOfEtDate(date);
   if (wd === 0 || wd === 6) return false;
-  const year = Number(date.slice(0, 4));
-  if (year === 2026 || year === 2027) return !FULL_CLOSURES.has(date);
-  // No closure table past 2027; extend FULL_CLOSURES/EARLY_CLOSES for later years.
-  return true;
+  return date < NYSE_HOLIDAY_COVERAGE.first || date > NYSE_HOLIDAY_COVERAGE.last || !FULL_CLOSURES.has(date);
 }
 
 function nextTradingDay(fromEtDate: string): string {
