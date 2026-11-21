@@ -257,7 +257,9 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     }
     const ordersByStatus: Partial<Record<OrderStatus, number>> = {};
     for (const o of orders) ordersByStatus[o.status] = (ordersByStatus[o.status] ?? 0) + 1;
-    const heat = exposure.reduce((sum, e) => sum + Math.max(0, e.riskToStopPct ?? 0), 0);
+    const heat = equityValue > 0 && exposure.length > 0 && exposure.every((e) => e.riskToStopPct !== undefined)
+      ? exposure.reduce((sum, e) => sum + Math.max(0, e.riskToStopPct!), 0)
+      : undefined;
     return {
       trades,
       realizedPnl: summary.realizedPnl,
@@ -276,7 +278,7 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
         sector,
         weightPct: equityValue > 0 ? (marketValue / equityValue) * 100 : 0,
       })),
-      ...(equityValue > 0 ? { heatPct: heat } : {}),
+      ...(heat === undefined ? {} : { heatPct: heat }),
       ordersByStatus,
     };
   }

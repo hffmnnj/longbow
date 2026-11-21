@@ -134,6 +134,7 @@ describe("stop resolution order", () => {
     });
     const summary = await service.performance();
     assert.equal(summary.exposure[0]?.stopPrice, 88);
+    assert.equal(summary.heatPct, 10.8);
   });
 
   it("falls back to the Robinhood stop, then the thesis invalidation", async () => {
@@ -184,6 +185,8 @@ describe("stop resolution order", () => {
       log,
       dataDir: "/tmp/analytics-test",
     });
-    assert.equal((await service.performance()).exposure[0]?.stopPrice, undefined);
+    const summary = await service.performance();
+    assert.equal(summary.exposure[0]?.stopPrice, undefined);
+    assert.equal(summary.heatPct, undefined);
   });
 });

@@ -233,14 +233,31 @@ void main() {
       expect(find.text('All cash: nothing is at risk.'), findsOneWidget);
     });
 
-    testWidgets('allocation reads the invested share and the heat against its cap', (tester) async {
+    testWidgets('allocation reads the invested share and estimates heat against a reference', (tester) async {
       final h = await openHarness(tester);
       await pumpPortfolio(tester, h);
 
       expect(find.text('66.05% invested across 8 names; 30.18% cash'), findsOneWidget);
-      // cap = 4 positions x 1.5% = 6.00%; heat 2.09% from the performance fixture
-      expect(find.text('2.09% of equity is at risk if every stop is hit, against a 6.00% cap'), findsOneWidget);
+      expect(find.text('2.09% of equity estimated at risk to known stop/invalidation levels, against a 6.00% reference'), findsOneWidget);
       expect(find.text('Other'), findsOneWidget); // 8 names fold past the top 4
+    });
+
+    testWidgets('positions with insufficient stop-risk data do not show a zero estimate', (tester) async {
+      final performance = fixturePerformance();
+      final unavailable = PerformanceSummary(
+        trades: performance.trades,
+        realizedPnl: performance.realizedPnl,
+        calibration: performance.calibration,
+        exposure: performance.exposure,
+        sectors: performance.sectors,
+        ordersByStatus: performance.ordersByStatus,
+      );
+      final h = await openHarness(tester, configure: (api) => api.on('performance', () async => unavailable));
+      await pumpPortfolio(tester, h);
+
+      expect(find.text('Stop-risk estimate unavailable for one or more holdings.'), findsOneWidget);
+      expect(find.textContaining('of equity estimated at risk'), findsNothing);
+      expect(find.byType(PositionRow), findsWidgets);
     });
 
     testWidgets('tapping a position opens its symbol page', (tester) async {

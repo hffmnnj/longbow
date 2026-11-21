@@ -10,7 +10,7 @@ import 'package:longbow/models/models.dart';
 import 'portfolio_logic.dart';
 
 /// Where the money sits (a stacked strip of position weights and cash) and
-/// how much of it is at risk if every stop is hit.
+/// how much of it is estimated at risk to known stop/invalidation levels.
 class AllocationPanel extends ConsumerWidget {
   const AllocationPanel({super.key});
 
@@ -69,7 +69,13 @@ class _Heat extends ConsumerWidget {
     }
     final heat = data.heatPct;
     final cap = heatCapPct(risk);
-    if (heat == null || cap <= 0) {
+    if (heat == null) {
+      return Text(
+        'Stop-risk estimate unavailable for one or more holdings.',
+        style: LbText.muted(context),
+      );
+    }
+    if (cap <= 0) {
       return Text('No stops to measure yet.', style: LbText.muted(context));
     }
     final ratio = heat / cap;
@@ -78,7 +84,7 @@ class _Heat extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${pct(heat)} of equity is at risk if every stop is hit, against a ${pct(cap)} cap',
+          '${pct(heat)} of equity estimated at risk to known stop/invalidation levels, against a ${pct(cap)} reference',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 8),
@@ -86,7 +92,7 @@ class _Heat extends ConsumerWidget {
           value: heat,
           max: cap,
           tone: tone,
-          semanticsLabel: 'Portfolio heat ${pct(heat)} of a ${pct(cap)} cap',
+          semanticsLabel: 'Portfolio heat ${pct(heat)} of a ${pct(cap)} reference',
         ),
       ],
     );

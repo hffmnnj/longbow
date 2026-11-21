@@ -105,7 +105,7 @@ export function figureStrip(f: ReportFacts): Figure[] {
     });
   }
   if (f.heatPct !== undefined) {
-    out.push({ key: "heat", label: "Heat", value: pct(f.heatPct), sub: "at risk to stops", tone: "flat" });
+    out.push({ key: "heat", label: "Heat", value: pct(f.heatPct), sub: "to stop or invalidation levels", tone: "flat" });
   }
   return out;
 }

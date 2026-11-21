@@ -541,10 +541,13 @@ describe("positions and heat", () => {
     assert.equal((await buildDailyFacts(thesis.deps, "2026-10-26")).heatPct, 10);
   });
 
-  it("reports_zero_heat_when_no_stop_is_stated", async () => {
-    const { deps: d } = deps({ getAccount: () => account([position]) });
+  it("withholds heat when one or more positions lack a stop or thesis level", async () => {
+    const { deps: d } = deps({
+      broker: fakeBroker("connected", [], [{ symbol: "NVDA", stopPrice: 95 }]),
+      getAccount: () => account([position, { ...position, symbol: "UNP" }]),
+    });
     const facts = await buildDailyFacts(d, "2026-10-26");
-    assert.equal(facts.heatPct, 0);
-    assert.equal(facts.positions.length, 1);
+    assert.equal(facts.heatPct, undefined);
+    assert.deepEqual(facts.positions.map((p) => p.symbol), ["NVDA", "UNP"]);
   });
 });

@@ -162,7 +162,7 @@ List<Figure> figureStrip(ReportFacts f) {
         key: 'heat',
         label: 'Heat',
         value: pct(f.heatPct!),
-        sub: 'at risk to stops',
+        sub: 'to stop or invalidation levels',
         tone: Tone.flat,
       ),
     );

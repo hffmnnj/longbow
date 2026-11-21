@@ -139,6 +139,7 @@ async function positionsAndHeat(deps: ReportFactsDeps): Promise<Pick<ReportFacts
   const stops = await readStops(deps);
   const positions: ReportFacts["positions"] = [];
   let heat = 0;
+  let haveAllLevels = true;
   for (const position of account?.positions ?? []) {
     positions.push({
       symbol: position.symbol,
@@ -147,11 +148,12 @@ async function positionsAndHeat(deps: ReportFactsDeps): Promise<Pick<ReportFacts
       ...(position.sector === undefined ? {} : { sector: position.sector }),
     });
     const stop = await resolveStop(deps, stops, position.symbol);
+    if (stop === undefined) haveAllLevels = false;
     if (stop !== undefined && equity > 0) {
       heat += Math.max(0, ((position.marketValue - stop * position.quantity) / equity) * 100);
     }
   }
-  return { positions, ...(equity > 0 ? { heatPct: heat } : {}) };
+  return { positions, ...(equity > 0 && positions.length > 0 && haveAllLevels ? { heatPct: heat } : {}) };
 }
 
 async function periodFacts(
