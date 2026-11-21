@@ -182,7 +182,14 @@ describe("quant extension", () => {
   });
 
   it("size_position_uses_the_remaining_sector_headroom_for_a_new_name", async () => {
-    const d = deps({ getRisk: () => ({ ...DEFAULT_RISK, maxSectorPct: 51, maxPositionPct: 30 }) });
+    const { getAccount } = deps();
+    const d = deps({
+      getRisk: () => ({ ...DEFAULT_RISK, maxSectorPct: 51, maxPositionPct: 30 }),
+      getAccount: async () => {
+        const account = (await getAccount())!;
+        return { ...account, positions: account.positions.map((p) => ({ ...p, sector: "Technology Services" })) };
+      },
+    });
     const tool = createQuantExtension(d).tools?.find((t) => t.name === "size_position");
     assert.ok(tool);
     const result = await tool.execute({ symbol: "MSFT", entry: 100, stop: 90 }, API, CTX);

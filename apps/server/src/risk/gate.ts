@@ -35,7 +35,7 @@ export interface OrderGateDeps {
   ownerMessagesSince?: (since: number) => { id: string; at: number; text: string }[];
   /** Free market-data provider for the earnings and liquidity entry rules. */
   market?: MarketData;
-  /** Sectors for symbols the broker reports without one, so the sector cap sees real exposure. */
+  /** Consistent sector groups for the concentration check when known. */
   sectors?: SectorDirectory;
   /**
    * System One review of an approved entry. Returns the `system_one` check to append, or undefined to skip.
@@ -391,8 +391,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           ? {}
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
         marketDataAvailable: marketInputs.marketDataAvailable,
-        sectorOf: (symbol: string) =>
-          account.positions.find((p) => p.symbol === symbol)?.sector ?? deps.sectors?.get(symbol),
+        sectorOf: (symbol: string) => deps.sectors?.get(symbol),
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now,
       });
@@ -612,8 +611,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           ? {}
           : { avgDollarVolume20: marketInputs.avgDollarVolume20 }),
         marketDataAvailable: marketInputs.marketDataAvailable,
-        sectorOf: (symbol: string) =>
-          snapshot.positions.find((p) => p.symbol === symbol)?.sector ?? deps.sectors?.get(symbol),
+        sectorOf: (symbol: string) => deps.sectors?.get(symbol),
         tradingDaysBetween: (a: string, b: string) => calendar.tradingDaysBetween(a, b),
         now: checkAt,
       });
