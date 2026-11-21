@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readdir, rmdir, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFAULT_SETTINGS,
   type AccountSnapshot,
@@ -11,6 +14,7 @@ import {
   type Report,
 } from "@rh/shared";
 import type { Broker, Clock, Logger, MarketData, Store } from "../ports.ts";
+import { createMarketData } from "../market/market-data.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
 import { buildDailyFacts, buildTradeFacts, buildWeeklyFacts, type ReportFactsDeps } from "./facts.ts";
 import { etAddDays } from "./ids.ts";
@@ -306,6 +310,52 @@ describe("weekly facts", () => {
 });
 
 describe("benchmark freshness", () => {
+  it("fetches the closing bar despite an intraday cache and does not cache a missing close", async (t) => {
+    const dataDir = await mkdtemp(join(tmpdir(), "report-close-"));
+    const cacheDir = join(dataDir, "cache", "market");
+    t.after(async () => {
+      for (const name of await readdir(cacheDir)) await unlink(join(cacheDir, name));
+      await rmdir(cacheDir);
+      await rmdir(join(dataDir, "cache"));
+      await rmdir(dataDir);
+    });
+    let now = Date.parse("2026-11-20T20:45:00Z");
+    const clock: Clock = { now: () => now };
+    let hasFridayClose = false;
+    let historyReads = 0;
+    const market = createMarketData({
+      dataDir,
+      clock,
+      log,
+      fetchImpl: async () => {
+        historyReads++;
+        const row = (date: string, close: string) => ({ date, open: close, high: close, low: close, close, volume: "1000" });
+        return Response.json({ data: { tradesTable: { rows: [
+          ...(hasFridayClose ? [row("11/20/2026", "90")] : []),
+          row("11/19/2026", "100"),
+          row("11/13/2026", "75"),
+        ] } } });
+      },
+    });
+    const { deps: d } = deps({ market, clock });
+    const afternoon = await market.history("SPY", "1y");
+    assert.equal(afternoon.bars.at(-1)?.date, "2026-11-19");
+    assert.equal((await buildDailyFacts(d, "2026-11-20")).benchmarkPct, undefined);
+    assert.equal(historyReads, 1, "do not request the official close while the session is open");
+
+    now = Date.parse("2026-11-20T21:10:00Z");
+    assert.equal((await buildDailyFacts(d, "2026-11-20")).benchmarkPct, undefined);
+    assert.equal(historyReads, 2, "do not reuse a history read before the regular close");
+
+    hasFridayClose = true;
+    const daily = await buildDailyFacts(d, "2026-11-20");
+    assert.ok(Math.abs((daily.benchmarkPct ?? NaN) - (-10)) < 1e-9);
+    const weekly = await buildWeeklyFacts(d, "2026-11-16");
+    assert.ok(Math.abs((weekly.benchmarkPct ?? NaN) - 20) < 1e-9);
+    assert.equal(historyReads, 3, "recheck a missing close, then share the confirmed bar");
+    assert.equal((await market.history("SPY", "1y")).bars.at(-1)?.date, "2026-11-19", "leave the ordinary market-data cache unchanged");
+  });
+
   interface BenchmarkCase {
     name: string;
     kind: "daily" | "weekly";
@@ -344,6 +394,7 @@ describe("benchmark freshness", () => {
       name: "uses the close before Thanksgiving for a Friday-after-holiday period start",
       kind: "daily",
       reportDate: "2026-11-27",
+      clock: { now: () => Date.parse("2026-11-27T18:00:00Z") }, // 13:00 ET early close
       bars: [bar("2026-11-25", 600), bar("2026-11-27", 612)],
       expected: (612 / 600 - 1) * 100,
     },
@@ -351,6 +402,7 @@ describe("benchmark freshness", () => {
       name: "uses Friday's close for a weekend period end and keeps a real 0%",
       kind: "daily",
       reportDate: "2026-11-29",
+      clock: { now: () => Date.parse("2026-11-29T20:00:00Z") },
       bars: [bar("2026-11-25", 600), bar("2026-11-27", 606)],
       expected: 0,
     },
