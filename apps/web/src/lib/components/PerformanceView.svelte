@@ -8,7 +8,7 @@
   import Empty from "./Empty.svelte";
   import Pnl from "./Pnl.svelte";
   import Ticker from "./Ticker.svelte";
-  import { calibrationReading, calibrationRows, closedTradeKey, orderOutcomes, pnlBars, pnlReading, SOURCE_LABEL } from "$lib/analytics";
+  import { closedTradeKey, orderOutcomes, pnlBars, pnlReading, SOURCE_LABEL } from "$lib/analytics";
   import { isoShort, pct, tone, usd, usdSigned } from "$lib/format";
   import { harness } from "$lib/store.svelte";
   import { cn } from "$lib/utils.js";
@@ -28,11 +28,10 @@
   <DataState loadable={harness.performance} onretry={() => harness.loadPerformance(true)} skeleton="h-[30rem]">
     {#snippet children(p)}
       {@const bars = pnlBars(p.trades)}
-      {@const cal = calibrationRows(p.calibration)}
       {@const outcomes = orderOutcomes(p.ordersByStatus)}
       {#if p.trades.length === 0}
         <Panel title="Performance" reading="No closed trades yet.">
-          <Empty text="Win rate, R multiples and calibration appear once the first position is closed." />
+          <Empty text="Win rate and R multiples appear once the first position is closed." />
         </Panel>
       {:else}
         <dl class="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border p-3.5 sm:grid-cols-3 xl:grid-cols-6">
@@ -68,40 +67,8 @@
             </div>
           </Panel>
 
-          <Panel title="Calibration" reading={calibrationReading(p.calibration)}>
-            <div class="px-3.5 pb-3.5">
-              {#if cal.length === 0}
-                <Empty text="Needs closed harness trades that carried a stated win probability." />
-              {:else}
-                <DitherColumns
-                  labels={cal.map((c) => c.label)}
-                  series={[
-                    { key: "predicted", label: "Predicted win rate", tone: "primary", values: cal.map((c) => c.predicted) },
-                    { key: "realized", label: "Realized win rate", tone: "gain", values: cal.map((c) => c.realized) },
-                  ]}
-                  format={(v) => `${v.toFixed(0)}%`}
-                  axisFormat={(v) => `${Math.round(v)}%`}
-                  tooltipLabel={(i) => `Predicted ${cal[i]!.label} · ${cal[i]!.count} trades`}
-                  ariaLabel="Predicted against realized win rate for each probability bucket"
-                  maxTicks={6}
-                  class="h-44"
-                />
-                <table class="num mt-2 w-full text-[12px]">
-                  <caption class="sr-only">Calibration buckets with trade counts</caption>
-                  <thead>
-                    <tr class="text-muted-foreground text-[11px]">
-                      <th class="text-left font-normal">Said</th><th class="text-right font-normal">Predicted</th><th class="text-right font-normal">Realized</th><th class="text-right font-normal">Trades</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each cal as c (c.key)}
-                      <tr><td>{c.label}</td><td class="text-right">{c.predicted.toFixed(0)}%</td><td class={cn("text-right", c.realized < c.predicted - 10 && "text-loss")}>{c.realized.toFixed(0)}%</td><td class="text-right">{c.count}</td></tr>
-                    {/each}
-                  </tbody>
-                </table>
-                {#if p.brier !== undefined}<p class="text-muted-foreground num mt-2 text-[11.5px]">Brier score {p.brier.toFixed(3)} (0 is perfect, 0.25 is a coin flip)</p>{/if}
-              {/if}
-            </div>
+          <Panel title="Forecast calibration">
+            <Empty text="Calibration needs a recorded target, invalidation level, and enough price data to tell which came first." />
           </Panel>
         </div>
 

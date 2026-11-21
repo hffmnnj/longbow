@@ -224,7 +224,7 @@ describe("metricGroups", () => {
     expect(groups.some((g) => g.title === "Discipline")).toBe(false);
     expect(groups.some((g) => g.title === "Costs")).toBe(false);
   });
-  it("shows each figure once: costs in dollars and percent, risk blocks as bars", () => {
+  it("shows each figure once: costs in dollars and percent, risk blocks as bars, and never a Brier score", () => {
     const r = run("a", {
       equity: [point("1", 1100)],
       metrics: {
@@ -240,9 +240,10 @@ describe("metricGroups", () => {
     });
     const byTitle = new Map(metricGroups(r).map((g) => [g.title, g]));
     expect(byTitle.get("Costs")!.rows).toEqual([{ label: "Costs paid", text: "$12.50", sub: "1.04% of start" }]);
+    // Legacy Brier data from an old server is ignored: Discipline keeps only risk blocks.
     const discipline = byTitle.get("Discipline")!.rows;
-    expect(discipline[0]).toEqual({ label: "Risk blocks", bars: [{ label: "sector", value: 2 }, { label: "max_positions", value: 1 }] });
-    expect(discipline[1]).toEqual({ label: "Brier", text: "0.200", sub: "lower is better" });
+    expect(discipline).toEqual([{ label: "Risk blocks", bars: [{ label: "sector", value: 2 }, { label: "max_positions", value: 1 }] }]);
+    expect(discipline.map((x) => x.label)).not.toContain("Brier");
     expect(byTitle.get("Return and risk")!.rows.find((x) => x.label === "Sharpe")).toEqual({ label: "Sharpe", text: "1.20" });
   });
   it("is empty before the first close with no fills", () => {

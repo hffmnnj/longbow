@@ -280,8 +280,6 @@ export function metricGroups(run: SimRun): MetricGroup[] {
   const discipline: MetricRow[] = [];
   const blocks = m ? Object.entries(m.riskBlocks).sort((a, b) => b[1] - a[1]) : [];
   if (blocks.length) discipline.push({ label: "Risk blocks", bars: blocks.map(([label, value]) => ({ label, value })) });
-  const brier = ff(m?.brier, (x) => x.toFixed(3));
-  if (brier !== undefined) discipline.push({ label: "Brier", text: brier, sub: "lower is better" });
   if (discipline.length) ret.push({ title: "Discipline", rows: discipline });
 
   return ret;

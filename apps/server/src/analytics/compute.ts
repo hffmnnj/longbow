@@ -1,4 +1,4 @@
-import type { CalibrationBucket, ClosedTrade, OrderRecord } from "@rh/shared";
+import type { ClosedTrade, OrderRecord } from "@rh/shared";
 import { maxDrawdown as indicatorMaxDrawdown } from "../market/indicators.ts";
 import { equityFees } from "../fees.ts";
 import { etDateForInstant } from "../risk/calendar.ts";
@@ -136,36 +136,6 @@ export function summarizeTrades(trades: ClosedTrade[]): TradeSummary {
   const withHold = trades.filter((t) => t.holdingDays !== undefined).map((t) => t.holdingDays as number);
   if (withHold.length > 0) summary.avgHoldingDays = withHold.reduce((a, b) => a + b, 0) / withHold.length;
   return summary;
-}
-
-/**
- * Calibration of harness win-probability estimates: ten 0.1-wide buckets.
- * `predicted` is the bucket midpoint, `realized` the fraction of winners.
- */
-export function calibrationBuckets(trades: ClosedTrade[]): CalibrationBucket[] {
-  const withProb = trades.filter((t) => t.probabilityWin !== undefined);
-  const buckets: CalibrationBucket[] = [];
-  for (let i = 0; i < 10; i++) {
-    const from = i / 10;
-    const to = (i + 1) / 10;
-    const inBucket = withProb.filter((t) => (t.probabilityWin as number) >= from && ((t.probabilityWin as number) < to || (i === 9 && (t.probabilityWin as number) <= to)));
-    if (inBucket.length === 0) continue;
-    buckets.push({
-      from,
-      to,
-      predicted: (from + to) / 2,
-      realized: inBucket.filter((t) => t.pnl > 0).length / inBucket.length,
-      count: inBucket.length,
-    });
-  }
-  return buckets;
-}
-
-/** Mean squared error of probabilityWin against win/loss outcomes; lower is better. */
-export function brierScore(trades: ClosedTrade[]): number | undefined {
-  const withProb = trades.filter((t) => t.probabilityWin !== undefined);
-  if (withProb.length === 0) return undefined;
-  return withProb.reduce((sum, t) => sum + ((t.probabilityWin as number) - (t.pnl > 0 ? 1 : 0)) ** 2, 0) / withProb.length;
 }
 
 /** Worst peak-to-trough fall as a positive percent (0 when values never fall). */

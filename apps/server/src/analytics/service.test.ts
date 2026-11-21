@@ -120,6 +120,24 @@ function account(): AccountSnapshot {
   };
 }
 
+it("reports profitable realized outcomes without inferring a target-before-invalidation observation", async () => {
+  const entry = orderRecord("AAPL", "filled");
+  const buy: OrderRecord = { ...entry, id: "buy", intent: { ...entry.intent, side: "buy", invalidationPrice: 90 }, filledQuantity: 1, averageFillPrice: 100 };
+  const sell: OrderRecord = { ...entry, id: "sell", updatedAt: NOW, filledQuantity: 1, averageFillPrice: 105 };
+  const service = createAnalyticsService({
+    store: fakeStore([buy, sell]), market, broker: fakeBroker([]), getAccount: () => null,
+    notes: { list: async () => [], read: async () => undefined, write: async () => ({ path: "", size: 0, updatedAt: 0 }) },
+    calendar, clock, log, dataDir: "/tmp/analytics-test",
+  });
+  const summary = await service.performance();
+  assert.equal(summary.trades.length, 1);
+  assert.ok(summary.realizedPnl > 0);
+  assert.equal(summary.winRatePct, 100);
+  assert.equal(summary.trades[0]?.probabilityWin, 0.5);
+  assert.deepEqual(summary.calibration, []);
+  assert.equal(summary.brier, undefined);
+});
+
 describe("equity benchmark dates", () => {
   const apr17 = "2026-04-17";
   const apr20 = "2026-04-20";

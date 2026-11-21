@@ -556,7 +556,9 @@ export interface PerformanceSummary {
   expectancy?: number;
   profitFactor?: number;
   avgHoldingDays?: number;
+  /** @deprecated Legacy exit-P&L score, not calibration of the forecasted event. */
   brier?: number;
+  /** Kept for old clients; empty until matching forecast observations are recorded. */
   calibration: CalibrationBucket[];
   exposure: ExposureRow[];
   sectors: { sector: string; weightPct: number }[];
@@ -819,7 +821,7 @@ export interface SimMetrics {
   exposurePct: number;
   ordersSubmitted: number;
   ordersRejected: number;
-  /** Brier score of entry `probabilityWin` against closed outcomes; lower is better. */
+  /** @deprecated Legacy exit-P&L score, not calibration of the forecasted event. */
   brier?: number;
   /** Annualized, from daily returns; absent under 5 days. */
   sortino?: number;
@@ -920,6 +922,7 @@ export interface SimSuiteVariantSummary {
   winRatePct?: number;
   avgR?: number;
   costsPct?: number;
+  /** @deprecated Legacy score retained only for persisted data compatibility. */
   brier?: number;
 }
 

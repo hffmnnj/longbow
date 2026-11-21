@@ -120,7 +120,7 @@ test("round-trip metrics wait for a fully closed entry and use original intent r
   const metrics = calculateMetrics(1200, [], fills, orders);
   assert.equal(metrics.winRatePct, 100);
   assert.equal(metrics.avgR, 1);
-  assert.ok(Math.abs(metrics.brier! - 0.09) < 1e-10);
+  assert.equal(metrics.brier, undefined, "trade P&L does not resolve the forecast");
   assert.equal(metrics.ordersSubmitted, 1);
 });
 
@@ -155,7 +155,7 @@ test("closed round trips realize FIFO outcomes net of explicit fees, not the emb
   near(metrics.winRatePct, 50, "win rate");
   near(metrics.expectancy, 5.575, "expectancy");
   near(metrics.profitFactor, 11.45 / 0.3, "profit factor");
-  near(metrics.brier, 0.225, "brier");
+  assert.equal(metrics.brier, undefined);
   near(metrics.avgR, (11.45 / 9 - 0.3 / 6) / 2, "average R");
   near(metrics.avgHoldingDays, 3, "average holding days");
   near(metrics.returnPct, 0.5, "returns still come from equity snapshots");

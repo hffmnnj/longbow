@@ -536,12 +536,6 @@ List<MetricGroup> metricGroups(SimRun run) {
       ),
     );
   }
-  final brier = fmt(m?.brier, (x) => x.toStringAsFixed(3));
-  if (brier != null) {
-    discipline.add(
-      MetricRow(label: 'Brier', text: brier, sub: 'lower is better'),
-    );
-  }
   if (discipline.isNotEmpty) {
     ret.add(MetricGroup(title: 'Discipline', rows: discipline));
   }

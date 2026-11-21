@@ -17,8 +17,6 @@ import { fetchEconomicEvents } from "../market/sources/nasdaq.ts";
 import { fetchVixSeries } from "../market/sources/cboe.ts";
 import { fetchYieldCurve } from "../market/sources/treasury.ts";
 import {
-  brierScore,
-  calibrationBuckets,
   classifyRegime,
   economicCalendar,
   holdingsReplayValues,
@@ -240,7 +238,6 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     const orders = deps.store.ordersSince(0);
     const trades = await readAllClosedTrades(deps);
     const summary = summarizeTrades(trades);
-    const harness = trades.filter((t) => t.source === "harness");
     const rhStops = await readRhStops();
     const account = deps.getAccount();
     const equityValue = account?.equity ?? 0;
@@ -277,11 +274,8 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
       ...(summary.expectancy === undefined ? {} : { expectancy: summary.expectancy }),
       ...(summary.profitFactor === undefined ? {} : { profitFactor: summary.profitFactor }),
       ...(summary.avgHoldingDays === undefined ? {} : { avgHoldingDays: summary.avgHoldingDays }),
-      ...(() => {
-        const brier = brierScore(harness);
-        return brier === undefined ? {} : { brier };
-      })(),
-      calibration: calibrationBuckets(harness),
+      // Realized P&L cannot resolve whether a forecast's target was reached before invalidation.
+      calibration: [],
       exposure,
       sectors: [...sectors].map(([sector, marketValue]) => ({
         sector,

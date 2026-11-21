@@ -38,7 +38,7 @@ The Agent screen is the control room: the mode, the kill switch, System One, and
   <img src="docs/assets/screens/web-performance.webp" alt="The Performance screen: realized P&L, win rate, average R, expectancy, profit factor, P&L per trade, calibration of predicted versus realized win rates, order outcomes, and closed trades" width="100%" />
 </p>
 
-Performance tracks how the agent actually trades, including whether its stated win probabilities hold up (the calibration chart and Brier score).
+Performance tracks realized trades and risk. Forecasts about reaching a target before invalidation are not scored from trade P&L alone.
 
 <p align="center">
   <img src="docs/assets/screens/web-phone.webp" alt="The web app on a phone showing Portfolio, Markets, and the Agent control room" width="100%" />

@@ -143,7 +143,6 @@ function summarizeVariant(label: string, runs: SimRun[]): SimSuiteVariantSummary
     if (rTrips > 0) summary.avgR = withR.reduce((sum, t) => sum + t.r! * t.trips, 0) / rTrips;
   }
   summary.costsPct = mean(withMetrics.map((r) => r.metrics!.costsPct));
-  summary.brier = mean(withMetrics.map((r) => r.metrics!.brier).filter((b): b is number => b !== undefined));
   return summary;
 }
 
