@@ -123,3 +123,42 @@ test("round-trip metrics wait for a fully closed entry and use original intent r
   assert.ok(Math.abs(metrics.brier! - 0.09) < 1e-10);
   assert.equal(metrics.ordersSubmitted, 1);
 });
+
+test("closed round trips realize FIFO outcomes net of explicit fees, not the embedded spread cost", () => {
+  const near = (actual: number | undefined, expected: number, label: string) =>
+    assert.ok(Math.abs((actual ?? 0) - expected) < 1e-9, `${label}: expected ${expected}, got ${actual}`);
+  const intent = (limitPrice: number, invalidationPrice: number, probabilityWin: number) => ({
+    symbol: "SPY", side: "buy" as const, quantity: 2, orderType: "limit" as const, limitPrice, invalidationPrice,
+    timeInForce: "day" as const, timeStopDate: "2026-07-10", thesis: "Fixture intent for net round-trip accounting.",
+    probabilityWin, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["fixture"],
+  });
+  const orders: OrderRecord[] = [
+    { id: "a", brokerOrderId: "a", createdAt: 1, updatedAt: 1, status: "submitted", verdict: { approved: true, isExit: false, checks: [] },
+      intent: intent(100.5, 96, 0.7) },
+    { id: "b", brokerOrderId: "b", createdAt: 2, updatedAt: 2, status: "submitted", verdict: { approved: true, isExit: false, checks: [] },
+      intent: intent(103, 100, 0.6) },
+  ];
+  // Entry B has no recorded fees, while both exits and entry A do; a nonzero `cost` is the spread already inside each price.
+  const fills: SimFill[] = [
+    { at: 1, date: "2026-07-01", symbol: "SPY", side: "buy", quantity: 2, price: 100, fees: 1.2, cost: 0.3, orderId: "a" },
+    { at: 2, date: "2026-07-02", symbol: "SPY", side: "sell", quantity: 1, price: 110, fees: 0.1, cost: 0.05, orderId: "sell-a" },
+    { at: 3, date: "2026-07-03", symbol: "SPY", side: "buy", quantity: 2, price: 102.9, cost: 0.2, orderId: "b" },
+    { at: 4, date: "2026-07-06", symbol: "SPY", side: "sell", quantity: 3, price: 103, fees: 0.75, cost: 0.25, orderId: "sell-both" },
+  ];
+  // After the partial exit both lots still hold shares, so no round trip has closed yet.
+  assert.equal(calculateMetrics(1000, [], fills.slice(0, 3), orders).roundTrips, 0);
+  const metrics = calculateMetrics(1000, [{ date: "2026-07-06", equity: 1005, cash: 0, benchmark: 1000 }], fills, orders);
+  // Lot A: (110 - 100) - 0.60 entry - 0.10 exit = +9.30, then (103 - 100) - 0.60 entry - 0.25 exit = +2.15.
+  // Lot B: (103 - 102.9) * 2 - 0 fees - 0.50 exit = -0.30, a gross gain that explicit fees turn into a loss.
+  // Embedded cost (0.30 + 0.05 + 0.20 + 0.25) is diagnostic only and must not be subtracted again.
+  near(metrics.roundTrips, 2, "round trips");
+  near(metrics.winRatePct, 50, "win rate");
+  near(metrics.expectancy, 5.575, "expectancy");
+  near(metrics.profitFactor, 11.45 / 0.3, "profit factor");
+  near(metrics.brier, 0.225, "brier");
+  near(metrics.avgR, (11.45 / 9 - 0.3 / 6) / 2, "average R");
+  near(metrics.avgHoldingDays, 3, "average holding days");
+  near(metrics.returnPct, 0.5, "returns still come from equity snapshots");
+  near(metrics.feesPaid, 2.05, "fees paid total");
+  near(metrics.costsPaid, 2.85, "costs paid total");
+});
