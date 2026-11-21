@@ -87,6 +87,47 @@ export type BacktestResult = {
   pooled: PooledBacktest;
 }
 
+/** Raw open-to-prior-close moves this large are flagged as possibly unadjusted data. */
+const OPEN_GAP_WARN_THRESHOLD = 0.35;
+const MAX_OPEN_GAP_EXAMPLES = 3;
+
+type LargeOpenGap = { symbol: string; date: string; move: number };
+
+/** Raw open-vs-prior-close moves over every supplied bar, including bars before the trade window. */
+function largeOpenGaps(barsBySymbol: Map<string, Bar[]>): LargeOpenGap[] {
+  const gaps: LargeOpenGap[] = [];
+  for (const [symbol, bars] of barsBySymbol) {
+    for (let i = 1; i < bars.length; i++) {
+      const prevClose = bars[i - 1]?.close;
+      const open = bars[i]?.open;
+      if (prevClose === undefined || open === undefined) continue;
+      if (!Number.isFinite(prevClose) || !Number.isFinite(open) || prevClose <= 0 || open <= 0) continue;
+      const move = open / prevClose - 1;
+      if (!Number.isFinite(move) || Math.abs(move) < OPEN_GAP_WARN_THRESHOLD) continue;
+      const date = bars[i]?.date;
+      if (date !== undefined) gaps.push({ symbol, date, move });
+    }
+  }
+  return gaps;
+}
+
+function openGapWarning(gaps: LargeOpenGap[]): string | undefined {
+  if (gaps.length === 0) return undefined;
+  const examples = gaps
+    .slice(0, MAX_OPEN_GAP_EXAMPLES)
+    .map((g) => `${g.symbol} ${g.date} ${g.move >= 0 ? "+" : ""}${(g.move * 100).toFixed(0)}%`)
+    .join(", ");
+  const omitted = gaps.length - Math.min(gaps.length, MAX_OPEN_GAP_EXAMPLES);
+  const thresholdPct = Math.round(OPEN_GAP_WARN_THRESHOLD * 100);
+  return (
+    `Detected ${gaps.length} raw open-vs-prior-close ${gaps.length === 1 ? "move" : "moves"} of at least ` +
+    `${thresholdPct}% (${examples}${omitted > 0 ? `; ${omitted} more omitted` : ""}). Such moves may be real or ` +
+    "unadjusted corporate actions such as splits or spin-offs; raw returns are not reliable for strategy decisions " +
+    "until the affected prices are independently verified. The check scans supplied raw bars only and cannot catch " +
+    "every unadjusted event."
+  );
+}
+
 /** Signal on the close of bar i (fills at the next open). Prefix is bars[0..i]. */
 function entrySignal(prefix: Bar[], entry: BacktestEntry): boolean {
   const c = closes(prefix);
@@ -209,6 +250,7 @@ export function runBacktest(
   const { entry, exit, years, costBps } = opts;
   const costRate = costBps / 10_000;
   const windowSessions = Math.round(years * 252);
+  const gapWarning = openGapWarning(largeOpenGaps(barsBySymbol));
   const symbols: SymbolBacktest[] = [];
   const pooledTrades: BacktestTrade[] = [];
   let pooledInMarket = 0;
@@ -341,6 +383,11 @@ export function runBacktest(
     equity.push(cum);
   }
   const holdings = pooledTrades.map((t) => t.holdingDays);
+  const warnings: string[] = [];
+  if (pooledTrades.length < 30) {
+    warnings.push(`Only ${pooledTrades.length} pooled trades; under 30, so the result is suggestive, not conclusive.`);
+  }
+  if (gapWarning !== undefined) warnings.push(gapWarning);
   const pooled: PooledBacktest = {
     symbols: symbols.length,
     trades: pooledTrades.length,
@@ -358,9 +405,7 @@ export function runBacktest(
         }),
     ...(buyHolds.length === 0 ? {} : { buyHoldReturn: buyHolds.reduce((a, b) => a + b, 0) / buyHolds.length }),
     lastTrades: pooledTrades.slice(-5),
-    ...(pooledTrades.length < 30
-      ? { warning: `Only ${pooledTrades.length} pooled trades; under 30, so the result is suggestive, not conclusive.` }
-      : {}),
+    ...(warnings.length === 0 ? {} : { warning: warnings.join(" ") }),
   };
   return { entry, exit, years, costBps, symbols, pooled };
 }
