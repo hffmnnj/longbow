@@ -122,6 +122,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   }
   async function advanceRestingOrders(now: number): Promise<void> {
     const day = deps.calendar.etDate(now);
+    const events: ({ order: PaperOrder; at: number } &
+      ({ kind: "fill"; price: number; mid: number } | { kind: "expire" }))[] = [];
     for (const order of orders.filter((o) => o.status === "open" && !delayed.has(o.id))) {
       const { intent } = order;
       const history = await deps.bars(intent.symbol);
@@ -129,7 +131,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const createdDay = deps.calendar.etDate(order.createdAt);
       const bars = history.filter((b) => b.date >= deps.calendar.etDate(order.checkedAt) && b.date <= day &&
         (intent.timeInForce !== "day" || b.date === createdDay));
-      for (const bar of bars) {
+      let matched = false;
+      sessions: for (const bar of bars) {
         const bounds = session(bar.date);
         if (bounds.tradingDay !== bar.date) continue;
         const close = bounds.nextClose;
@@ -155,21 +158,29 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
           }
           const ratio = triggerPrice === undefined ? cross(a.price, b.price, through, intent.side === "sell") : 0;
           if (ratio !== undefined) {
-            // A resting order that can no longer fill (shares already sold, cash spent) cancels like a broker reject.
-            try {
-              fill(order, triggerPrice ?? intent.limitPrice, a.at + (b.at - a.at) * ratio, a.price + (b.price - a.price) * ratio);
-            } catch {
-              order.status = "cancelled";
-            }
+            events.push({ kind: "fill", order, price: triggerPrice ?? intent.limitPrice,
+              at: a.at + (b.at - a.at) * ratio, mid: a.price + (b.price - a.price) * ratio });
+            matched = true;
+            break sessions;
           }
         }
-        if (order.status !== "open") break;
         if (intent.timeInForce === "day" && now >= close) break;
       }
-      if (order.status === "open" && intent.timeInForce === "day" && now >= session(createdDay).nextClose) {
-        order.status = "cancelled";
+      if (!matched && intent.timeInForce === "day" && now >= session(createdDay).nextClose) {
+        events.push({ kind: "expire", order, at: session(createdDay).nextClose });
       }
       order.checkedAt = Math.max(order.checkedAt, now);
+    }
+    // Apply the matches in modeled time. Sorting the public fill list alone
+    // cannot correct inventory and cost basis updated in placement order.
+    for (const event of events.sort((a, b) => a.at - b.at)) {
+      if (event.order.status !== "open") continue;
+      if (event.kind === "expire") {
+        event.order.status = "cancelled";
+      } else {
+        settle(deps.calendar.etDate(event.at));
+        try { fill(event.order, event.price, event.at, event.mid); } catch { event.order.status = "cancelled"; }
+      }
     }
   }
   async function reconcileOrders(): Promise<void> {
@@ -177,8 +188,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const dueTimes = [...new Set([...delayed.values()].map((attempt) => attempt.at).filter((at) => at <= now))].sort((a, b) => a - b);
     for (const at of dueTimes) {
       const day = deps.calendar.etDate(at);
-      settle(day);
       await advanceRestingOrders(at - 1);
+      settle(day);
       for (const order of orders) {
         const attempt = delayed.get(order.id);
         if (order.status !== "open" || attempt?.at !== at) continue;
@@ -201,8 +212,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         else order.checkedAt = at + 1;
       }
     }
-    settle(deps.calendar.etDate(now));
     await advanceRestingOrders(now);
+    settle(deps.calendar.etDate(now));
   }
   let advancing: Promise<void> | undefined;
   function advance(): Promise<void> {
