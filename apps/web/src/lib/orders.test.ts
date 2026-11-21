@@ -5,6 +5,7 @@ import {
   STATUS_LABEL,
   expectedValuePct,
   failedChecks,
+  fractionalQuoteLabel,
   isDoneOrderStatus,
   isOpenOrderStatus,
   notional,
@@ -15,6 +16,14 @@ describe("order helpers", () => {
   const order = fixtureOrder("o", "pending_approval");
   it("computes notional from quantity and limit", () => {
     expect(notional(order.intent)).toBeCloseTo(1239.6, 6);
+  });
+  it("distinguishes fractional equity quote checks from actual limits and protective stops", () => {
+    const fraction = { ...order.intent, quantity: 0.5 };
+    expect(fractionalQuoteLabel(fraction)).toBe("Buy quote ceiling");
+    expect(fractionalQuoteLabel({ ...fraction, side: "sell" })).toBe("Sell quote floor");
+    expect(fractionalQuoteLabel(order.intent)).toBeUndefined();
+    expect(fractionalQuoteLabel({ ...fraction, symbol: "BTC-USD" })).toBeUndefined();
+    expect(fractionalQuoteLabel({ ...fraction, side: "sell", orderType: "stop_limit", stopPrice: 408 })).toBeUndefined();
   });
   it("computes EV after costs from win probability, gain, loss and cost", () => {
     // 0.58*4.2 - 0.42*1.5 - 0.08 = 1.726

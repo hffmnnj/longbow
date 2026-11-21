@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isCryptoSymbol, type OrderRecord } from "@rh/shared";
+  import type { OrderRecord } from "@rh/shared";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import RiskChecks from "./RiskChecks.svelte";
@@ -8,7 +8,7 @@
   import Ticker from "./Ticker.svelte";
   import { ago, pctSigned, priceExact, priceFor, qtyExact, qtyFor, qtyUnit, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
-  import { expectedValuePct, notional } from "$lib/orders";
+  import { expectedValuePct, fractionalQuoteLabel, notional } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
 
   let { order }: { order: OrderRecord } = $props();
@@ -17,6 +17,7 @@
   const busy = $derived(harness.busy[`order:${order.id}`] ?? false);
   const isOwner = $derived(order.ownerMessageId != null);
   const isPendingOwner = $derived(isOwner && order.status === "pending_approval");
+  const fractionalQuote = $derived(fractionalQuoteLabel(i));
   let rejecting = $state(false);
   let reason = $state("");
   let expanded = $state(false);
@@ -29,7 +30,11 @@
     {#if isOwner}
       <span class="bg-primary/15 text-primary inline-flex h-5 items-center rounded px-1.5 text-[10.5px] font-semibold tracking-wider uppercase">Owner order</span>
     {/if}
-    <span class="num text-muted-foreground">{qtyFor(i.symbol, i.quantity)} @ {priceFor(i.symbol, i.limitPrice)}</span>
+    {#if fractionalQuote}
+      <span class="num text-muted-foreground">{qtyFor(i.symbol, i.quantity)} {qtyUnit(i.symbol)} · {fractionalQuote} {priceFor(i.symbol, i.limitPrice)}</span>
+    {:else}
+      <span class="num text-muted-foreground">{qtyFor(i.symbol, i.quantity)} @ {priceFor(i.symbol, i.limitPrice)}</span>
+    {/if}
     {#if i.orderType === "stop_limit" && i.stopPrice}
       <span class="num text-muted-foreground text-[12px]">stop {priceFor(i.symbol, i.stopPrice)}</span>
     {/if}
@@ -41,13 +46,22 @@
       <p class="num text-[12.5px] leading-relaxed">
         {i.side === "buy" ? "Buy" : "Sell"}
         {qtyExact(i.quantity)} {qtyUnit(i.symbol)} of {i.symbol} ·
-        {i.orderType === "stop_limit" ? "Stop limit" : "Limit"} @ {priceExact(i.limitPrice)}{#if i.orderType === "stop_limit" && i.stopPrice} · Stop {priceExact(i.stopPrice)}{/if} ·
+        {#if fractionalQuote}{fractionalQuote} {priceExact(i.limitPrice)}{:else}{i.orderType === "stop_limit" ? "Stop limit" : "Limit"} @ {priceExact(i.limitPrice)}{/if}{#if i.orderType === "stop_limit" && i.stopPrice} · Stop {priceExact(i.stopPrice)}{/if} ·
         Expires at today's close
       </p>
+      {#if fractionalQuote}
+        <p class="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">
+          If the quote passes, this is sent as a market order. The fill price can differ.
+        </p>
+      {/if}
       {#if i.ownerInstruction}
         <p class="text-muted-foreground mt-1 truncate text-[12.5px]">From your message: “{i.ownerInstruction}”</p>
       {/if}
     </div>
+  {:else if fractionalQuote && order.status === "pending_approval"}
+    <p class="text-muted-foreground text-[12.5px] leading-relaxed">
+      If the quote passes, this is sent as a market order. The fill price can differ.
+    </p>
   {/if}
 
   <div>
@@ -59,7 +73,7 @@
     {/if}
   </div>
 
-  <MiniChart symbol={i.symbol} limit={i.limitPrice} invalidation={i.invalidationPrice} />
+  <MiniChart symbol={i.symbol} limit={i.limitPrice} invalidation={i.invalidationPrice} limitLabel={fractionalQuote} />
 
   <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-[12.5px]">
     <div>

@@ -6,7 +6,7 @@
   import Ticker from "./Ticker.svelte";
   import { etStamp, priceFor, qtyFor, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
-  import { notional, STATUS_LABEL } from "$lib/orders";
+  import { fractionalQuoteLabel, notional, STATUS_LABEL } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
   import { ui } from "$lib/ui.svelte";
 
@@ -34,10 +34,14 @@
       {:else if shown.status === "pending_approval"}
         <OrderCard order={shown} />
       {:else}
+        {@const quoteLabel = fractionalQuoteLabel(shown.intent)}
         <div class="flex flex-col gap-4 text-[13px]">
           <dl class="num grid grid-cols-2 gap-3">
-            <div><dt class="label-caps">Size</dt><dd>{qtyFor(shown.intent.symbol, shown.intent.quantity)} @ {priceFor(shown.intent.symbol, shown.intent.limitPrice)}</dd></div>
-            <div><dt class="label-caps">Notional</dt><dd>{usd(notional(shown.intent))}</dd></div>
+            <div><dt class="label-caps">Size</dt><dd>{qtyFor(shown.intent.symbol, shown.intent.quantity)}{#if !quoteLabel} @ {priceFor(shown.intent.symbol, shown.intent.limitPrice)}{/if}</dd></div>
+            {#if quoteLabel}
+              <div><dt class="label-caps">{quoteLabel}</dt><dd>{priceFor(shown.intent.symbol, shown.intent.limitPrice)}</dd></div>
+            {/if}
+            <div><dt class="label-caps">{quoteLabel ? "Intent notional" : "Notional"}</dt><dd>{usd(notional(shown.intent))}</dd></div>
             <div><dt class="label-caps">Invalidation</dt><dd>{priceFor(shown.intent.symbol, shown.intent.invalidationPrice)}</dd></div>
             <div><dt class="label-caps">Time stop</dt><dd>{shown.intent.timeStopDate}</dd></div>
             {#if shown.averageFillPrice !== undefined}

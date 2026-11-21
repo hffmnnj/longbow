@@ -58,12 +58,29 @@ void main() {
     });
 
     testWidgets('pendingOrder_showsApproveAndRejectInTheSheet', (tester) async {
-      final h = await startHarness(tester, script: (api) => api.on('orders', () async => [order('ord-1')]));
+      final h = await startHarness(tester, script: (api) => api.on('orders', () async => [order('ord-1', quantity: .5)]));
       await _openSheet(tester, h, 'ord-1');
 
       expect(find.widgetWithText(FilledButton, 'Approve'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
       expect(find.text('Awaiting approval'), findsOneWidget);
+      expect(find.textContaining('Buy quote ceiling'), findsOneWidget);
+      expect(find.textContaining('The fill price can differ.'), findsOneWidget);
+    });
+
+    testWidgets('fractionalFill_showsTheQuoteCeilingSeparatelyFromTheActualFill', (tester) async {
+      final h = await startHarness(tester, script: (api) {
+        api.on('orders', () async => [
+              order('ord-fractional', status: OrderStatus.filled, quantity: .5, filled: .5, fillPrice: 502.5),
+            ]);
+      });
+      await _openSheet(tester, h, 'ord-fractional');
+
+      expect(find.text('Buy quote ceiling'), findsOneWidget);
+      expect(find.text('\$501.25'), findsOneWidget);
+      expect(find.text('0.5 @ \$502.50'), findsOneWidget);
+      expect(find.text('Limit'), findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Approve'), findsNothing);
     });
 
     testWidgets('unknownOrder_saysItIsNotInTheRecentList', (tester) async {

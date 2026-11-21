@@ -27,6 +27,8 @@ void main() {
 
       expect(find.text('Owner order'), findsOneWidget);
       expect(find.textContaining('0.123456 shares of NVDA'), findsOneWidget);
+      expect(find.textContaining('Buy quote ceiling'), findsNWidgets(2));
+      expect(find.textContaining('The fill price can differ.'), findsOneWidget);
       expect(find.textContaining("Expires at today's close"), findsOneWidget);
       expect(find.textContaining('From your message:'), findsOneWidget);
       expect(find.textContaining('Buy a small piece of NVDA'), findsOneWidget);
