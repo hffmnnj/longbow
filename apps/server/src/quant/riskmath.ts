@@ -1,33 +1,41 @@
 import { beta, correlation } from "../market/indicators.ts";
+import type { Bar } from "@rh/shared";
 
 export type DatedReturn = {
+  from: string;
   date: string;
   r: number;
 }
 
+export function datedReturns(bars: Bar[]): DatedReturn[] {
+  const out: DatedReturn[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const before = bars[i - 1]!;
+    const after = bars[i]!;
+    if (before.date >= after.date || !Number.isFinite(before.close) || before.close <= 0 ||
+      !Number.isFinite(after.close) || after.close <= 0) continue;
+    out.push({ from: before.date, date: after.date, r: after.close / before.close - 1 });
+  }
+  return out;
+}
+
 /**
- * Intersect return series on date and return the last `days` paired points,
- * oldest first. Symbols missing dates simply contribute fewer points.
+ * Intersect exact return intervals. A missing session must not turn a
+ * two-session price move into a one-session risk observation.
  */
 export function alignLast(
   series: Map<string, DatedReturn[]>,
   symbols: string[],
   days: number,
 ): { dates: string[]; matrix: Map<string, number[]> } {
-  const lists = symbols.map((s) => series.get(s) ?? []);
-  const count = new Map<string, number>();
-  for (const list of lists) for (const p of list) count.set(p.date, (count.get(p.date) ?? 0) + 1);
-  const common = [...count.entries()]
-    .filter(([, n]) => n === symbols.length)
-    .map(([d]) => d)
-    .sort()
-    .slice(-days);
+  const maps = symbols.map((s) => new Map((series.get(s) ?? []).map((p) => [`${p.date}/${p.from}`, p] as const)));
+  const common = [...(maps[0]?.keys() ?? [])].filter((key) => maps.every((map) => map.has(key))).sort().slice(-days);
   const matrix = new Map<string, number[]>();
   for (let k = 0; k < symbols.length; k++) {
-    const byDate = new Map((lists[k] ?? []).map((p) => [p.date, p.r] as const));
-    matrix.set(symbols[k]!, common.map((d) => byDate.get(d) ?? 0));
+    const map = maps[k]!;
+    matrix.set(symbols[k]!, common.map((key) => map.get(key)!.r));
   }
-  return { dates: common, matrix };
+  return { dates: common.map((key) => maps[0]!.get(key)!.date), matrix };
 }
 
 export type PairwiseTop = {
