@@ -45,6 +45,28 @@ test("resting limit fills at its limit when the intervening path traded through 
   assert.equal(broker.fills()[0]!.price, 95);
   assert.equal(broker.fills()[0]!.at, etInstant("2026-07-01", 10, 35));
 });
+test("resting orders fill in path chronology, not placement order", async () => {
+  // The ideal path drops to 85 before climbing to 120, so the 90 buy trades
+  // before the 110 sell no matter which of the two was placed first.
+  const day = "2026-07-06";
+  const bars: Bar[] = [{ date: day, open: 100, low: 85, high: 120, close: 100, volume: 1_000_000 }];
+  for (const placed of [["sell", "buy"], ["buy", "sell"]] as const) {
+    const { broker, at } = barsFixture(bars, day, 1200, 1, "ideal");
+    await broker.placeOrder({ ...intent, limitPrice: 100.05 });
+    for (const side of placed) {
+      await broker.placeOrder({ ...intent, side, limitPrice: side === "sell" ? 110 : 90 });
+    }
+    at(day, 15, 45);
+    await broker.advance();
+    const account = await broker.snapshot();
+    assert.equal(account.positions.length, 1, `sequence ${placed.join(", ")}`);
+    const position = account.positions[0]!;
+    assert.equal(position.quantity, 1, `sequence ${placed.join(", ")}`);
+    assert.equal(position.averageCost, 95.005, `sequence ${placed.join(", ")}`);
+    assert.deepEqual(broker.fills().map((fill) => [fill.side, fill.price]),
+      [["buy", 100.01], ["buy", 90], ["sell", 110]], `sequence ${placed.join(", ")}`);
+  }
+});
 test("fractional intents must be marketable now and do not become resting orders", async () => {
   const { broker } = fixture();
   await assert.rejects(broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 99 }), { name: "FractionalPreflightError" });
