@@ -49,6 +49,34 @@ describe("nyse calendar", () => {
     assert.equal(afternoon.isOpen, false);
   });
 
+  it("closes early at 13:00 ET on 2025-07-03", () => {
+    const beforeClose = calendar.clock(Date.UTC(2025, 6, 3, 16, 59, 0));
+    assert.equal(beforeClose.session, "regular");
+    assert.equal(beforeClose.isOpen, true);
+    assert.equal(beforeClose.earlyClose, true);
+    const atClose = calendar.clock(Date.UTC(2025, 6, 3, 17, 0, 0));
+    assert.equal(atClose.session, "post");
+    assert.equal(atClose.isOpen, false);
+  });
+
+  it("treats the 2025-01-09 day of mourning as a full closure", () => {
+    const noon = calendar.clock(Date.UTC(2025, 0, 9, 17, 0, 0));
+    assert.equal(noon.isOpen, false);
+    assert.equal(noon.session, "closed");
+    assert.equal(noon.tradingDay, "2025-01-10");
+    assert.equal(calendar.tradingDaysBetween("2025-01-08", "2025-01-10"), 0);
+  });
+
+  it("covers full closures from the 2024-01-01 boundary", () => {
+    const newYear = calendar.clock(Date.UTC(2024, 0, 1, 15, 0, 0));
+    assert.equal(newYear.isOpen, false);
+    assert.equal(newYear.tradingDay, "2024-01-02");
+    const julyFourth = calendar.clock(Date.UTC(2024, 6, 4, 16, 0, 0));
+    assert.equal(julyFourth.isOpen, false);
+    assert.equal(julyFourth.session, "closed");
+    assert.equal(julyFourth.tradingDay, "2024-07-05");
+  });
+
   it("derives the ET date across the midnight boundary", () => {
     assert.equal(calendar.etDate(Date.UTC(2026, 10, 3, 3, 30, 0)), "2026-11-02");
     assert.equal(calendar.etDate(Date.UTC(2026, 10, 3, 5, 30, 0)), "2026-11-03");
