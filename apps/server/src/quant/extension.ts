@@ -100,6 +100,10 @@ function sectorOf(deps: QuantDeps, symbol: string): string | undefined {
   return deps.sectorOf?.(symbol) ?? UNIVERSE_SECTORS[symbol];
 }
 
+function holdingSector(deps: QuantDeps, position: AccountSnapshot["positions"][number]): string | undefined {
+  return deps.sectorOf?.(position.symbol) ?? position.sector ?? UNIVERSE_SECTORS[position.symbol];
+}
+
 const screenRowSchema = Type.Object({
   symbol: Type.String(),
   sector: Type.Optional(Type.String()),
@@ -545,7 +549,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
 
       const sectorW = new Map<string, number>();
       for (const p of positions) {
-        const sec = p.sector ?? sectorOf(deps, p.symbol) ?? "Unknown";
+        const sec = holdingSector(deps, p) ?? "Unknown";
         sectorW.set(sec, (sectorW.get(sec) ?? 0) + (equity > 0 ? (p.marketValue / equity) * 100 : 0));
       }
       const sectors = [...sectorW.entries()].map(([sector, weightPct]) => ({
@@ -623,7 +627,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
           ...(note === undefined ? {} : { note }),
           weights: positions.map((p) => ({
             symbol: p.symbol,
-            sector: p.sector ?? sectorOf(deps, p.symbol) ?? null,
+            sector: holdingSector(deps, p) ?? null,
             marketValue: p.marketValue,
             weightPct: equity > 0 ? (p.marketValue / equity) * 100 : 0,
           })),
@@ -675,11 +679,11 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       const risk = deps.getRisk();
       const position = account.positions.find((p) => p.symbol === args.symbol);
       const existing = position?.marketValue ?? 0;
-      const sector = deps.sectorOf?.(args.symbol) ?? position?.sector ?? UNIVERSE_SECTORS[args.symbol];
+      const sector = position === undefined ? sectorOf(deps, args.symbol) : holdingSector(deps, position);
       const sectorExposure = sector === undefined ? undefined : {
         name: sector,
         marketValue: account.positions
-          .filter((p) => (p.sector ?? sectorOf(deps, p.symbol)) === sector)
+          .filter((p) => holdingSector(deps, p) === sector)
           .reduce((sum, p) => sum + p.marketValue, 0),
       };
       let atrValue: number | undefined;

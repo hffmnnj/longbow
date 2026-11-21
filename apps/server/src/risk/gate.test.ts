@@ -448,6 +448,31 @@ describe("sector cap with broker positions that carry no sector", () => {
     assert.equal(check?.ok, false, JSON.stringify(check));
     assert.deepEqual(resolved[0], ["NVDA", "AAPL"]);
   });
+
+  it("uses the directory instead of conflicting order and holding labels, including on approval", async () => {
+    const sectors: SectorDirectory = {
+      get: (symbol) => (symbol === "AAPL" || symbol === "NVDA" ? "Technology" : undefined),
+      resolve: async () => {},
+    };
+    const intent = { ...baseIntent(), symbol: "NVDA", sector: "Technology Services" };
+    for (const mode of ["auto", "approve"] as const) {
+      const { gate, broker, store } = setup({ mode, sectors });
+      const fillSector = () => {
+        broker.snapshotValue.positions[0] = { ...broker.snapshotValue.positions[0]!,
+          sector: "Electronic Technology", marketValue: broker.snapshotValue.equity * store.settings.risk.maxSectorPct / 100 };
+      };
+      if (mode === "auto") fillSector();
+      const submitted = await gate.submit(intent);
+      if (mode === "approve") {
+        assert.equal(submitted.status, "pending_approval");
+        fillSector();
+      }
+      const order = mode === "auto" ? submitted : await gate.approve(submitted.id);
+      assert.equal(order.status, "rejected_risk");
+      assert.match(order.verdict.checks.find((c) => c.rule === "sector" && !c.ok)?.detail ?? "", /sector "Technology"/);
+      assert.equal(broker.placeCalls, 0);
+    }
+  });
 });
 
 describe("harness-held fractional protection", () => {

@@ -386,12 +386,13 @@ export function evaluate(input: RiskInput): RiskVerdict {
   } else if (crypto) {
     push("sector", true, "crypto; the crypto sleeve cap replaces the sector cap");
   } else {
-    const sector = intent.sector ?? sectorOf(intent.symbol);
+    // Compare the same taxonomy on both sides; an order's display label is only a fallback.
+    const sector = sectorOf(intent.symbol) ?? account.positions.find((p) => p.symbol === intent.symbol)?.sector ?? intent.sector;
     if (sector === undefined) {
       push("sector", true, `no sector known for ${intent.symbol}; skipping`);
     } else {
       const held = account.positions
-        .filter((p) => (p.sector ?? sectorOf(p.symbol)) === sector)
+        .filter((p) => (sectorOf(p.symbol) ?? p.sector) === sector)
         .reduce((sum, p) => sum + p.marketValue, 0);
       const allowance = equity * (risk.maxSectorPct / 100);
       push(
