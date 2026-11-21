@@ -532,6 +532,72 @@ test("starts a bootstrap run without a start date", async () => {
   }
 });
 
+test("suite bootstrap runs share one source cutoff when a queued run executes on a later ET date", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-suite-cutoff-");
+  const suiteCreatedAt = etInstant("2026-11-19", 9);
+  let wallNow = etInstant("2026-11-19", 12);
+  const fetches: { symbol: string; from: string; to: string; bars: Bar[] }[] = [];
+  const fullBenchmark = new Map<string, Bar[]>();
+  let firstRunFetches = -1;
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir, SIM_CONCURRENCY: 1 }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    // Production reads the wall clock for the transport end date and start
+    // eligibility; the test pins both runs to a suite created on Nov 19.
+    wallNow: () => wallNow,
+    fetchBars: async (symbol, from, to) => {
+      const bars = fixtureBars(symbol, from, to);
+      fetches.push({ symbol, from, to, bars });
+      return bars;
+    },
+    sectorSource: createStaticSectorDirectory({}),
+    driver: async (run, ctx) => {
+      if (run.progress.day !== 1 || run.progress.cycle !== 1) return;
+      fullBenchmark.set(run.variant ?? run.id, await ctx.bars(ctx.benchmark));
+      if (run.variant === "A") {
+        // The build already used Nov 19. Moving the manual clock here makes the
+        // still-queued B execute on Nov 20 while sharing the suite snapshot.
+        firstRunFetches = fetches.length;
+        wallNow = etInstant("2026-11-20", 12);
+      }
+    },
+  });
+  try {
+    const config = { mode: "bootstrap" as const, days: 3, seed: 7, startingCash: 1200, cyclesPerDay: 2 as const, watchlist: ["AAA"] };
+    const options = { suiteId: "suite-pinned", suiteCreatedAt };
+    const a = await sim.start({ ...config, name: "Cutoff A" }, "user", { ...options, variant: "A" });
+    const b = await sim.start({ ...config, name: "Cutoff B" }, "user", { ...options, variant: "B" });
+    assert.equal(sim.get(b.id)?.status, "queued", "the second run must wait for the single concurrency slot");
+    const doneA = await waitForDone(sim, a.id);
+    const doneB = await waitForDone(sim, b.id);
+    assert.equal(doneA.status, "done", doneA.error ?? "the first suite bootstrap run did not finish");
+    assert.equal(doneB.status, "done", doneB.error ?? "the queued suite bootstrap run did not finish");
+    assert.ok(firstRunFetches > 0, "the first run must have fetched before the queued run started");
+    const aFetches = fetches.slice(0, firstRunFetches);
+    const bFetches = fetches.slice(firstRunFetches);
+    assert.deepEqual([...new Set(aFetches.map((entry) => entry.symbol))].sort(),
+      [...new Set(bFetches.map((entry) => entry.symbol))].sort());
+    assert.ok(aFetches.every((entry) => entry.to === "2026-11-19"), "the first run transports through its own ET date");
+    assert.ok(bFetches.every((entry) => entry.to === "2026-11-20"), "the queued run still transports through the real execution day");
+    assert.ok([...aFetches, ...bFetches].every((entry) => entry.from === "2016-10-24"));
+    const aSpy = aFetches.find((entry) => entry.symbol === "SPY")!;
+    const bSpy = bFetches.find((entry) => entry.symbol === "SPY")!;
+    assert.ok(aSpy.bars.some((bar) => bar.date === "2026-11-19"), "Nov 19 is in the first run's transport window");
+    assert.ok(bSpy.bars.some((bar) => bar.date === "2026-11-20"), "Nov 20 is in the queued run's transport window");
+    const aBenchmark = fullBenchmark.get("A");
+    const bBenchmark = fullBenchmark.get("B");
+    assert.ok(aBenchmark !== undefined && bBenchmark !== undefined);
+    assert.deepEqual(bBenchmark, aBenchmark,
+      "a queued run must rebuild the suite's Nov 18 eligible snapshot rather than sampling the extra execution day");
+    assert.deepEqual(doneB.calendar, doneA.calendar, "the shared snapshot produces the same synthetic calendar");
+    assert.deepEqual(doneB.aliases, doneA.aliases, "the shared snapshot produces the same alias map");
+    assert.deepEqual(doneB.equity.map((point) => point.benchmark), doneA.equity.map((point) => point.benchmark));
+  } finally {
+    await sim.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("agent-started runs block each other but suite runs do not count", async () => {
   const dataDir = mkdtempSync("/tmp/sim-agent-test-");
   let release!: () => void;
