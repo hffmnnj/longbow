@@ -84,6 +84,14 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       : last * halfSpreadBps(avgDollarVolumeBefore(bars, day), Math.max(0, (at - open) / 60_000)) / 10_000;
     return { symbol, at, last, bid: last - spread, ask: last + spread };
   }
+  function executablePrice(intent: OrderIntent, history: Bar[], day: string, at: number, mid: number): number | undefined {
+    const adv = avgDollarVolumeBefore(history, day);
+    const half = mid * halfSpreadBps(adv, Math.max(0, (at - etInstant(day, 9, 30)) / 60_000)) / 10_000;
+    const slip = mid * slippageBps(intent.quantity * intent.limitPrice, adv, returnVolatilityBefore(history, day)) / 10_000;
+    const price = intent.side === "buy" ? mid + half + slip : mid - half - slip;
+    if (intent.side === "buy" ? price <= intent.limitPrice : price >= intent.limitPrice) return price;
+    return undefined;
+  }
   /** Fill price for an order that is marketable at placement, or undefined when it must rest. */
   async function marketableFill(intent: OrderIntent, createdAt: number, q: { last: number; ask: number; bid: number }):
     Promise<{ price: number; at: number; mid: number } | undefined> {
@@ -100,15 +108,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     // Latency: the order fills at the path price 60 seconds after it is placed.
     const at = Math.min(createdAt + 60_000, etInstant(day, 16));
     const mid = realisticPrice(bar, intent.symbol, seed, at);
-    const adv = avgDollarVolumeBefore(history, day);
-    const half = mid * halfSpreadBps(adv, Math.max(0, (at - etInstant(day, 9, 30)) / 60_000)) / 10_000;
-    const slip = mid * slippageBps(intent.quantity * intent.limitPrice, adv, returnVolatilityBefore(history, day)) / 10_000;
-    if (intent.side === "buy") {
-      const price = mid + half + slip;
-      return price <= intent.limitPrice ? { price, at, mid } : undefined;
-    }
-    const price = mid - half - slip;
-    return price >= intent.limitPrice ? { price, at, mid } : undefined;
+    const price = executablePrice(intent, history, day, at, mid);
+    return price === undefined ? undefined : { price, at, mid };
   }
   function cross(a: number, b: number, level: number, above: boolean): number | undefined {
     if (above ? a >= level : a <= level) return 0;
@@ -120,7 +121,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const now = deps.clock.now();
     for (const order of orders.filter((o) => o.status === "open")) {
       const { intent } = order;
-      const bars = (await deps.bars(intent.symbol)).filter((b) => b.date >= deps.calendar.etDate(order.checkedAt) && b.date <= date());
+      const history = await deps.bars(intent.symbol);
+      const bars = history.filter((b) => b.date >= deps.calendar.etDate(order.checkedAt) && b.date <= date());
       for (const bar of bars) {
         const from = Math.max(order.checkedAt, order.createdAt);
         const points = execution === "ideal"
@@ -132,17 +134,21 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         for (let i = 0; i < points.length && order.status === "open"; i++) {
           let a = points[i]!;
           const b = points[i + 1] ?? a;
+          let triggerPrice: number | undefined;
           if (!order.triggered) {
             const ratio = cross(a.price, b.price, intent.stopPrice!, intent.side === "buy");
             if (ratio === undefined) continue;
             a = { price: a.price + (b.price - a.price) * ratio, at: a.at + (b.at - a.at) * ratio };
             order.triggered = true;
+            // A stop already resting at the simulated venue can become
+            // marketable at its trigger. Its limit is a bound, not a cost.
+            if (execution === "realistic") triggerPrice = executablePrice(intent, history, bar.date, a.at, a.price);
           }
-          const ratio = cross(a.price, b.price, through, intent.side === "sell");
+          const ratio = triggerPrice === undefined ? cross(a.price, b.price, through, intent.side === "sell") : 0;
           if (ratio !== undefined) {
             // A resting order that can no longer fill (shares already sold, cash spent) cancels like a broker reject.
             try {
-              fill(order, intent.limitPrice, a.at + (b.at - a.at) * ratio, a.price + (b.price - a.price) * ratio);
+              fill(order, triggerPrice ?? intent.limitPrice, a.at + (b.at - a.at) * ratio, a.price + (b.price - a.price) * ratio);
             } catch {
               order.status = "cancelled";
             }
