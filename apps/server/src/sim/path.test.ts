@@ -41,6 +41,19 @@ test("realistic bridge is deterministic, bounded, and touches each extreme once"
   assert.equal(down.filter((p) => p.price === 90).length, 1);
   assert.equal(down.filter((p) => p.price === 120).length, 1);
 });
+
+test("realistic replay preserves the quoted open and close when the reported range excludes them", () => {
+  const inconsistentBar = { date: "2023-06-05", open: 104.25, high: 103.57, low: 100.97, close: 102.07, volume: 3_000_000 };
+  const closeOutside = { ...inconsistentBar, close: 100.88 };
+  for (const row of [inconsistentBar, closeOutside]) {
+    const path = realisticPath(row, "COP", 7);
+    assert.equal(path[0]?.price, row.open);
+    assert.equal(path.at(-1)?.price, row.close);
+    assert.ok(path.every(({ price }) => price >= Math.min(row.low, row.close) && price <= row.open));
+    assert.equal(path.filter(({ price }) => price === row.open).length, 1);
+    if (row.close < row.low) assert.equal(path.filter(({ price }) => price === row.close).length, 1);
+  }
+});
 test("up days lean low-first and down days lean high-first", () => {
   const bar = { date: "2026-07-02", open: 100, low: 90, high: 120, close: 110, volume: 1000 };
   const lowFirstFraction = (close: number): number => {
