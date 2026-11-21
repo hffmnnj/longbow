@@ -408,6 +408,29 @@ describe("market_tools_point_in_time", () => {
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
   });
 
+  it("reports SMA50 direction from ten available bars back, without reading future closes", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "pit-sma-direction-"));
+    const dates = ALL_DATES.slice(ASOF_INDEX - 59, ASOF_INDEX + 2);
+    const bars = (slope: number, start: number) => dates.slice(start).map((date, index) => {
+      const close = date > ASOF ? 900 : 100 + slope * index;
+      return { date, open: close, high: close, low: close, close, volume: 1_000_000 };
+    });
+    const series = new Map([["RISE", bars(1, 0)], ["FALL", bars(-1, 0)], ["FLAT", bars(0, 0)], ["SHORT", bars(1, 1)]]);
+    const market = {
+      ...fakeMarket([]),
+      async history(symbol: string) { return { symbol, bars: series.get(symbol) ?? [], source: "fixture", asOf: 0 }; },
+    };
+    const ext = createMarketExtension({ market, dataDir, log: silent, clock: fixedClock(0),
+      asOf: () => ASOF, pricesOnly: true, fetchImpl: fakeFetchImpl([]) });
+    for (const [symbol, expected] of [["RISE", 10], ["FALL", -10], ["FLAT", 0], ["SHORT", null]] as const) {
+      const result = await callTool(ext, "market_indicators", { symbol });
+      assert.equal(result.isError, undefined, symbol);
+      const output = result.structuredOutput as unknown as { date: string; sma50Change10Bars: number | null };
+      assert.equal(output.date, ASOF, symbol);
+      assert.equal(output.sma50Change10Bars, expected, symbol);
+    }
+  });
+
   it("compare_uses_truncated_bars_and_prefixes_text", async () => {
     const { ext } = setup(() => ASOF);
     const result = await callTool(ext, "market_compare", { symbols: ["AAPL"], range: "1m" });
