@@ -414,6 +414,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "against the risk cap, and a stress replay of the benchmark's five worst days in the past year. " +
       "With a candidate, compares the portfolio with and without the candidate on the same overlapping dates " +
       "and reports its highest correlation with another holding. The base portfolio readout does not change. " +
+      "A portfolio addition uses current cash only; it does not assume a sale or borrowing. " +
       "Portfolio metrics are unavailable when a holding has no usable return history.",
     parameters: Type.Object({
       candidate: Type.Optional(
@@ -436,7 +437,12 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       const risk = deps.getRisk();
       const benchmark = deps.benchmark();
       const positions = (account?.positions ?? []).filter((p) => p.quantity > 0 && p.marketValue > 0);
-      const candidate = args.candidate;
+      const requested = args.candidate;
+      const cash = account ? Math.max(0, Math.min(account.cash, account.buyingPower, account.settledCash ?? account.buyingPower)) : undefined;
+      const fundingNote = requested && cash !== undefined && requested.notional > cash
+        ? `Candidate ${requested.symbol} (${money(requested.notional)}) exceeds available cash of ${money(cash)}; no sale or borrowing assumed.`
+        : undefined;
+      const candidate = fundingNote === undefined ? requested : undefined;
       const names = [...positions.map((p) => p.symbol), ...(candidate ? [candidate.symbol] : []), benchmark];
       const uniq = [...new Set(names)];
       const fetched = await mapPool(uniq, 6, (s) => fetchBars(deps, s, "1y"));
@@ -450,13 +456,12 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       for (const [s, bars] of bySymbol) rets.set(s, dailyReturns(bars));
 
       if (!account || positions.length === 0) {
-        const note =
-          account === null || account === undefined
-            ? "No account snapshot; analysing the candidate alone."
-            : "No positions; analysing the candidate alone.";
+        const note = fundingNote !== undefined
+          ? `No positions. ${fundingNote}`
+          : !account ? "No account snapshot; analysing the candidate alone." : "No positions; analysing the candidate alone.";
         if (!candidate || !bySymbol.has(candidate.symbol) || !bySymbol.has(benchmark)) {
           return {
-            output: [{ type: "text" as const, text: `${note} Need a candidate and benchmark history.` }],
+            output: [{ type: "text" as const, text: `${note}${fundingNote === undefined ? " Need a candidate and benchmark history." : ""}` }],
             structuredOutput: clean({
               equity: account?.equity ?? null,
               note,
@@ -485,7 +490,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
         const text =
           `${note} ${candidate.symbol}: beta ${fmtNum(betaV)} vs ${benchmark}, ` +
           `ann vol ${fmtPct(vol === undefined ? null : vol)}` +
-            `, 1d 95% VaR ${candidate.notional === undefined ? "n/a" : money((ve?.varPct ?? 0) * candidate.notional)}.`;
+            `, 1d 95% VaR ${ve === undefined ? "n/a" : money(ve.varPct * candidate.notional)}.`;
         return {
           output: [{ type: "text" as const, text }],
           structuredOutput: clean({
@@ -528,11 +533,12 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       // without returns would silently treat its invested weight as cash.
       const all = [...new Set([...held, benchmark])];
       const { dates, matrix } = alignLast(rets, all, 252);
-      const note = missingHeld.length > 0
+      const historyNote = missingHeld.length > 0
         ? `Portfolio risk unavailable: missing return history for holdings ${missingHeld.join(", ")}.`
         : dates.length === 0
           ? `Portfolio risk unavailable: no overlapping return history with ${benchmark}.`
           : undefined;
+      const note = historyNote && fundingNote ? `${historyNote} ${fundingNote}` : historyNote ?? fundingNote;
       const portVec = portfolioSeries(matrix, weights);
       const benchVec = matrix.get(benchmark) ?? [];
       const betaV = portfolioBeta(portVec, benchVec);
