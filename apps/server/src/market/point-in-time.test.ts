@@ -477,7 +477,12 @@ describe("market_tools_point_in_time", () => {
     const same: [string, number][] = [["2026-10-09", 100], ["2026-10-12", 110], ["2026-10-13", 99]];
     const bySymbol = new Map([
       ["SPY", bars([["2026-10-08", 500], ...same, ["2026-10-14", 200]])],
+      // Crypto trades every day: only the 10-12 -> 10-13 interval matches the benchmark exactly.
       ["BTC-USD", bars([same[0]!, ["2026-10-10", 180], ["2026-10-11", 220], ...same.slice(1)])],
+      // Same calendar as the benchmark: two exact intervals must still produce a real +1.
+      ["PEER", bars(same)],
+      // Missing 10-12 would make one benchmark interval span two of its sessions.
+      ["GAP", bars([same[0]!, ["2026-10-13", 120], ["2026-10-14", 200]])],
       ["MISS", bars([["2026-10-15", 100], ["2026-10-16", 110]])],
     ]);
     const market: MarketData = {
@@ -486,14 +491,19 @@ describe("market_tools_point_in_time", () => {
       avgDollarVolume: async () => undefined,
     };
     const ext = createMarketExtension({ market, dataDir, log: silent, clock: fixedClock(0) });
-    const result = await callTool(ext, "market_compare", { symbols: ["BTC-USD", "MISS"], range: "1m" });
+    const result = await callTool(ext, "market_compare", { symbols: ["BTC-USD", "PEER", "GAP", "MISS"], range: "1m" });
     const output = result.structuredOutput as unknown as {
       rows: { symbol: string; relativeStrengthPct: number | null; beta: number | null; correlation: number | null }[];
       correlation: { matrix: (number | null)[][] };
     };
     assert.deepEqual(output.rows.map(({ symbol, relativeStrengthPct, beta, correlation }) =>
-      [symbol, relativeStrengthPct, beta, correlation]), [["BTC-USD", 0, 1, 1], ["MISS", null, null, null]]);
-    assert.equal(output.correlation.matrix[0]?.[1], 1);
+      [symbol, relativeStrengthPct, beta, correlation]), [
+      ["BTC-USD", 0, null, null],
+      ["PEER", 0, 1, 1],
+      ["GAP", 0, null, null],
+      ["MISS", null, null, null],
+    ]);
+    assert.deepEqual(output.correlation.matrix[0], [1, null, 1, null, null]);
   });
 
   it("earnings_refuses_asof_replay_without_a_vendor_call", async () => {
