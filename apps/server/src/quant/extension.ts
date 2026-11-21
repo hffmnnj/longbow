@@ -16,7 +16,7 @@ import {
 } from "./riskmath.ts";
 import { computeSize } from "./sizing.ts";
 import { UNIVERSE_SECTORS } from "./universe.ts";
-import { atr, closes, dailyReturns, periodReturn } from "../market/indicators.ts";
+import { atr, dailyReturns } from "../market/indicators.ts";
 
 export interface QuantDeps {
   market: MarketData;
@@ -259,6 +259,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "Scan a universe for one technical preset (trend_template, breakout_52w, pullback_20d, " +
       "rsi_oversold_uptrend, relative_strength, volatility_contraction) and return ranked rows with " +
       "returns, relative strength, distance to the 52-week high, ATR, RSI, trend position, and dollar volume. " +
+      "Relative strength compares stock and benchmark over the same start and end dates. " +
       "Use the structured output for math; the text is only a summary.",
     parameters: Type.Object({
       preset: Type.Union(
@@ -291,13 +292,11 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       const symbols = [...new Set(args.symbols ?? deps.universe())];
       if (symbols.length === 0) return err("No symbols to scan.");
       const benchmark = deps.benchmark();
-      let benchRet3m: number | undefined;
+      let benchmarkCloses = new Map<string, number>();
       try {
         const bench = await deps.market.history(benchmark, "1y");
-        benchRet3m = periodReturn(closes(bench.bars), 63);
-      } catch {
-        benchRet3m = undefined;
-      }
+        benchmarkCloses = new Map(bench.bars.map((b) => [b.date, b.close]));
+      } catch { /* Non-relative presets can still run without a benchmark. */ }
       const fetched = await mapPool(symbols, 6, (s) => fetchBars(deps, s, "2y"));
       const rows: ScreenRow[] = [];
       const dropped: { symbol: string; reason: string }[] = [];
@@ -306,10 +305,13 @@ export function createQuantExtension(deps: QuantDeps): Extension {
           dropped.push({ symbol: f.symbol, reason: f.error ?? "fetch failed" });
           continue;
         }
-        const result = evaluateScreen(
-          { symbol: f.symbol, bars: f.bars, sector: sectorOf(deps, f.symbol), benchRet3m },
-          preset,
-        );
+        const start = f.bars.at(-64);
+        const end = f.bars.at(-1);
+        const first = start === undefined ? undefined : benchmarkCloses.get(start.date);
+        const last = end === undefined ? undefined : benchmarkCloses.get(end.date);
+        const benchRet3m = first !== undefined && first > 0 && last !== undefined && last > 0 &&
+          Number.isFinite(first) && Number.isFinite(last) ? last / first - 1 : undefined;
+        const result = evaluateScreen({ symbol: f.symbol, bars: f.bars, sector: sectorOf(deps, f.symbol), benchRet3m }, preset);
         if (result.row) rows.push(result.row);
         else dropped.push({ symbol: f.symbol, reason: result.skip ?? "no row" });
       }
