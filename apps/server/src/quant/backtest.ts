@@ -340,7 +340,7 @@ export function runBacktest(
         const lastBar = bars[bars.length - 1]!;
         const entryNet = entryPrice * (1 + costRate);
         const exitNet = lastBar.close * (1 - costRate);
-        if (lastBar.close > 0 && bars.length - 1 > i + 1) {
+        if (lastBar.close > 0) {
           trades.push({
             symbol,
             entryDate: entryBar.date,
