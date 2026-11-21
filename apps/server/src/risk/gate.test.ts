@@ -497,6 +497,26 @@ describe("harness-held fractional protection", () => {
     assert.equal(store.getOrder(order.id)?.status, "filled"); assert.equal(store.getOrder(order.id)?.brokerOrderId, "stop-broker-id");
     assert.equal(store.getOrder(order.id)?.filledQuantity, 0.205652);
   });
+  it("keeps exact microshare quantities but never rounds above available inventory", async () => {
+    for (const [available, expected] of [
+      [4.1701, 4.1701],
+      [4.0832, 4.0832],
+      [4.170099999999999, 4.170099],
+      [4.1700996, 4.170099],
+    ] as const) {
+      const f = liveSetup();
+      f.broker.snapshotValue.positions[0]!.quantity = 4.1701;
+      f.broker.snapshotValue.positions[0]!.sharesAvailableForSells = 4.1701;
+      const stop = await f.gate.submit({ ...f.stop, quantity: 4.1701 });
+      assert.equal(stop.status, "held");
+      f.broker.snapshotValue.positions[0]!.sharesAvailableForSells = available;
+      f.broker.quoteValue = { ...baseQuote(), last: 139 };
+      await f.gate.tick();
+      assert.equal(f.executions.length, 1);
+      assert.equal(f.executions[0]?.intent.quantity, expected, `available ${available}`);
+      assert.ok(expected <= available);
+    }
+  });
   it("reports quote-stage failure without claiming or executing held stops", async () => {
     const f = liveSetup();
     const order = await f.gate.submit(f.stop);

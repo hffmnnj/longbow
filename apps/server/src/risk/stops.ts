@@ -79,8 +79,12 @@ export async function watchStops(deps: StopDeps): Promise<void> {
       const position = snapshot.positions.find((p) => p.symbol === order.intent.symbol);
       const reserved = deps.store.ordersSince(0).filter((o) => o.id !== order.id && o.intent.symbol === order.intent.symbol && o.intent.side === "sell" && ["submitted", "partially_filled", "triggering"].includes(o.status)).reduce((sum, o) => sum + Math.max(0, o.intent.quantity - (o.filledQuantity ?? 0)), 0);
       const available = Math.max(0, Math.min(position?.quantity ?? 0, position?.sharesAvailableForSells ?? 0) - reserved);
-      const quantity = Math.floor(Math.min(order.intent.quantity, available) * 1e6) / 1e6;
-      if (quantity <= 0) throw new Error("No unreserved shares available for protective stop sale");
+      const bound = Math.min(order.intent.quantity, available);
+      // Compare in shares, not in multiplied floating-point units: 4.1701
+      // times 1e6 is slightly below an integer, but we still must never round above inventory.
+      const nearestMicroshares = Math.round(bound * 1e6);
+      const quantity = (nearestMicroshares / 1e6 <= bound ? nearestMicroshares : nearestMicroshares - 1) / 1e6;
+      if (!(quantity > 0) || !Number.isFinite(quantity)) throw new Error("No unreserved shares available for protective stop sale");
       const currentSettings = deps.store.getSettings();
       if (currentSettings.killSwitch || currentSettings.mode === "off" || !deps.calendar.clock(deps.clock.now()).isOpen) throw new Error("Protective stop execution blocked by kill switch, mode off, or market close");
       const intent = { ...order.intent, quantity };
