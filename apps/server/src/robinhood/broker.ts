@@ -6,7 +6,7 @@ import type { Broker, Config, Logger, Clock } from "../ports.ts";
 import { RobinhoodOAuth, MCP_URL, type Authorize } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
 import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
-import { BrokerMappingError, cryptoOrderMapping, findTool, orderMapping, orderRef, parseCryptoOrder, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
+import { BrokerMappingError, PlacementQuoteUnavailableError, cryptoOrderMapping, findTool, orderMapping, orderRef, parseCryptoOrder, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
 
 export type { OpenStopOrder, PnlTrade };
@@ -239,10 +239,13 @@ export function createRobinhoodBroker(deps: {
   async function mappedCall(name: string, args: Record<string, unknown>) {
     return responseObject(await call(name, validateArguments(findTool(tools, [name]), args)));
   }
-  async function execution(intent: OrderIntent): Promise<ExecutionOptions> {
+  async function execution(intent: OrderIntent, phase: "review" | "place"): Promise<ExecutionOptions> {
     if (Number.isInteger(intent.quantity)) return {};
-    const quote = (await fetchQuotes(mappedCall, [intent.symbol], clock.now()))[0]!;
-    return fractionalExecution(intent, quote, calendar.clock(clock.now()).isOpen);
+    const quotes = await fetchQuotes(mappedCall, [intent.symbol], clock.now()).catch((error: unknown) => {
+      if (phase === "place") throw new PlacementQuoteUnavailableError();
+      throw error;
+    });
+    return fractionalExecution(intent, quotes[0]!, calendar.clock(clock.now()).isOpen);
   }
   async function place(intent: OrderIntent, options: ExecutionOptions) {
     await identifyAccount();
@@ -361,14 +364,14 @@ export function createRobinhoodBroker(deps: {
         if (result.isError) throw new BrokerMappingError("Robinhood order review failed");
         return validateReview(responseObject(result));
       }
-      const mapping = orderMapping(tools, "review", intent, accountId, await execution(intent));
+      const mapping = orderMapping(tools, "review", intent, accountId, await execution(intent, "review"));
       const result = await call(mapping.tool.name, mapping.args);
       if (result.isError) throw new BrokerMappingError("Robinhood order review failed");
       return validateReview(responseObject(result));
     },
     async placeOrder(intent: OrderIntent) {
       if (isCryptoSymbol(intent.symbol)) return place(intent, {});
-      return place(intent, await execution(intent));
+      return place(intent, await execution(intent, "place"));
     },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     extension() { return robinhoodExtension({ tools, status: () => broker.status(), call }); },
