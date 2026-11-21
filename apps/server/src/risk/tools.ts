@@ -1,6 +1,8 @@
 import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
+import type { AccountSnapshot } from "@rh/shared";
 import { countDayTrades, countSubmittedBuysToday, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
+import { recordedEntryReviews } from "./review-dates.ts";
 import type { Broker, Clock, MarketCalendar, OrderGate, Store } from "../ports.ts";
 
 /**
@@ -16,6 +18,7 @@ export interface RiskToolsDeps {
   calendar: MarketCalendar;
   clock: Clock;
   broker: Broker;
+  getAccount?: () => AccountSnapshot | null;
   currentCycleId: () => string | undefined;
 }
 
@@ -47,7 +50,7 @@ const submitOrderSchema = Type.Object({
     }),
   ),
   timeInForce: Type.Union([Type.Literal("day"), Type.Literal("gtc")], {
-    description: "Day orders die at the end of the trading day; gtc rests until the time stop.",
+    description: "Day orders expire at the end of the trading day. A GTC order remains active until filled, cancelled or expired; the thesis review date does not cancel it.",
   }),
   invalidationPrice: Type.Number({
     description: "Price at which the thesis is wrong. Below the limit for buys, above it for sells. Sizes the trade's risk.",
@@ -194,7 +197,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
     name: "get_risk_state",
     description:
       "Read the current risk posture: mode, kill switch, active halts, risk limits, market clock, " +
-      "today's used entry and day-trade budgets, and pending orders. Call it before proposing orders.",
+      "today's used entry and day-trade budgets, pending orders, and original review dates for reconciled holdings when known. Call it before proposing orders.",
     parameters: Type.Object({}),
     replay: "safe",
     async execute() {
@@ -208,8 +211,11 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       const dayTradesUsed = countDayTrades(recent, todayEt, (a, b) =>
         calendar.tradingDaysBetween(a, b),
       );
-      const pending = store.ordersSince(0).filter((o) => o.status === "pending_approval");
+      const orders = store.ordersSince(0);
+      const pending = orders.filter((o) => o.status === "pending_approval");
       const brokerState = broker.status();
+      const account = brokerState.state === "connected" ? deps.getAccount?.() : undefined;
+      const reviews = account ? recordedEntryReviews(account.positions, orders, todayEt, account.at) : undefined;
       const lines = [
         `mode: ${settings.mode}, kill switch: ${settings.killSwitch ? "ENGAGED" : "off"}`,
         `halts: ${haltList.length === 0 ? "none" : haltList.join(", ")}`,
@@ -225,6 +231,14 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
           ? "pending orders: none"
           : `pending orders:\n${pending.map((o) => `- ${o.id} ${o.intent.symbol} ${o.intent.side} ${o.intent.quantity} @ ${o.intent.limitPrice} (${o.intent.orderType}/${o.intent.timeInForce}, since ${calendar.etDate(o.createdAt)})`).join("\n")}`,
       ];
+      if (reviews !== undefined && account && reviews.length > 0) {
+        lines.push(`Recorded entry review dates (holdings snapshot ${formatEt(account.at)} ET; original intent, not necessarily the current plan). Check current notes before acting:`);
+        for (const review of reviews) {
+          if (review.status === "owner") lines.push(`- ${review.symbol}: owner-directed; follow owner instructions.`);
+          else if (review.status === "unverified") lines.push(`- ${review.symbol}: original review dates unavailable from reconciled local fills.`);
+          else if (review.status === "recorded") lines.push(`- ${review.symbol}: ${review.dates.map((date) => `${date.date} (${date.state}, ${date.quantity} held)`).join(", ")}.`);
+        }
+      }
       return {
         output: [{ type: "text", text: lines.join("\n") }],
         details: {
@@ -233,6 +247,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
           halts: haltList,
           entriesUsed,
           dayTradesUsed,
+          ...(reviews === undefined ? {} : { recordedEntryReviews: reviews, holdingsSnapshotAt: account?.at }),
         },
       };
     },
