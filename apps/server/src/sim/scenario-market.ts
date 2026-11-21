@@ -62,7 +62,7 @@ export interface ScenarioMarketSpec {
   days: number;
   /** First simulated source date; required for blind, ignored by bootstrap. */
   startDate?: string;
-  /** ET date the source history may run through (today), YYYY-MM-DD. */
+  /** Current ET date (YYYY-MM-DD): fetch through it, but only score earlier dates. */
   today: string;
   /** Source daily bars, `from <= date <= to`, oldest first. */
   fetch(symbol: string, from: string, to: string): Promise<Bar[]>;
@@ -290,7 +290,12 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
   const { days, today } = spec;
   const realUniverse = [...new Set([...spec.watchlist.map((s) => s.toUpperCase()), "SPY", ...SECTOR_ETFS.map((e) => e.real)])];
   const fetched = new Map<string, Bar[]>();
-  for (const symbol of realUniverse) fetched.set(symbol, await spec.fetch(symbol, BOOTSTRAP_HISTORY_START, today));
+  for (const symbol of realUniverse) {
+    const bars = await spec.fetch(symbol, BOOTSTRAP_HISTORY_START, today);
+    // Nasdaq needs a current transport end date, but a same-day bar may
+    // still be forming. Keep it out of both the sample pool and seed prices.
+    fetched.set(symbol, bars.filter((bar) => bar.date < today));
+  }
   const dateSets = new Map<string, Set<string>>(realUniverse.map((s) => [s, new Set((fetched.get(s) ?? []).map((b) => b.date))]));
   // Drop the sparsest names until the joint history covers warmup plus the run. SPY is never dropped.
   const kept = [...realUniverse];
