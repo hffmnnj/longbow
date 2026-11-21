@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import type { AccountSnapshot, Bar, RiskConfig } from "@rh/shared";
+import type { AccountSnapshot, Bar, OrderIntent, RiskConfig } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
 import { runBacktest, type BacktestEntry } from "./backtest.ts";
 import { evaluateScreen, type ScreenPreset, type ScreenRow } from "./screen.ts";
@@ -25,6 +25,8 @@ export interface QuantDeps {
   getAccount: () => Promise<AccountSnapshot | null>;
   /** Current risk settings, so sizing matches the risk engine. */
   getRisk: () => RiskConfig;
+  /** Known working paper buys; the cash mark already includes their cash reservation. */
+  openBuyCommitments?: () => readonly Pick<OrderIntent, "symbol" | "sector" | "quantity" | "limitPrice">[];
   /** Symbols a screen may scan: the live universe, or a simulation's aliased universe. */
   universe: () => readonly string[];
   /** Sector of a symbol when known (live: SEC-based directory; blind runs: the alias's disclosed sector). */
@@ -101,7 +103,7 @@ function sectorOf(deps: QuantDeps, symbol: string): string | undefined {
   return deps.sectorOf?.(symbol) ?? UNIVERSE_SECTORS[symbol];
 }
 
-function holdingSector(deps: QuantDeps, position: AccountSnapshot["positions"][number]): string | undefined {
+function holdingSector(deps: QuantDeps, position: Pick<AccountSnapshot["positions"][number], "symbol" | "sector">): string | undefined {
   return deps.sectorOf?.(position.symbol) ?? position.sector ?? UNIVERSE_SECTORS[position.symbol];
 }
 
@@ -654,6 +656,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "Size a long entry from its dollar risk: quantity is equity times risk percent over risk per share " +
       "(entry minus stop, floored to 6 decimals), then capped by the max position and known sector exposure, the max order " +
       "notional, and available settled cash or buying power, whichever is lower when both are known. " +
+      "Known working paper buys reserve position and sector headroom. " +
       "Requested risk is capped at the configured maximum per trade. " +
       "Without a stop, the stop is entry minus atrMultiple times ATR(14). " +
       "Reports quantity, notional, percent of equity, dollars at risk, R per share, which cap bound the " +
@@ -682,11 +685,14 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       if (!account) return err("No account snapshot; cannot size without equity and buying power.");
       const risk = deps.getRisk();
       const position = account.positions.find((p) => p.symbol === args.symbol);
-      const existing = position?.marketValue ?? 0;
+      const commitments = deps.openBuyCommitments?.() ?? [];
+      const committedNotional = (include: (order: (typeof commitments)[number]) => boolean) =>
+        commitments.filter(include).reduce((sum, order) => sum + order.quantity * order.limitPrice, 0);
+      const existing = (position?.marketValue ?? 0) + committedNotional((order) => order.symbol === args.symbol);
       const sector = position === undefined ? sectorOf(deps, args.symbol) : holdingSector(deps, position);
       const sectorExposure = sector === undefined ? undefined : {
         name: sector,
-        marketValue: account.positions
+        marketValue: committedNotional((order) => holdingSector(deps, order) === sector) + account.positions
           .filter((p) => holdingSector(deps, p) === sector)
           .reduce((sum, p) => sum + p.marketValue, 0),
       };

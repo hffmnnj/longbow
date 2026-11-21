@@ -270,8 +270,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
       crypto: { ...settings.crypto, enabled: false } });
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed, fictionalDates: blindish });
+    const openBuyCommitments = () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent);
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
-      openBuyCommitments: () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent),
+      openBuyCommitments,
       ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
       ...(scenario === undefined ? {} : { sectors: createStaticSectorDirectory(Object.fromEntries(scenario.symbols.map((s) => [s, scenario!.sectorOf(s)]))) }) });
     let agent: TradingAgent | undefined;
@@ -279,7 +280,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const children = new Set<string>();
     const notes = createNotes({ dir: join(runDir, "workspace"), bus, clock });
     const quant = createQuantExtension({ market, getAccount: () => broker.snapshot().catch(() => null),
-      getRisk: () => store.getSettings().risk, universe: () => [...symbols],
+      getRisk: () => store.getSettings().risk, universe: () => [...symbols], openBuyCommitments,
       sectorOf: scenario === undefined ? () => undefined : (symbol) => scenario!.sectorOf(symbol),
       benchmark: () => benchmark, clock, log: deps.log });
     const extensions: Extension[] = [
