@@ -402,11 +402,12 @@ export function createQuantExtension(deps: QuantDeps): Extension {
   const portfolioRisk = defineTool({
     name: "portfolio_risk",
     description:
-      "Risk of the current account: weights and sectors, the 60-day correlation matrix of holdings plus an " +
-      "optional candidate, the top pairwise correlation, portfolio beta and annualized volatility on 1y of " +
+      "Risk of the current account: weights and sectors, the 60-day correlation matrix of holdings, " +
+      "the top pairwise correlation, portfolio beta and annualized volatility on 1y of " +
       "daily returns at current weights, 1-day 95% historical VaR and expected shortfall, sector concentration " +
       "against the risk cap, and a stress replay of the benchmark's five worst days in the past year. " +
-      "With a candidate, reports the change in beta, volatility, VaR, and top correlation. " +
+      "With a candidate, compares the portfolio with and without the candidate on the same overlapping dates " +
+      "and reports its highest correlation with another holding. The base portfolio readout does not change. " +
       "Portfolio metrics are unavailable when a holding has no usable return history.",
     parameters: Type.Object({
       candidate: Type.Optional(
@@ -512,15 +513,14 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       const held = [...weights.keys()];
       const hasReturns = (symbol: string): boolean => (rets.get(symbol)?.length ?? 0) > 0;
       const missingHeld = held.filter((symbol) => !hasReturns(symbol));
-      const candidateHistory = candidate && hasReturns(candidate.symbol) ? [candidate.symbol] : [];
-      const corrSyms = [...new Set([...held.filter(hasReturns), ...candidateHistory])];
+      const corrSyms = held.filter(hasReturns);
       const { matrix: corrVecs } = alignLast(rets, corrSyms, 60);
       const corr = correlationMatrix(corrVecs);
 
-      // Portfolio series on dates common to holdings, candidate, and benchmark (up to 1y).
+      // Base portfolio series on dates common to holdings and benchmark (up to 1y).
       // Include every held name in the intersection. Dropping a holding
       // without returns would silently treat its invested weight as cash.
-      const all = [...new Set([...held, benchmark, ...candidateHistory])];
+      const all = [...new Set([...held, benchmark])];
       const { dates, matrix } = alignLast(rets, all, 252);
       const note = missingHeld.length > 0
         ? `Portfolio risk unavailable: missing return history for holdings ${missingHeld.join(", ")}.`
@@ -568,24 +568,35 @@ export function createQuantExtension(deps: QuantDeps): Extension {
             deltaVarDollars: number | null;
           }
         | undefined;
-      if (candidate && candidateHistory.length > 0 && dates.length > 0 && equity > 0) {
+      const paired = candidate && hasReturns(candidate.symbol) && dates.length > 0 && equity > 0
+        ? alignLast(rets, [...new Set([...all, candidate.symbol])], 252)
+        : undefined;
+      if (candidate && paired && paired.dates.length > 0) {
+        const pairedBenchmark = paired.matrix.get(benchmark) ?? [];
+        const pairedBefore = portfolioSeries(paired.matrix, weights);
         const w2 = new Map(weights);
         w2.set(candidate.symbol, (w2.get(candidate.symbol) ?? 0) + candidate.notional / equity);
-        const port2 = portfolioSeries(matrix, w2);
-        const beta2 = portfolioBeta(port2, benchVec);
+        const port2 = portfolioSeries(paired.matrix, w2);
+        const betaBefore = portfolioBeta(pairedBefore, pairedBenchmark);
+        const volBefore = annualizedVol(pairedBefore);
+        const veBefore = varEs95(pairedBefore);
+        const beta2 = portfolioBeta(port2, pairedBenchmark);
         const vol2 = annualizedVol(port2);
         const ve2 = varEs95(port2);
-        const top2 = corr.top?.correlation ?? null;
+        const candidateCorr = correlationMatrix(alignLast(rets, [...new Set([...corrSyms, candidate.symbol])], 60).matrix);
+        const candidateIndex = candidateCorr.symbols.indexOf(candidate.symbol);
+        const correlations = (candidateCorr.matrix[candidateIndex] ?? [])
+          .filter((r, i): r is number => i !== candidateIndex && r !== null);
         candidateOut = {
           symbol: candidate.symbol,
           notional: candidate.notional,
           beta: beta2 ?? null,
           volatilityAnnPct: vol2 === undefined ? null : vol2 * 100,
           varDollars: ve2 ? ve2.varPct * equity : null,
-          topCorrelation: top2,
-          deltaBeta: beta2 !== undefined && betaV !== undefined ? beta2 - betaV : null,
-          deltaVolatilityPct: vol2 !== undefined && vol !== undefined ? (vol2 - vol) * 100 : null,
-          deltaVarDollars: ve2 && ve ? (ve2.varPct - ve.varPct) * equity : null,
+          topCorrelation: correlations.length === 0 ? null : Math.max(...correlations),
+          deltaBeta: beta2 !== undefined && betaBefore !== undefined ? beta2 - betaBefore : null,
+          deltaVolatilityPct: vol2 !== undefined && volBefore !== undefined ? (vol2 - volBefore) * 100 : null,
+          deltaVarDollars: ve2 && veBefore ? (ve2.varPct - veBefore.varPct) * equity : null,
         };
       }
 
