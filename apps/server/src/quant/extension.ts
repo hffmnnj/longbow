@@ -644,12 +644,12 @@ export function createQuantExtension(deps: QuantDeps): Extension {
     name: "size_position",
     description:
       "Size a long entry from its dollar risk: quantity is equity times risk percent over risk per share " +
-      "(entry minus stop, floored to 6 decimals), then capped by the max position percent, the max order " +
+      "(entry minus stop, floored to 6 decimals), then capped by the max position and known sector exposure, the max order " +
       "notional, and available settled cash or buying power, whichever is lower when both are known. " +
       "Requested risk is capped at the configured maximum per trade. " +
       "Without a stop, the stop is entry minus atrMultiple times ATR(14). " +
       "Reports quantity, notional, percent of equity, dollars at risk, R per share, which cap bound the " +
-      "size, and whether the order would pass each sizing rule.",
+      "size, and which modeled sizing rules pass. The live order gate still decides.",
     parameters: Type.Object({
       symbol: symbolField("Uppercase ticker to size."),
       entry: Type.Number({ description: "Entry price in USD.", exclusiveMinimum: 0 }),
@@ -673,7 +673,15 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       }
       if (!account) return err("No account snapshot; cannot size without equity and buying power.");
       const risk = deps.getRisk();
-      const existing = account.positions.find((p) => p.symbol === args.symbol)?.marketValue ?? 0;
+      const position = account.positions.find((p) => p.symbol === args.symbol);
+      const existing = position?.marketValue ?? 0;
+      const sector = deps.sectorOf?.(args.symbol) ?? position?.sector ?? UNIVERSE_SECTORS[args.symbol];
+      const sectorExposure = sector === undefined ? undefined : {
+        name: sector,
+        marketValue: account.positions
+          .filter((p) => (p.sector ?? sectorOf(deps, p.symbol)) === sector)
+          .reduce((sum, p) => sum + p.marketValue, 0),
+      };
       let atrValue: number | undefined;
       if (args.stop === undefined) {
         const fetched = await fetchBars(deps, args.symbol, "6m");
@@ -692,6 +700,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
         buyingPower: account.buyingPower,
         ...(account.settledCash === undefined ? {} : { settledCash: account.settledCash }),
         existingMarketValue: existing,
+        ...(sectorExposure === undefined ? {} : { sectorExposure }),
         risk,
       });
       if ("error" in sized) return err(sized.error);
