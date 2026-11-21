@@ -74,9 +74,9 @@ export async function publishReport(
 
 function resultText(summary: ReturnType<typeof summarizeReport>, facts: Report["facts"]): string {
   const parts = [`Report ${summary.id} (${summary.periodStart} to ${summary.periodEnd})`];
-  if (summary.pnl !== undefined) parts.push(`pnl ${signed(summary.pnl)}`);
+  if (summary.pnl !== undefined) parts.push(`${summary.kind === "trade" ? "pnl" : "marked account change"} ${signed(summary.pnl)}`);
   if (summary.pnlPct !== undefined) parts.push(`(${signedPct(summary.pnlPct)})`);
-  if (facts.benchmarkPct !== undefined) parts.push(`benchmark ${signedPct(facts.benchmarkPct)}`);
+  if (facts.benchmarkPct !== undefined) parts.push(`SPY close-to-close reference ${signedPct(facts.benchmarkPct)}`);
   parts.push(`${facts.trades.length} trade${facts.trades.length === 1 ? "" : "s"} closed`);
   if (facts.winRatePct !== undefined) parts.push(`win rate ${facts.winRatePct.toFixed(1)}%`);
   return parts.join(", ") + ".";

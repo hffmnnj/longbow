@@ -97,20 +97,15 @@ List<Figure> figureStrip(ReportFacts f) {
     );
   }
   if (f.benchmarkPct != null) {
-    final diff = (f.pnlPct ?? 0) - f.benchmarkPct!;
     out.add(
       Figure(
         key: 'spy',
-        // SPY's own move; the caption carries the comparison, so the figure stays neutral.
+        // The published SPY close-to-close value, shown as a neutral
+        // reference. Account marks and SPY closes use different time bases,
+        // so this never carries a beat/trail/matched comparison.
         label: 'SPY',
         value: pctSigned(f.benchmarkPct!),
-        sub: f.pnlPct != null
-            ? diff.abs() < 0.005
-                ? 'matched SPY'
-                : diff > 0
-                    ? 'beat SPY by ${pct(diff.abs())}'
-                    : 'trailed SPY by ${pct(diff.abs())}'
-            : 'same period',
+        sub: 'Close-to-close reference',
         tone: Tone.flat,
       ),
     );
@@ -338,14 +333,15 @@ List<ReportWeek> groupReportsByWeek(List<ReportSummary> reports) {
   return out;
 }
 
-/// One-line reading above the equity figure: "Up 1.00% vs SPY's +0.60% since Oct 26".
+/// One-line reading above the equity figure. When both values exist it states
+/// each separately, since account marks and SPY closes use different time bases.
 String? periodReading(ReportFacts f) {
   if (f.pnlPct == null) return null;
   final dir = f.pnlPct! >= 0 ? 'Up' : 'Down';
   final mine = pct(f.pnlPct!.abs());
   final since = 'since ${isoShort(f.periodStart)}';
   if (f.benchmarkPct == null) return '$dir $mine $since';
-  return '$dir $mine vs SPY\'s ${pctSigned(f.benchmarkPct!)} $since';
+  return '$dir $mine $since; SPY close-to-close ${pctSigned(f.benchmarkPct!)}';
 }
 
 class ReportToast {

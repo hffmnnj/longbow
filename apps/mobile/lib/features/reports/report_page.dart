@@ -522,59 +522,95 @@ class _EquityPanel extends StatelessWidget {
     final r = report;
     final f = r.facts;
     final reading = periodReading(f);
+    final hasBoth = f.pnlPct != null && f.benchmarkPct != null;
+    Widget? note() => hasBoth
+        ? Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Account marks and SPY closes use different time bases. '
+              'This is not a cash-flow-adjusted comparison.',
+              style: LbText.muted(context, size: 11.5),
+            ),
+          )
+        : null;
     if (r.kind == ReportKind.daily) {
       final pnlPct = f.pnlPct;
       final bench = f.benchmarkPct;
       if (pnlPct == null || bench == null) {
         return const Panel(
-          title: 'Day move versus SPY',
+          title: 'Day mark and market context',
           child: Empty(title: 'No market comparison recorded for this day.'),
         );
       }
       final acctTone = _chartTone(tone(pnlPct));
+      final noteWidget = note();
       return Panel(
-        title: 'Day move versus SPY',
+        title: 'Day mark and market context',
         reading: reading,
-        child: ColumnChart(
-          categories: const ['Account', 'SPY'],
-          series: [
-            ColumnSeries(
-              values: [pnlPct, 0],
-              name: 'Account',
-              tone: acctTone,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ColumnChart(
+              categories: const ['Account mark', 'SPY close-to-close'],
+              series: [
+                ColumnSeries(
+                  values: [pnlPct, 0],
+                  name: 'Account mark',
+                  tone: acctTone,
+                ),
+                ColumnSeries(
+                  values: [0, bench],
+                  name: 'SPY close-to-close',
+                  tone: ChartTone.muted,
+                ),
+              ],
+              valueFormatter: (v) => pctSigned(v),
+              height: 180,
+              semanticsLabel:
+                  'Day mark: account mark ${pctSigned(pnlPct)}; '
+                  'SPY close-to-close ${pctSigned(bench)}',
             ),
-            ColumnSeries(
-              values: [0, bench],
-              name: 'SPY',
-              tone: ChartTone.muted,
-            ),
+            if (noteWidget != null) noteWidget,
           ],
-          valueFormatter: (v) => pctSigned(v),
-          height: 180,
-          semanticsLabel:
-              'Day move: account ${pctSigned(pnlPct)} against SPY ${pctSigned(bench)}',
         ),
       );
     }
     final curve = f.equityCurve;
     if (curve.length < 2) {
-      return const Panel(
-        title: 'Equity versus SPY',
-        child: Empty(
-          title: 'Equity marks are recorded once a day. This week has a single mark so far.',
+      final noteWidget = note();
+      return Panel(
+        title: 'Weekly equity marks',
+        reading: reading,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Empty(
+              title:
+                  'Equity marks are recorded once a day. This week has a single mark so far.',
+            ),
+            if (noteWidget != null) noteWidget,
+          ],
         ),
       );
     }
+    final noteWidget = note();
     return Panel(
-      title: 'Equity versus SPY',
+      title: 'Weekly equity marks',
       reading: reading,
-      child: DitherAreaChart(
-        values: [for (final p in curve) p.value],
-        labels: [for (final p in curve) p.date],
-        name: 'Account',
-        valueFormatter: (v) => usd(v),
-        height: 220,
-        semanticsLabel: 'Account equity over the week.${reading == null ? '' : ' $reading'}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DitherAreaChart(
+            values: [for (final p in curve) p.value],
+            labels: [for (final p in curve) p.date],
+            name: 'Account mark',
+            valueFormatter: (v) => usd(v),
+            height: 220,
+            semanticsLabel:
+                'Account marks over the week.${reading == null ? '' : ' $reading'}',
+          ),
+          if (noteWidget != null) noteWidget,
+        ],
       ),
     );
   }
