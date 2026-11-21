@@ -50,7 +50,10 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
       while (quantity > 1e-8 && queue.length > 0) {
         const lot = queue[0]!;
         const matched = Math.min(quantity, lot.remaining);
-        lot.pnl += (fill.price - lot.fill.price) * matched;
+        // Execution price already embeds the spread/slippage recorded in `cost`; only explicit fees are still owed.
+        const entryFees = (lot.fill.fees ?? 0) * (matched / lot.fill.quantity);
+        const exitFees = (fill.fees ?? 0) * (matched / fill.quantity);
+        lot.pnl += (fill.price - lot.fill.price) * matched - entryFees - exitFees;
         lot.holdingWeighted += matched * dayDiff(lot.fill.date, fill.date);
         quantity -= matched;
         lot.remaining -= matched;
