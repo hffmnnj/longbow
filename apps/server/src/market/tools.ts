@@ -152,6 +152,7 @@ const indicatorsSchema = Type.Object({
   close: numOrNull("Last close."),
   sma20: numOrNull("20-session simple moving average."),
   sma50: numOrNull("50-session simple moving average."),
+  sma50Change10Bars: numOrNull("Current 50-bar average minus the 50-bar average ending 10 bars earlier, in price units. Null below 60 bars."),
   sma200: numOrNull("200-session simple moving average."),
   ema20: numOrNull("20-session exponential moving average."),
   rsi14: numOrNull("14-period Wilder RSI."),
@@ -434,6 +435,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         const c = closes(full);
         const sma20 = sma(c, 20);
         const sma50 = sma(c, 50);
+        const priorSma50 = c.length >= 60 ? sma(c.slice(-60, -10), 50) : undefined;
+        const sma50Change10Bars = sma50 === undefined || priorSma50 === undefined ? null : sma50 - priorSma50;
         const sma200 = sma(c, 200);
         const ema20v = ema(c, 20);
         const rsi14 = rsi(c, 14);
@@ -451,6 +454,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           close: last.close,
           sma20: nullIfUndef(sma20),
           sma50: nullIfUndef(sma50),
+          sma50Change10Bars,
           sma200: nullIfUndef(sma200),
           ema20: nullIfUndef(ema20v),
           rsi14: nullIfUndef(rsi14),
@@ -472,7 +476,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         };
         const text =
           `${tag()}${args.symbol} ${last.date}: close ${last.close.toFixed(2)}, trend ${structured.trend}, ` +
-          `RSI14 ${fmtNum(rsi14, 1)}, SMA50 ${fmtNum(sma50)} SMA200 ${fmtNum(sma200)}, ` +
+          `RSI14 ${fmtNum(rsi14, 1)}, SMA50 ${fmtNum(sma50)} (10-bar change ${fmtNum(sma50Change10Bars)}) SMA200 ${fmtNum(sma200)}, ` +
           `ret1m ${fmtPct(structured.ret1m)} ret1y ${fmtPct(structured.ret1y)}, ` +
           `realizedVol20 ${fmtPct(structured.realizedVol20)} maxDD1y ${fmtPct(structured.maxDrawdown1y)}.`;
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };

@@ -7,7 +7,7 @@ Use when: a stock in a confirmed uptrend has pulled back to a rising moving aver
 
 ## Rules
 
-1. Uptrend definition, all required: price above the 50-day SMA, 50-day above the 200-day, 50-day SMA itself rising over the last 10 sessions, and positive 3-month relative strength vs SPY. Missing any one means this is not a pullback, it is a topping or broken name.
+1. Uptrend definition, all required: price above the 50-day SMA, 50-day above the 200-day, 50-day SMA itself rising over the last 10 sessions (`sma50Change10Bars` > 0), and positive 3-month relative strength vs SPY on matched dates (`market_compare` `relativeStrengthPct` > 0). Missing evidence leaves the setup unconfirmed.
 2. Buy zone: touches or undercuts the 20-day EMA by no more than 1 ATR, or touches the 50-day SMA. The first touch after at least 10 sessions away from the average is the highest quality; third and later touches weaken.
 3. RSI filter: 14-day RSI between 30 and 55 on the pullback day. Above 55 means it has not pulled back enough. Below 30 means momentum has broken and this belongs to mean-reversion or no-trade, not to this skill.
 4. Depth limit: the pullback from the swing high must be less than 12 percent and less than 3 times ATR. Deeper selloffs break the structure this setup assumes.
@@ -19,10 +19,14 @@ Use when: a stock in a confirmed uptrend has pulled back to a rising moving aver
 
 ```js
 const ind = await tools.market_indicators({ symbol: SYM });
+const cmp = await tools.market_compare({ symbols: [SYM], benchmark: "SPY", range: "3m" });
 const h = await tools.market_price_history({ symbol: SYM, range: "6m" });
 const bars = h.bars, prev = bars[bars.length - 2];
-const uptrend = ind.close > ind.sma50 && ind.sma50 > ind.sma200
-  && ind.ret3m > 0; // plus: sma50 rising, checked from bars
+const rel = cmp?.rows?.find(r => r.symbol === SYM)?.relativeStrengthPct;
+const finite = [ind.close, ind.sma50, ind.sma200, ind.sma50Change10Bars, rel]
+  .every(v => Number.isFinite(v));
+const uptrend = finite && ind.close > ind.sma50 && ind.sma50 > ind.sma200
+  && ind.sma50Change10Bars > 0 && rel > 0;
 const nearEMA20 = Math.abs(prev.close - ind.ema20) / ind.atr14 <= 1.0;
 const nearSMA50 = prev.low <= ind.sma50 && prev.close >= ind.sma50 * 0.99;
 const rsiOk = ind.rsi14 >= 30 && ind.rsi14 <= 55;
@@ -36,4 +40,6 @@ const stop = Math.min(...bars.slice(-3).map(b => b.low)) - 0.5 * ind.atr14;
 
 - Averaging down when the pullback keeps falling through the average. One entry, one stop; a second leg down is a different setup or a failed one.
 - Confusing a pullback with a breakdown: price under a falling 50-day is never this setup, however oversold it looks.
+- Treating a positive absolute 3-month return as relative strength. If SPY rose faster, the name is not leading; only `relativeStrengthPct` on matched dates confirms it.
+- Calling `trend: up` a rising 50-day. The label is price ordering only; check the `sma50Change10Bars` sign.
 - Skipping the RSI check and buying strength at the average. Pullback entries need the washout; without it the edge is gone.

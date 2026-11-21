@@ -10,10 +10,10 @@ System One: take a `jev_regime` second read beside this classification. When it 
 ## Rules
 
 1. Pull `market_indicators` for SPY and QQQ, plus `market_volatility` and `market_yields`. These four calls are the regime input. Nothing else overrides them.
-2. Trend state per index comes from its 50-day vs 200-day SMA and price position:
+2. Trend state per index comes from its 50-day vs 200-day SMA and price position. Rising and falling are the sign of `sma50Change10Bars` (positive rising, negative falling), not the `trend` label, which only reflects price ordering:
    - Bull: price above rising 50-day, 50-day above 200-day.
    - Bear: price below falling 50-day, 50-day below 200-day.
-   - Anything else is sideways. Do not round sideways up to bull.
+   - Other fully observed cases are sideways. If a required reading is missing, do not use it to confirm a regime change.
 3. Volatility state from VIX level, its one-year percentile, and whether VIX is above or below its 20-day SMA. VIX above 25 or above its 80th percentile is high. VIX below 15 and under its 20-day SMA is low. Between is normal.
 4. Yield check: note the 10-year level, its 20-day change, and the 2s10s and 3m10y spreads. A rapidly rising 10-year (up more than 50 bps in 20 sessions) or an inverted curve that is reinverting after normalizing is a risk-off flag, not a number to trade directly.
 5. Breadth check: count how many of XLK, XLF, XLE, XLV, XLY, XLP, XLI, XLU, XLB, XLRE, XLC sit above their 50-day average. Seven or more is broad participation. Three or fewer is narrow leadership and fragile.
@@ -43,9 +43,17 @@ const [spy, qqq, vol, y] = await Promise.all([
   tools.market_volatility({}),
   tools.market_yields({})
 ]);
+// trend state uses the numeric 10-session SMA50 slope, not ind.trend:
+const state = i => {
+  if (![i?.close, i?.sma50, i?.sma200, i?.sma50Change10Bars].every(Number.isFinite)) return "unconfirmed";
+  if (i.close > i.sma50 && i.sma50 > i.sma200 && i.sma50Change10Bars > 0) return "bull";
+  if (i.close < i.sma50 && i.sma50 < i.sma200 && i.sma50Change10Bars < 0) return "bear";
+  return "sideways";
+};
+const spyState = state(spy), qqqState = state(qqq);
 const etfs = ["XLK","XLF","XLE","XLV","XLY","XLP","XLI","XLU","XLB","XLRE","XLC"];
 const states = await Promise.all(etfs.map(s => tools.market_indicators({ symbol: s })));
-const above50 = states.filter((s, i) => s.close > s.sma50).length;
+const above50 = states.filter(s => s.close > s.sma50).length;
 // above50 >= 7 broad; <= 3 narrow
 ```
 
