@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_SETTINGS, type AccountSnapshot, type OrderRecord, type PriceHistory } from "@rh/shared";
 import type { Broker, Clock, Logger, MarketCalendar, MarketData, Notes, Store } from "../ports.ts";
+import { createNyseCalendar } from "../risk/calendar.ts";
 import { createAnalyticsService } from "./service.ts";
 
 const NOW = new Date("2026-10-26T14:00:00Z").getTime();
@@ -118,6 +119,64 @@ function account(): AccountSnapshot {
     positions: [{ symbol: "AAPL", quantity: 9, averageCost: 90, marketValue: 900, unrealizedPnl: 90, sector: "Technology" }],
   };
 }
+
+describe("equity benchmark dates", () => {
+  const apr17 = "2026-04-17";
+  const apr20 = "2026-04-20";
+  const apr21 = "2026-04-21";
+
+  function equity(dates: string[], prices: Record<string, number>) {
+    return createAnalyticsService({
+      store: {
+        ...fakeStore([]),
+        equitySeries: () => dates.map((etDate, i) => ({ etDate, dayStart: 1000, dayHigh: 1000 + 10 * i, dayLast: 1000 + 10 * i })),
+      },
+      market: {
+        ...market,
+        history: async (symbol) => ({
+          symbol,
+          bars: Object.entries(prices).map(([date, close]) => ({ date, close, open: close, high: close, low: close, volume: 1 })),
+          source: "test",
+          asOf: NOW,
+        }),
+      },
+      broker: fakeBroker([]),
+      getAccount: () => null,
+      notes: { list: async () => [], read: async () => undefined, write: async () => ({ path: "", size: 0, updatedAt: 0 }) },
+      calendar: createNyseCalendar(),
+      clock,
+      log,
+      dataDir: "/tmp/analytics-test",
+    }).equity("1y");
+  }
+
+  it("does not substitute an earlier close for a missing session or change the comparison interval", async () => {
+    const tape = { [apr17]: 100, [apr21]: 105 };
+    const interior = await equity([apr17, apr20, apr21], tape);
+    assert.deepEqual(interior.points.map((p) => p.benchmark), [1000, undefined, 1050]);
+    assert.ok(Math.abs((interior.benchmarkReturnPct ?? NaN) - 5) < 1e-9);
+
+    const missingEnd = await equity([apr17, apr21, "2026-04-22"], tape);
+    assert.equal(missingEnd.points.at(-1)?.benchmark, undefined);
+    assert.equal(missingEnd.benchmarkReturnPct, undefined);
+    assert.ok(Math.abs((missingEnd.returnPct ?? NaN) - 2) < 1e-9);
+
+    const missingStart = await equity([apr20, apr21, "2026-04-22"], { ...tape, "2026-04-22": 103 });
+    assert.deepEqual(missingStart.points.map((p) => p.benchmark), [undefined, undefined, undefined]);
+    assert.equal(missingStart.benchmarkReturnPct, undefined);
+  });
+
+  it("carries a closed day's last scheduled session, but does not bridge a missing session", async () => {
+    // Good Friday 2026 is closed and the last regular session is Thursday.
+    const goodFriday = await equity(["2026-04-02", "2026-04-03", "2026-04-04"], { "2026-04-02": 100 });
+    assert.deepEqual(goodFriday.points.map((p) => p.benchmark), [1000, 1000, 1000]);
+    assert.equal(goodFriday.benchmarkReturnPct, 0);
+
+    const missingFriday = await equity(["2026-04-16", "2026-04-18"], { "2026-04-16": 100 });
+    assert.deepEqual(missingFriday.points.map((p) => p.benchmark), [1000, undefined]);
+    assert.equal(missingFriday.benchmarkReturnPct, undefined);
+  });
+});
 
 describe("stop resolution order", () => {
   it("prefers the held stop over Robinhood and thesis stops", async () => {
