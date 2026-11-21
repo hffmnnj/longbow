@@ -675,6 +675,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     name: "market_economic_calendar",
     description:
       "US economic events on one ET date (Nasdaq economic calendar): time, event, actual, consensus, and previous. " +
+      "Unavailable in historical replay because the feed has no point-in-time archive. " +
       "Use the structured output for the full list.",
     parameters: Type.Object({
       date: Type.String({ description: "ET date YYYY-MM-DD.", pattern: DATE_PATTERN }),
@@ -684,17 +685,10 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 8_000, maxLines: 40 },
     async execute(args) {
       try {
-        const cutoff = asOf?.();
-        if (cutoff !== undefined && args.date > cutoff) {
-          return fail(`${args.date} is not available in the simulation yet (simulation date ${cutoff}).`);
+        if (asOf?.() !== undefined) {
+          return fail("Point-in-time economic calendar unavailable in historical replay. Do not interpret this as no scheduled releases.");
         }
-        const fetched = (await fetchEconomicEvents(cache, args.date)).filter((e) => e.country === "United States");
-        // Outcomes are only known after the fact: blank actuals for the
-        // simulated date itself.
-        const events =
-          cutoff !== undefined && args.date === cutoff
-            ? fetched.map((e) => ({ ...e, actual: undefined as string | undefined }))
-            : fetched;
+        const events = (await fetchEconomicEvents(cache, args.date)).filter((e) => e.country === "United States");
         const structured = {
           date: args.date,
           events: events.map((e) => ({
