@@ -4,8 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { DEFAULT_SETTINGS } from "@rh/shared";
 import type { Bar, CycleKind, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
 import { createSimService, type SimDriverContext } from "./runner.ts";
+import { createSuiteService } from "./suite.ts";
 import type { PaperBroker } from "./broker.ts";
 import { etInstant } from "./path.ts";
 import { createStaticSectorDirectory } from "./scenario-market.ts";
@@ -129,6 +131,66 @@ async function waitForDone(sim: { get(id: string): SimRun | undefined }, id: str
     await new Promise((r) => setTimeout(r, 25));
   }
 }
+
+test("queued suite siblings retain the same base risk limits even if settings change mid-suite", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-suite-settings-");
+  const bus = createEventBus();
+  const now = () => Date.parse("2026-10-23T16:00:00Z");
+  const baseSettings = structuredClone(DEFAULT_SETTINGS);
+  baseSettings.watchlist = ["SPY"];
+  baseSettings.risk.maxEntriesPerDay = 1;
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir, SIM_CONCURRENCY: 1 }, log, bus, market, skills,
+    calendar: createNyseCalendar(), wallNow: now, settings: () => baseSettings,
+    fetchBars: async (symbol, from, to) => fixtureBars(symbol, from, to).map((bar) => ({
+      ...bar, open: 100, high: 100, low: 100, close: 100, volume: 10_000_000,
+    })),
+    sectorSource: createStaticSectorDirectory({}),
+    driver: async (run, ctx) => {
+      if (ctx.kind !== "intraday" || run.progress.day !== 1 || run.progress.cycle !== 1) return;
+      if (run.variant === "A") baseSettings.risk.maxEntriesPerDay = 0;
+      const price = (await ctx.bars(ctx.benchmark))[0]!.close; // Synthetic tape is flat.
+      const review = new Date(etInstant(run.currentDate!, 12) + 30 * 86_400_000).toISOString().slice(0, 10);
+      await ctx.submit({
+        symbol: ctx.benchmark, side: "buy", quantity: 0.5, orderType: "limit", limitPrice: price * 1.0009,
+        timeInForce: "day", invalidationPrice: price * 0.9, timeStopDate: review,
+        thesis: "A model-free paper gate fixture.", probabilityWin: 0.7, expectedGainPct: 20,
+        expectedLossPct: 10, estimatedCostPct: 0.2, evidence: ["synthetic paper market"],
+      });
+    },
+  });
+  const suites = createSuiteService({ runner: sim, bus, log, dataDir, now });
+  try {
+    const suite = await suites.start({
+      name: "Same settings for both runs", bootstrapRuns: 1, bootstrapDays: 5,
+      startingCash: 1200, execution: "ideal", variants: [{ label: "A" }, { label: "B" }],
+    }, "user");
+    const results = await Promise.all(suite.runs.map((run) => waitForDone(sim, run.runId)));
+    assert.deepEqual(results.map((run) => run.status), ["done", "done"]);
+    assert.equal(suites.get(suite.id)?.comparison?.pairs, 1, "the scenario is identical");
+    const entries = suite.runs.map(({ runId }) => sim.orders(runId)[0]?.verdict.checks.find((check) => check.rule === "entries_per_day")?.ok);
+    assert.deepEqual(entries, [true, true], "B must not inherit the mid-suite limit of zero");
+    assert.deepEqual(results.map((run) => run.fills.length), [1, 1], JSON.stringify(suite.runs.map(({ runId }) =>
+      sim.orders(runId)[0]?.verdict.checks.filter((check) => !check.ok))));
+    assert.equal(baseSettings.risk.maxEntriesPerDay, 0, "the change is external to the paper runs");
+
+    const fresh = await suites.start({
+      name: "New settings, explicit override", bootstrapRuns: 1, bootstrapDays: 5, startingCash: 1200, execution: "ideal",
+      variants: [{ label: "Baseline" }, { label: "Explicit override", risk: { maxEntriesPerDay: 1 } }],
+    }, "user");
+    const freshResults = await Promise.all(fresh.runs.map((run) => waitForDone(sim, run.runId)));
+    assert.deepEqual(freshResults.map((run) => run.status), ["done", "done"]);
+    assert.deepEqual(freshResults.map((run) => run.fills.length), [0, 1]);
+    assert.deepEqual(fresh.runs.map(({ runId }) => sim.orders(runId)[0]?.verdict.checks.find((check) => check.rule === "entries_per_day")?.ok), [false, true]);
+  } finally {
+    suites.close();
+    await sim.close();
+    const suiteDir = join(dataDir, "sim", "suites");
+    for (const filename of readdirSync(suiteDir)) unlinkSync(join(suiteDir, filename));
+    rmdirSync(suiteDir);
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
 
 test("a missing scored cycle stops replay before the close, but analysis is best effort", async () => {
   for (const outcome of ["timeout", "unanswered", "post-close-timeout"] as const) {

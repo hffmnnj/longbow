@@ -37,9 +37,12 @@ export interface SimStartOptions {
   variant?: string;
   /** Keep eligibility fixed for every market in a suite, even if a run starts later. */
   suiteCreatedAt?: number;
+  /** Private suite-wide defaults, before applying this variant's risk overrides. */
+  baseSettings?: Settings;
 }
 
 export interface SimService {
+  captureBaseSettings(): Settings;
   start(config: SimRunConfigInput, startedBy: "user" | "agent", options?: SimStartOptions): Promise<SimRun>;
   list(): SimRun[];
   get(id: string): SimRun | undefined;
@@ -136,7 +139,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
   const artifacts = new Map<string, { journal: () => JournalEntry[]; orders: () => OrderRecord[] }>();
   const aliasMaps = new Map<string, Record<string, string>>();
   const calendars = new Map<string, ScenarioMarket["calendar"]>();
-  const queue: { id: string; completedBefore: string }[] = [];
+  const queue: { id: string; completedBefore: string; baseSettings: Settings | undefined }[] = [];
+  const captureBaseSettings = (): Settings => structuredClone(deps.settings?.() ?? DEFAULT_SETTINGS);
   const wallNow = deps.wallNow ?? Date.now;
   const active = new Set<string>();
   const pending = new Set<Promise<void>>();
@@ -159,7 +163,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       if (run.status === "running" || run.status === "queued") { run.status = "failed"; run.error = "interrupted by restart"; run.finishedAt = Date.now(); save(run); }
     } catch (error) { deps.log.warn("could not read simulation", { id: entry.name, error: String(error) }); }
   }
-  async function execute(run: SimRun, completedBefore: string): Promise<void> {
+  async function execute(run: SimRun, completedBefore: string, baseSettings: Settings | undefined): Promise<void> {
     const runDir = dir(run.id);
     const blindish = run.config.mode === "blind" || run.config.mode === "bootstrap";
     const todayStr = deps.calendar.etDate(wallNow());
@@ -167,8 +171,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const clock = { now: () => now };
     const sessionClose = (date: string): number => deps.calendar.clock(etInstant(date, 12)).nextClose;
     const bus = createSimEventBus(deps.bus, run.id);
-    const liveSettings = deps.settings?.() ?? DEFAULT_SETTINGS;
-    const universe = [...new Set(run.config.watchlist ?? liveSettings.watchlist)];
+    const settings = baseSettings ?? captureBaseSettings();
+    const universe = [...new Set(run.config.watchlist ?? settings.watchlist)];
     let bars: (symbol: string) => Promise<Bar[]>;
     let market: MarketData;
     let asOf: () => string;
@@ -246,10 +250,10 @@ export function createSimService(deps: SimServiceDeps): SimService {
     }
     const store = openStore(join(runDir, "app.sqlite"), clock);
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
-    store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
-      watchlist: run.config.watchlist ?? liveSettings.watchlist, risk: { ...liveSettings.risk, ...run.config.risk },
+    store.patchSettings({ ...settings, mode: "auto", killSwitch: false, drawdownHalted: false,
+      watchlist: run.config.watchlist ?? settings.watchlist, risk: { ...settings.risk, ...run.config.risk },
       // The paper broker only knows stocks and ETFs.
-      crypto: { ...liveSettings.crypto, enabled: false } });
+      crypto: { ...settings.crypto, enabled: false } });
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed });
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
@@ -400,13 +404,13 @@ export function createSimService(deps: SimServiceDeps): SimService {
     while (active.size < poolSize()) {
       const next = queue.shift();
       if (next === undefined) return;
-      const { id, completedBefore } = next;
+      const { id, completedBefore, baseSettings } = next;
       const run = runs.get(id);
       if (run === undefined || run.status !== "queued") continue;
       active.add(id);
       run.status = "running";
       save(run);
-      const task = execute(run, completedBefore).catch((error: unknown) => {
+      const task = execute(run, completedBefore, baseSettings).catch((error: unknown) => {
         if (run.status !== "stopped") { run.status = "failed"; run.error = error instanceof Error ? error.message : String(error); }
         deps.log.warn("simulation ended", { id, error: String(error) });
       }).finally(() => {
@@ -432,6 +436,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     }
   }
   return {
+    captureBaseSettings,
     async defaultStartDate(days) {
       const past = (await deps.market.history("SPY", "1y")).bars.filter((b) => b.date < deps.calendar.etDate(wallNow()));
       const date = past.at(-(days + 5))?.date;
@@ -487,7 +492,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         ...(options?.suiteId === undefined ? {} : { suiteId: options.suiteId }),
         ...(options?.variant === undefined ? {} : { variant: options.variant }),
         status: "queued", progress: { day: 0, days: config.days, cycle: 0, cyclesPerDay: config.cyclesPerDay }, equity: [], positions: [], fills: [] };
-      mkdirSync(join(root, id), { mode: 0o700 }); runs.set(id, run); save(run); queue.push({ id, completedBefore }); pump(); return structuredClone(run);
+      mkdirSync(join(root, id), { mode: 0o700 }); runs.set(id, run); save(run); queue.push({ id, completedBefore, baseSettings: options?.baseSettings }); pump(); return structuredClone(run);
     },
     list: () => [...runs.values()].sort((a, b) => b.createdAt - a.createdAt).map((r) => structuredClone(r)),
     get: (id) => { const run = runs.get(id); return run === undefined ? undefined : structuredClone(run); },
