@@ -38,6 +38,13 @@ test("resting limit fills at its limit when the intervening path traded through 
   assert.equal(broker.fills()[0]!.price, 95);
   assert.equal(broker.fills()[0]!.at, etInstant("2026-07-01", 10, 35));
 });
+test("fractional intents must be marketable now and do not become resting orders", async () => {
+  const { broker } = fixture();
+  await assert.rejects(broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 99 }), { name: "FractionalPreflightError" });
+  assert.deepEqual(broker.orders(), []);
+  const order = await broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 100.01 });
+  assert.deepEqual(await broker.orderState(order.brokerOrderId), { status: "filled", filledQuantity: 0.5, averageFillPrice: 100.01 });
+});
 test("day orders cancel at close while GTC orders persist", async () => {
   const { broker, at } = fixture();
   await broker.placeOrder({ ...intent, limitPrice: 80 });

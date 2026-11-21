@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Bar, OrderIntent, Position, SimExecution, SimFill } from "@rh/shared";
-import type { Broker, Clock, MarketCalendar } from "../ports.ts";
+import type { Bar, OrderIntent, OrderRecord, Position, SimExecution, SimFill } from "@rh/shared";
+import type { Clock, MarketCalendar } from "../ports.ts";
+import type { TradingBroker } from "../risk/stops.ts";
 import { equityFees } from "../fees.ts";
+import { fractionalExecution } from "../robinhood/mapping.ts";
 import { etInstant, pathPrice, pathSegment, realisticPrice, realisticSegment, sessionFraction } from "./path.ts";
 import { avgDollarVolumeBefore, halfSpreadBps, returnVolatilityBefore, slippageBps } from "./execution.ts";
 
@@ -13,7 +15,7 @@ export interface PaperOrder {
   status: "open" | "filled" | "cancelled";
   triggered: boolean;
 }
-export interface PaperBroker extends Broker {
+export interface PaperBroker extends TradingBroker {
   advance(): Promise<void>;
   orders(): PaperOrder[];
   fills(): SimFill[];
@@ -84,16 +86,24 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       : last * halfSpreadBps(avgDollarVolumeBefore(bars, day), Math.max(0, (at - open) / 60_000)) / 10_000;
     return { symbol, at, last, bid: last - spread, ask: last + spread };
   }
-  function executablePrice(intent: OrderIntent, history: Bar[], day: string, at: number, mid: number): number | undefined {
+  function marketPrice(side: OrderIntent["side"], notional: number, history: Bar[], day: string, at: number, mid: number): number {
     const adv = avgDollarVolumeBefore(history, day);
     const half = mid * halfSpreadBps(adv, Math.max(0, (at - etInstant(day, 9, 30)) / 60_000)) / 10_000;
-    const slip = mid * slippageBps(intent.quantity * intent.limitPrice, adv, returnVolatilityBefore(history, day)) / 10_000;
-    const price = intent.side === "buy" ? mid + half + slip : mid - half - slip;
+    const slip = mid * slippageBps(notional, adv, returnVolatilityBefore(history, day)) / 10_000;
+    return side === "buy" ? mid + half + slip : mid - half - slip;
+  }
+  function executablePrice(intent: OrderIntent, history: Bar[], day: string, at: number, mid: number): number | undefined {
+    const price = marketPrice(intent.side, intent.quantity * intent.limitPrice, history, day, at, mid);
     if (intent.side === "buy" ? price <= intent.limitPrice : price >= intent.limitPrice) return price;
     return undefined;
   }
+  function cancel(id: string): void {
+    const order = orders.find((o) => o.id === id);
+    if (order === undefined || order.status !== "open") throw new Error("Unknown open order");
+    order.status = "cancelled";
+  }
   /** Fill price for an order that is marketable at placement, or undefined when it must rest. */
-  async function marketableFill(intent: OrderIntent, createdAt: number, q: { last: number; ask: number; bid: number }):
+  async function marketableFill(intent: OrderIntent, createdAt: number, q: { last: number; ask: number; bid: number }, market: boolean):
     Promise<{ price: number; at: number; mid: number } | undefined> {
     if (execution === "ideal") {
       if (intent.side === "buy") {
@@ -108,7 +118,9 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     // Latency: the order fills at the path price 60 seconds after it is placed.
     const at = Math.min(createdAt + 60_000, etInstant(day, 16));
     const mid = realisticPrice(bar, intent.symbol, seed, at);
-    const price = executablePrice(intent, history, day, at, mid);
+    const price = market
+      ? marketPrice(intent.side, intent.quantity * mid, history, day, at, mid)
+      : executablePrice(intent, history, day, at, mid);
     return price === undefined ? undefined : { price, at, mid };
   }
   function cross(a: number, b: number, level: number, above: boolean): number | undefined {
@@ -167,11 +179,13 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     async disconnect() { throw new Error("not available in simulation"); },
     onChange: () => () => {},
     quote,
+    quotes: (symbols) => Promise.all(symbols.map(quote)),
     async snapshot() {
       settle();
       const positions: Position[] = await Promise.all([...holdings].map(async ([symbol, held]) => {
         const mark = (await quote(symbol)).last;
-        return { symbol, quantity: held.quantity, averageCost: held.cost / held.quantity, marketValue: mark * held.quantity,
+        return { symbol, quantity: held.quantity, sharesAvailableForSells: held.quantity,
+          averageCost: held.cost / held.quantity, marketValue: mark * held.quantity,
           unrealizedPnl: mark * held.quantity - held.cost, ...(held.sector === undefined ? {} : { sector: held.sector }) };
       }));
       const cash = settled + proceeds.reduce((sum, p) => sum + p.amount, 0);
@@ -179,6 +193,29 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         equity: cash + positions.reduce((sum, p) => sum + p.marketValue, 0), positions };
     },
     async reviewOrder(intent) { return `Simulated review: ${intent.side} ${intent.quantity} ${intent.symbol} limit ${intent.limitPrice}`; },
+    async orderState(id): Promise<Partial<OrderRecord>> {
+      const order = orders.find((o) => o.id === id);
+      if (order === undefined) throw new Error("Unknown paper order");
+      if (order.status === "open") return { status: "submitted" };
+      if (order.status === "cancelled") return { status: "cancelled" };
+      const filled = fills.find((f) => f.orderId === id);
+      if (filled === undefined) throw new Error("Paper order fill is missing");
+      return { status: "filled", filledQuantity: filled.quantity, averageFillPrice: filled.price };
+    },
+    async cancelOrder(id) { cancel(id); },
+    async executeStop(intent) {
+      if (!deps.calendar.clock(deps.clock.now()).isOpen || intent.side !== "sell") throw new Error("Paper protective sale requires regular hours");
+      settle();
+      const q = await quote(intent.symbol);
+      const price = execution === "ideal" ? q.bid :
+        marketPrice("sell", intent.quantity * q.last, await deps.bars(intent.symbol), date(), q.at, q.last);
+      // The harness has already triggered this stop. The market sale has no limit floor.
+      const order: PaperOrder = { id: randomUUID(), intent: structuredClone(intent), createdAt: q.at,
+        checkedAt: q.at, status: "open", triggered: true };
+      fill(order, price, q.at, q.last);
+      orders.push(order);
+      return { brokerOrderId: order.id, raw: "Simulated protective market sale" };
+    },
     async placeOrder(intent) {
       settle();
       if (deps.clock.now() < etInstant(date(), 9, 30) || deps.clock.now() >= etInstant(date(), 16)) throw new Error("Simulation market is closed");
@@ -187,18 +224,21 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const reservedShares = orders.filter((o) => o.status === "open" && o.intent.side === "sell" && o.intent.symbol === intent.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
       if (intent.side === "sell" && intent.quantity > (holdings.get(intent.symbol)?.quantity ?? 0) - reservedShares + 1e-8) throw new Error("Insufficient shares");
       const q = await quote(intent.symbol);
+      // A marketable fractional equity intent converts to market; it never rests.
+      const { market = false } = fractionalExecution(intent, q, true);
       const order: PaperOrder = { id: randomUUID(), intent: structuredClone(intent), createdAt: deps.clock.now(), checkedAt: deps.clock.now(), status: "open",
         triggered: intent.orderType === "limit" || (intent.side === "buy" ? q.last >= intent.stopPrice! : q.last <= intent.stopPrice!) };
-      orders.push(order);
       if (order.triggered) {
-        const fillSpec = await marketableFill(intent, order.createdAt, q);
+        const fillSpec = await marketableFill(intent, order.createdAt, q, market);
+        if (market && fillSpec === undefined) throw new Error("Paper market order has no executable quote");
         if (fillSpec !== undefined) fill(order, fillSpec.price, fillSpec.at, fillSpec.mid);
       }
+      orders.push(order);
       return { brokerOrderId: order.id, raw: `Simulated order ${order.status}` };
     },
     advance,
     orders: () => structuredClone(orders),
     fills: () => structuredClone(fills),
-    cancel(id) { const order = orders.find((o) => o.id === id); if (order === undefined || order.status !== "open") throw new Error("Unknown open order"); order.status = "cancelled"; },
+    cancel,
   };
 }

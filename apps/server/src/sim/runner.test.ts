@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
-import type { Bar, SimRun, SimRunConfigInput } from "@rh/shared";
+import type { Bar, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
 import { createSimService, type SimDriverContext } from "./runner.ts";
+import type { PaperBroker } from "./broker.ts";
+import { etInstant } from "./path.ts";
 import { createStaticSectorDirectory } from "./scenario-market.ts";
 import { createMarketExtension } from "../market/tools.ts";
 import { mountSimRoutes } from "../http/sim-routes.ts";
@@ -138,6 +140,50 @@ test("a missing scored cycle stops replay before the close, but analysis is best
       await sim.close();
       rmSync(dataDir, { recursive: true, force: true });
     }
+  }
+});
+
+test("a fractional protective stop exits on the first simulated quote after a gap below its limit", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-held-stop-");
+  const dates = ["2026-07-02", "2026-07-06", "2026-07-07"];
+  const bars = dates.map((date, i) => {
+    const price = i < 2 ? 100 : 90;
+    return { date, open: price, high: price, low: price, close: price, volume: 10_000_000 };
+  });
+  const entry: OrderIntent = {
+    symbol: "SPY", side: "buy", quantity: 0.5, orderType: "limit", limitPrice: 100.05, timeInForce: "day",
+    invalidationPrice: 95, timeStopDate: "2026-07-20", thesis: "Replay fixture for a protective gap exit.",
+    probabilityWin: 0.6, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["fixture quote"],
+  };
+  let paper: PaperBroker;
+  let protectionId: string | undefined;
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills, calendar: createNyseCalendar(),
+    fetchBars: async () => bars,
+    buildExtensions: ({ broker }) => { paper = broker; return []; },
+    driver: async (run, ctx) => {
+      if (run.progress.day !== 1 || run.progress.cycle !== 1) return;
+      await paper.placeOrder(entry);
+      const stop = await ctx.submit({ ...entry, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
+      assert.equal(stop.status, "held");
+      assert.equal(paper.orders().length, 1, "protection must not rest as a venue order");
+      protectionId = stop.id;
+    },
+  });
+  try {
+    const run = await sim.start({ startDate: dates[1]!, days: 2, startingCash: 1200, cyclesPerDay: 2, execution: "realistic" }, "user");
+    const result = await waitForDone(sim, run.id);
+    assert.equal(result.status, "done", result.error ?? "paper replay did not finish");
+    assert.deepEqual(result.positions, []);
+    const sells = result.fills.filter((f) => f.side === "sell");
+    assert.equal(sells.length, 1);
+    assert.equal(sells[0]!.quantity, 0.5);
+    assert.equal(sells[0]!.at, etInstant(dates[2]!, 9, 30));
+    assert.ok(sells[0]!.price < 90 && sells[0]!.price > 89);
+    assert.equal(sim.orders(run.id).find((o) => o.id === protectionId)?.status, "filled");
+  } finally {
+    await sim.close();
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
