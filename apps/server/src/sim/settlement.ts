@@ -3,6 +3,10 @@ import { NYSE_HOLIDAY_COVERAGE } from "../risk/calendar.ts";
 
 const T_PLUS_ONE = "2024-05-28";
 const DAY_MS = 86_400_000;
+const CLEARING_OPEN_ON_EXCHANGE_CLOSURE = new Set([
+  "2018-12-05", // https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2018-99
+  "2025-01-09", // https://www.sifma.org/resources/guides-playbooks/unscheduled-close-market-matrix
+]);
 
 /**
  * FINRA lists Columbus Day and Veterans Day as bank holidays with trading but
@@ -37,9 +41,7 @@ export function paperSettlementDate(tradeDate: string, calendar: MarketCalendar,
     } else {
       const covered = date >= NYSE_HOLIDAY_COVERAGE.first && date <= NYSE_HOLIDAY_COVERAGE.last;
       if (covered && bankOnlyHoliday(day)) continue;
-      // Unlike the exchanges, DTCC was open on the Carter day of mourning:
-      // https://www.sifma.org/resources/guides-playbooks/unscheduled-close-market-matrix
-      if (date !== "2025-01-09" && calendar.clock(at).tradingDay !== date) continue;
+      if (!CLEARING_OPEN_ON_EXCHANGE_CLOSURE.has(date) && calendar.clock(at).tradingDay !== date) continue;
     }
     if (--remaining === 0) return date;
   }
