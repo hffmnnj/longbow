@@ -192,6 +192,20 @@ describe("cycleInput", () => {
     assert.match(last, /also publish the weekly report/);
     assert.match(cycleInput(input({ kind: "post_close", isLastTradingDayOfWeek: false })), /skip the weekly report/);
   });
+
+  it("prices-only replays plan and trade the configured rule without unavailable live inputs", () => {
+    const pre = input({ kind: "pre_open" });
+    assert.match(cycleInput(pre), /market_volatility, market_yields/, "the live planner still uses full market data");
+    const replayPre = cycleInput({ ...pre, pricesOnlyReplay: true });
+    assert.match(replayPre, /MKT, scenario price history/);
+    assert.match(replayPre, /configured simulation rule/);
+    assert.doesNotMatch(replayPre, /market_volatility|market_yields|overnight news|owner-preferences\.md/);
+
+    const replayOpen = cycleInput({ ...input({ kind: "intraday" }), pricesOnlyReplay: true });
+    assert.match(replayOpen, /reconcile paper fills/i);
+    assert.match(replayOpen, /keep every risk check/);
+    assert.doesNotMatch(replayOpen, /regime target|owner order/);
+  });
 });
 
 describe("playbooks", () => {
