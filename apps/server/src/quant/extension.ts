@@ -645,7 +645,9 @@ export function createQuantExtension(deps: QuantDeps): Extension {
     description:
       "Size a long entry from its dollar risk: quantity is equity times risk percent over risk per share " +
       "(entry minus stop, floored to 6 decimals), then capped by the max position percent, the max order " +
-      "notional, and buying power. Without a stop, the stop is entry minus atrMultiple times ATR(14). " +
+      "notional, and available settled cash or buying power, whichever is lower when both are known. " +
+      "Requested risk is capped at the configured maximum per trade. " +
+      "Without a stop, the stop is entry minus atrMultiple times ATR(14). " +
       "Reports quantity, notional, percent of equity, dollars at risk, R per share, which cap bound the " +
       "size, and whether the order would pass each sizing rule.",
     parameters: Type.Object({

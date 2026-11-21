@@ -88,3 +88,41 @@ describe("computeSize", () => {
     assert.equal(min.ok, false);
   });
 });
+
+describe("computeSize advisory caps", () => {
+  it("uses_settled_cash_when_it_is_below_buying_power", () => {
+    const risk = { ...structuredClone(DEFAULT_RISK), maxOrderNotionalUsd: 1_000_000, maxPositionPct: 100 as const };
+    const out = computeSize(base({ risk: risk as RiskConfig, buyingPower: 10_000, settledCash: 250 }));
+    assert.ok(!("error" in out));
+    assert.equal(out.quantity, 2.5);
+    assert.equal(out.notional, 250);
+    assert.equal(out.boundBy, "buying_power");
+    // The suggested order must not fail the settled-cash rule it was sized against.
+    assert.ok(out.checks.every((c) => c.ok));
+  });
+
+  it("caps_requested_risk_at_the_per_trade_max_and_names_the_effective_cap", () => {
+    const risk = { ...structuredClone(DEFAULT_RISK), maxOrderNotionalUsd: 1_000_000, maxPositionPct: 100 as const };
+    const out = computeSize(base({ risk: risk as RiskConfig, riskPct: 3 }));
+    assert.ok(!("error" in out));
+    // Requested 3% would risk $300 (60 shares); the 1.5% cap allows $150 (30 shares).
+    assert.equal(out.quantity, 30);
+    assert.equal(out.notional, 3_000);
+    assert.equal(out.riskDollars, 150);
+    assert.equal(out.boundBy, "risk");
+    const check = out.checks.find((c) => c.rule === "risk_per_trade");
+    assert.ok(check);
+    assert.equal(check.ok, true);
+    assert.match(check.detail, /1\.5% of equity/);
+    assert.match(check.detail, /requested 3% capped at maxRiskPerTradePct 1\.5%/);
+  });
+
+  it("keeps_a_failing_min_notional_visible_when_risk_is_capped", () => {
+    const risk = { ...structuredClone(DEFAULT_RISK), maxOrderNotionalUsd: 1_000_000, maxPositionPct: 100 as const };
+    const out = computeSize(base({ risk: risk as RiskConfig, riskPct: 3, equity: 10 }));
+    assert.ok(!("error" in out));
+    const min = out.checks.find((c) => c.rule === "min_notional");
+    assert.ok(min);
+    assert.equal(min.ok, false);
+  });
+});
