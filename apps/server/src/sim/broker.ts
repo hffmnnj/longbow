@@ -162,7 +162,13 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
           }
           const ratio = triggerPrice === undefined ? cross(a.price, b.price, through, intent.side === "sell") : 0;
           if (ratio !== undefined) {
-            events.push({ kind: "fill", order, price: triggerPrice ?? intent.limitPrice,
+            // A limit already resting before a new session can get a better
+            // modeled opening price. A later passive trade-through still fills at the limit.
+            const openingPrice = triggerPrice === undefined && execution === "realistic" && ratio === 0 &&
+              a.at === bounds.nextOpen && order.createdAt < bounds.nextOpen
+              ? executablePrice(intent, history, bar.date, a.at, a.price)
+              : undefined;
+            events.push({ kind: "fill", order, price: triggerPrice ?? openingPrice ?? intent.limitPrice,
               at: a.at + (b.at - a.at) * ratio, mid: a.price + (b.price - a.price) * ratio });
             matched = true;
             break sessions;

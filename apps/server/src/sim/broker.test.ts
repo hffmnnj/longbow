@@ -46,6 +46,49 @@ test("resting limit fills at its limit when the intervening path traded through 
   assert.equal(broker.fills()[0]!.price, 95);
   assert.equal(broker.fills()[0]!.at, etInstant("2026-07-01", 10, 35));
 });
+test("realistic overnight resting limits keep favorable opening-gap execution", async () => {
+  const first = "2026-07-01";
+  const next = "2026-07-02";
+  for (const side of ["buy", "sell"] as const) {
+    const open = side === "buy" ? 85 : 115;
+    const limit = side === "buy" ? 95 : 105;
+    const flat = (date: string, price: number): Bar =>
+      ({ date, open: price, low: price, high: price, close: price, volume: 10_000_000 });
+    const { broker, at } = barsFixture([flat(first, 100), flat(next, open)], first);
+    if (side === "sell") {
+      await broker.placeOrder(intent);
+      at(first, 9, 31);
+      await broker.advance();
+    }
+    const resting = await broker.placeOrder({ ...intent, side, limitPrice: limit, timeInForce: "gtc" });
+    at(next, 9, 29, 59, 999);
+    await broker.advance();
+    assert.equal((await broker.orderState(resting.brokerOrderId)).status, "submitted");
+    at(next, 9, 30);
+    const quote = await broker.quote("SPY");
+    await broker.advance();
+    const fill = broker.fills().find((entry) => entry.orderId === resting.brokerOrderId);
+    assert.ok(fill);
+    assert.equal(fill.at, etInstant(next, 9, 30));
+    assert.equal(fill.mid, open);
+    assert.equal(fill.price, side === "buy" ? quote.ask : quote.bid, `${side} uses the modeled open, not the stale limit`);
+    assert.ok(side === "buy" ? fill.price < limit : fill.price > limit);
+  }
+});
+test("a small opening trade-through never worsens the order's actual limit", async () => {
+  const first = "2026-07-01";
+  const next = "2026-07-02";
+  const bars: Bar[] = [
+    { date: first, open: 100, low: 100, high: 100, close: 100, volume: 10_000_000 },
+    { date: next, open: 94.98, low: 94.98, high: 94.98, close: 94.98, volume: 10_000_000 },
+  ];
+  const { broker, at } = barsFixture(bars, first);
+  await broker.placeOrder({ ...intent, limitPrice: 95, timeInForce: "gtc" });
+  at(next, 9, 30);
+  assert.ok((await broker.quote("SPY")).ask > 95, "a market fill would exceed the limit");
+  await broker.advance();
+  assert.equal(broker.fills()[0]?.price, 95, "the existing passive trade-through can still fill at the limit");
+});
 test("resting orders fill in path chronology, not placement order", async () => {
   // The ideal path drops to 85 before climbing to 120, so the 90 buy trades
   // before the 110 sell no matter which of the two was placed first.
