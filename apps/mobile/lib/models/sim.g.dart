@@ -190,6 +190,9 @@ SimRun _$SimRunFromJson(Map<String, dynamic> json) => SimRun(
   calendar: json['calendar'] == null
       ? null
       : SimCalendar.fromJson(json['calendar'] as Map<String, dynamic>),
+  unavailableWatchlist: (json['unavailableWatchlist'] as List<dynamic>?)
+      ?.map((e) => e as String)
+      .toList(),
   suiteId: json['suiteId'] as String?,
   variant: json['variant'] as String?,
   status: $enumDecode(

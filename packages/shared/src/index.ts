@@ -866,6 +866,8 @@ export interface SimRun {
   aliases?: Record<string, string>;
   /** For blind and bootstrap runs: the fictional calendar's first day and the source window it maps from. */
   calendar?: { firstDay: string; sourceStart?: string; sourceEnd?: string };
+  /** Requested real tickers omitted for price coverage; only disclosed after a blind or bootstrap run ends. */
+  unavailableWatchlist?: string[];
   suiteId?: string;
   /** Suite variant label, for example "A". */
   variant?: string;

@@ -124,4 +124,38 @@ void main() {
 
     expect(run.metrics!.priorCloseExposureBenchmarkReturnPct, 0.9);
   });
+
+  test('sim_unavailableWatchlistAbsentDefaultsToNull', () {
+    // Stored runs from before unavailable-ticker tracking omit the field.
+    final json = jsonDecode(
+      File('test/fixtures/sim_run.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final run = SimRun.fromJson(json);
+
+    expect(run.unavailableWatchlist, isNull);
+  });
+
+  test('sim_unavailableWatchlistParsesWhenPresent', () {
+    final json = jsonDecode(
+      File('test/fixtures/sim_run.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final run = SimRun.fromJson({
+      ...json,
+      'unavailableWatchlist': ['QQQ', 'NVDA'],
+    });
+
+    expect(run.unavailableWatchlist, ['QQQ', 'NVDA']);
+  });
+
+  test('sim_copyWithReplacesUnavailableWatchlist', () {
+    final json = jsonDecode(
+      File('test/fixtures/sim_run.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final run = SimRun.fromJson(json);
+
+    final updated = run.copyWith(unavailableWatchlist: ['QQQ']);
+
+    expect(updated.unavailableWatchlist, ['QQQ']);
+    expect(updated.id, run.id);
+  });
 }
