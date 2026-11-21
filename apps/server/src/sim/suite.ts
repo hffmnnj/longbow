@@ -12,16 +12,14 @@ import {
 } from "@rh/shared";
 import type { EventBus as Bus, Logger } from "../ports.ts";
 import { scenarioById } from "./scenarios.ts";
+import type { SimStartOptions } from "./runner.ts";
 
 /**
- * Narrow view of the run service a suite needs. It matches the new runner
- * signature `start(config, startedBy, { suiteId, variant })`; the previous
- * two-argument runner also satisfies it structurally, but only a runner that
- * resolves `scenario` configs and fans runs out to a pool can execute suites.
+ * Narrow view of the run service a suite needs.
  */
 export interface SuiteRunner {
   /** Scenario runs omit `days`/`startDate`: the runner resolves them from the scenario library. */
-  start(config: Omit<SimRunConfigInput, "days"> & { days?: number }, startedBy: "user" | "agent", options?: { suiteId?: string; variant?: string }): Promise<SimRun>;
+  start(config: Omit<SimRunConfigInput, "days"> & { days?: number }, startedBy: "user" | "agent", options?: SimStartOptions): Promise<SimRun>;
   get(id: string): SimRun | undefined;
   stop(id: string): Promise<SimRun | undefined>;
 }
@@ -47,7 +45,7 @@ const MAX_RUNS = 24;
 const AGENT_MAX_RUNS = 8;
 const BOOTSTRAP_RESAMPLES = 2000;
 
-/** Deterministic seed so variants A and B face identical markets and intraday paths. */
+/** Both variants use the same RNG seed for a given market. */
 export function suiteSeed(suiteId: string, scenarioId: string): number {
   let hash = 5381;
   for (const char of `${suiteId}:${scenarioId}`) hash = ((hash << 5) + hash + char.charCodeAt(0)) | 0;
@@ -249,9 +247,10 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
       const total = config.variants.length * markets;
       if (total > MAX_RUNS) throw new Error(`A suite holds at most ${MAX_RUNS} runs; this config expands to ${total}`);
       if (startedBy === "agent" && total > AGENT_MAX_RUNS) throw new Error(`Agent suites hold at most ${AGENT_MAX_RUNS} runs; this config expands to ${total}`);
-      const id = `${new Date(now()).toISOString().replace(/\D/g, "")}-${randomBytes(3).toString("hex")}`;
+      const createdAt = now();
+      const id = `${new Date(createdAt).toISOString().replace(/\D/g, "")}-${randomBytes(3).toString("hex")}`;
       const suite: SimSuite = {
-        id, createdAt: now(), startedBy, config, status: "running",
+        id, createdAt, startedBy, config, status: "running",
         runs: [], summary: config.variants.map((v) => ({ label: v.label, runs: 0, done: 0, failed: 0 })),
       };
       const base = { startingCash: config.startingCash, cyclesPerDay: config.cyclesPerDay, execution: config.execution,
@@ -267,13 +266,13 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
             const seed = suiteSeed(id, scenario);
             const run = await deps.runner.start(
               { ...base, name: `${config.name} · ${variant.label} · ${scenario}`, scenario, mode: config.scenarioMode, seed, model, ...overlay },
-              startedBy, { suiteId: id, variant: variant.label });
+              startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt });
             suite.runs.push({ runId: run.id, variant: variant.label, scenario, seed, mode: config.scenarioMode as SimMode });
           }
           for (let seed = 1; seed <= config.bootstrapRuns; seed++) {
             const run = await deps.runner.start(
               { ...base, name: `${config.name} · ${variant.label} · bootstrap-${seed}`, mode: "bootstrap", days: config.bootstrapDays, seed, model, ...overlay },
-              startedBy, { suiteId: id, variant: variant.label });
+              startedBy, { suiteId: id, variant: variant.label, suiteCreatedAt: createdAt });
             suite.runs.push({ runId: run.id, variant: variant.label, seed, mode: "bootstrap" });
           }
         }

@@ -31,8 +31,15 @@ import { scenarioById } from "./scenarios.ts";
 import { buildScenarioMarket, createStaticSectorDirectory, type ScenarioMarket } from "./scenario-market.ts";
 import { jsonValue } from "./json.ts";
 
+export interface SimStartOptions {
+  suiteId?: string;
+  variant?: string;
+  /** Keep eligibility fixed for every market in a suite, even if a run starts later. */
+  suiteCreatedAt?: number;
+}
+
 export interface SimService {
-  start(config: SimRunConfigInput, startedBy: "user" | "agent", options?: { suiteId?: string; variant?: string }): Promise<SimRun>;
+  start(config: SimRunConfigInput, startedBy: "user" | "agent", options?: SimStartOptions): Promise<SimRun>;
   list(): SimRun[];
   get(id: string): SimRun | undefined;
   stop(id: string): Promise<SimRun | undefined>;
@@ -69,6 +76,8 @@ export interface SimServiceDeps {
   credentialFile?: string;
   /** Test seam: source bars without Nasdaq (defaults to the replay market). */
   fetchBars?: (symbol: string, from: string, to: string) => Promise<Bar[]>;
+  /** Wall clock for market source dates, independent of the simulated clock. */
+  wallNow?: () => number;
   /** Test seam: replaces the TradingAgent cycle run (which needs model credentials). */
   driver?: (run: SimRun, ctx: SimDriverContext) => Promise<SimCycleResult | void>;
   /** Test seam: real-symbol sectors without SEC lookups. */
@@ -125,7 +134,8 @@ export function createSimService(deps: SimServiceDeps): SimService {
   const artifacts = new Map<string, { journal: () => JournalEntry[]; orders: () => OrderRecord[] }>();
   const aliasMaps = new Map<string, Record<string, string>>();
   const calendars = new Map<string, ScenarioMarket["calendar"]>();
-  const queue: string[] = [];
+  const queue: { id: string; completedBefore: string }[] = [];
+  const wallNow = deps.wallNow ?? Date.now;
   const active = new Set<string>();
   const pending = new Set<Promise<void>>();
   let closed = false;
@@ -147,10 +157,10 @@ export function createSimService(deps: SimServiceDeps): SimService {
       if (run.status === "running" || run.status === "queued") { run.status = "failed"; run.error = "interrupted by restart"; run.finishedAt = Date.now(); save(run); }
     } catch (error) { deps.log.warn("could not read simulation", { id: entry.name, error: String(error) }); }
   }
-  async function execute(run: SimRun): Promise<void> {
+  async function execute(run: SimRun, completedBefore: string): Promise<void> {
     const runDir = dir(run.id);
     const blindish = run.config.mode === "blind" || run.config.mode === "bootstrap";
-    const todayStr = deps.calendar.etDate(Date.now());
+    const todayStr = deps.calendar.etDate(wallNow());
     let now = 0;
     const clock = { now: () => now };
     const sessionClose = (date: string): number => deps.calendar.clock(etInstant(date, 12)).nextClose;
@@ -182,7 +192,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       };
       const spy = await bars("SPY");
       const days = tradingDays(spy, startDate, run.config.days);
-      if (days.length !== run.config.days || days.some((b) => b.date >= todayStr)) throw new Error("Simulation range must contain the requested number of completed past trading days");
+      if (days.length !== run.config.days || days.some((b) => b.date >= completedBefore)) throw new Error("Simulation range must contain the requested number of completed past trading days");
       simDays = days.map((b) => b.date);
       assertReplayBenchmarkCoverage(simDays, startDate, deps.calendar);
       const closes = new Map(days.map((b) => [b.date, b.close]));
@@ -203,11 +213,10 @@ export function createSimService(deps: SimServiceDeps): SimService {
       scenario = await buildScenarioMarket({ mode: run.config.mode as "blind" | "bootstrap", seed: run.seed,
         watchlist: universe, days: run.config.days,
         ...(run.config.startDate === undefined ? {} : { startDate: run.config.startDate }),
-        today: todayStr, fetch: fetchBars, sectors: sectorSource });
+        today: todayStr, completedBefore, fetch: fetchBars, sectors: sectorSource });
       if (run.config.mode === "blind" && run.config.startDate !== undefined) {
         const scoredDates = scenario.sourceDates.slice(-run.config.days);
-        assertReplayBenchmarkCoverage(scoredDates.filter((date) => date < todayStr), run.config.startDate, deps.calendar);
-        if (scoredDates.at(-1)! >= todayStr) throw new Error("Simulation range must contain the requested number of completed past trading days");
+        assertReplayBenchmarkCoverage(scoredDates, run.config.startDate, deps.calendar);
       }
       aliasMaps.set(run.id, scenario.aliases);
       calendars.set(run.id, { ...scenario.calendar });
@@ -227,6 +236,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       benchmark = scenario.benchmark;
       now = etInstant(simDays[0]!, 9);
     }
+    if (run.status !== "running") return; // A stop may have arrived while loading market data.
     const store = openStore(join(runDir, "app.sqlite"), clock);
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
     store.patchSettings({ ...liveSettings, mode: "auto", killSwitch: false, drawdownHalted: false,
@@ -381,14 +391,15 @@ export function createSimService(deps: SimServiceDeps): SimService {
   function pump(): void {
     if (closed) return;
     while (active.size < poolSize()) {
-      const id = queue.shift();
-      if (id === undefined) return;
+      const next = queue.shift();
+      if (next === undefined) return;
+      const { id, completedBefore } = next;
       const run = runs.get(id);
       if (run === undefined || run.status !== "queued") continue;
       active.add(id);
       run.status = "running";
       save(run);
-      const task = execute(run).catch((error: unknown) => {
+      const task = execute(run, completedBefore).catch((error: unknown) => {
         if (run.status !== "stopped") { run.status = "failed"; run.error = error instanceof Error ? error.message : String(error); }
         deps.log.warn("simulation ended", { id, error: String(error) });
       }).finally(() => {
@@ -415,7 +426,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
   }
   return {
     async defaultStartDate(days) {
-      const past = (await deps.market.history("SPY", "1y")).bars.filter((b) => b.date < deps.calendar.etDate(Date.now()));
+      const past = (await deps.market.history("SPY", "1y")).bars.filter((b) => b.date < deps.calendar.etDate(wallNow()));
       const date = past.at(-(days + 5))?.date;
       if (date === undefined) throw new Error("Insufficient historical sessions");
       return date;
@@ -434,28 +445,30 @@ export function createSimService(deps: SimServiceDeps): SimService {
       const config = SimRunConfigSchema.parse(filled);
       const mode = config.mode;
       const startDate = mode === "bootstrap" ? undefined : (config.startDate ?? library?.startDate);
-      const today = deps.calendar.etDate(Date.now());
+      const requestedAt = wallNow();
+      const today = deps.calendar.etDate(requestedAt);
+      const completedBefore = deps.calendar.etDate(Math.min(options?.suiteCreatedAt ?? requestedAt, requestedAt));
       if (startedBy === "agent" && options?.suiteId === undefined && agentBlocked()) throw new Error("A simulation is already active");
       if (mode === "bootstrap") {
         // No date validation: the bootstrap market is synthetic and ignores startDate.
       } else if (startDate === undefined) {
         throw new Error("A start date is required");
-      } else if (startDate >= today) {
+      } else if (startDate >= completedBefore) {
         throw new Error("Simulation must start in the past");
       } else if (mode === "blind") {
         const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 800 * 86_400_000).toISOString().slice(0, 10);
         const spy = await fetchBars("SPY", from, today);
         const dates = spy.map((b) => b.date).sort();
-        assertReplayBenchmarkCoverage(dates.filter((date) => date >= startDate && date < today).slice(0, config.days), startDate, deps.calendar);
+        assertReplayBenchmarkCoverage(dates.filter((date) => date >= startDate && date < completedBefore).slice(0, config.days), startDate, deps.calendar);
         const startIdx = dates.indexOf(startDate);
-        if (startIdx < 300 || startIdx + config.days > dates.length || dates[startIdx + config.days - 1]! >= today) {
+        if (startIdx < 300 || startIdx + config.days > dates.length || dates[startIdx + config.days - 1]! >= completedBefore) {
           throw new Error("Simulation range is not fully in the past or historical bars are missing");
         }
       } else {
         const spy = await fetchBars("SPY", startDate, today);
         const days = tradingDays(spy, startDate, config.days);
-        assertReplayBenchmarkCoverage(days.map((b) => b.date).filter((date) => date < today), startDate, deps.calendar);
-        if (days.length !== config.days || days.at(-1)!.date >= today) throw new Error("Simulation range is not fully in the past or historical bars are missing");
+        assertReplayBenchmarkCoverage(days.map((b) => b.date).filter((date) => date < completedBefore), startDate, deps.calendar);
+        if (days.length !== config.days || days.at(-1)!.date >= completedBefore) throw new Error("Simulation range is not fully in the past or historical bars are missing");
       }
       // Recheck after I/O so concurrent agent calls cannot both start.
       if (closed || (startedBy === "agent" && options?.suiteId === undefined && agentBlocked())) throw new Error("Simulation unavailable or already active");
@@ -467,7 +480,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         ...(options?.suiteId === undefined ? {} : { suiteId: options.suiteId }),
         ...(options?.variant === undefined ? {} : { variant: options.variant }),
         status: "queued", progress: { day: 0, days: config.days, cycle: 0, cyclesPerDay: config.cyclesPerDay }, equity: [], positions: [], fills: [] };
-      mkdirSync(join(root, id), { mode: 0o700 }); runs.set(id, run); save(run); queue.push(id); pump(); return structuredClone(run);
+      mkdirSync(join(root, id), { mode: 0o700 }); runs.set(id, run); save(run); queue.push({ id, completedBefore }); pump(); return structuredClone(run);
     },
     list: () => [...runs.values()].sort((a, b) => b.createdAt - a.createdAt).map((r) => structuredClone(r)),
     get: (id) => { const run = runs.get(id); return run === undefined ? undefined : structuredClone(run); },

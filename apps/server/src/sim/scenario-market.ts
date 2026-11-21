@@ -62,8 +62,10 @@ export interface ScenarioMarketSpec {
   days: number;
   /** First simulated source date; required for blind, ignored by bootstrap. */
   startDate?: string;
-  /** Current ET date (YYYY-MM-DD): fetch through it, but only score earlier dates. */
+  /** Current ET date (YYYY-MM-DD): fetch through it for vendor compatibility. */
   today: string;
+  /** Exclusive source-date ceiling, normally the ET date the run was queued. */
+  completedBefore?: string;
   /** Source daily bars, `from <= date <= to`, oldest first. */
   fetch(symbol: string, from: string, to: string): Promise<Bar[]>;
   /** Real-symbol sectors, consulted for the alias disclosures. Absent sectors stay undisclosed. */
@@ -232,7 +234,10 @@ async function buildBlind(spec: ScenarioMarketSpec, rng: () => number): Promise<
   const realUniverse = [...new Set([...spec.watchlist.map((s) => s.toUpperCase()), "SPY", ...SECTOR_ETFS.map((e) => e.real)])];
   const from = addDays(startDate, -800);
   const fetched = new Map<string, Bar[]>();
-  for (const symbol of realUniverse) fetched.set(symbol, await spec.fetch(symbol, from, today));
+  for (const symbol of realUniverse) {
+    const bars = await spec.fetch(symbol, from, today);
+    fetched.set(symbol, bars.filter((bar) => bar.date < (spec.completedBefore ?? today)));
+  }
   const spy = byDate(fetched.get("SPY") ?? []);
   const spyDates = [...spy.keys()].sort();
   const startIdx = spyDates.indexOf(startDate);
@@ -294,7 +299,7 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
     const bars = await spec.fetch(symbol, BOOTSTRAP_HISTORY_START, today);
     // Nasdaq needs a current transport end date, but a same-day bar may
     // still be forming. Keep it out of both the sample pool and seed prices.
-    fetched.set(symbol, bars.filter((bar) => bar.date < today));
+    fetched.set(symbol, bars.filter((bar) => bar.date < (spec.completedBefore ?? today)));
   }
   const dateSets = new Map<string, Set<string>>(realUniverse.map((s) => [s, new Set((fetched.get(s) ?? []).map((b) => b.date))]));
   // Drop the sparsest names until the joint history covers warmup plus the run. SPY is never dropped.

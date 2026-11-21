@@ -54,6 +54,31 @@ test("suites expand variants across scenarios and bootstrap markets with shared 
   } finally { done(); }
 });
 
+test("suite start pins every expanded run to one creation cutoff", async () => {
+  const dataDir = mkdtempSync("/tmp/suite-cutoff-test-");
+  const bus = createEventBus();
+  const runner = new FakeRunner(bus);
+  // An advancing clock exposes a per-run `now()` read: only the suite's first
+  // timestamp may reach the runs.
+  let clock = 1_700_000_000_000;
+  const suites = createSuiteService({ runner, bus, log, dataDir, now: () => clock++ });
+  try {
+    const suite = await suites.start({ name: "Pinned", scenarios: ["covid-crash-2020"],
+      bootstrapRuns: 1, bootstrapDays: 10, startingCash: 1200, variants }, "user");
+    const recorded = runner.started as unknown as { options?: { suiteId?: string; variant?: string; suiteCreatedAt?: number } }[];
+    assert.equal(recorded.length, suite.runs.length);
+    for (const entry of recorded) {
+      assert.equal(entry.options?.suiteCreatedAt, suite.createdAt);
+      assert.equal(entry.options?.suiteId, suite.id);
+    }
+    assert.equal(new Set(recorded.map((entry) => entry.options?.suiteCreatedAt)).size, 1,
+      "every run must share the suite's single creation timestamp");
+  } finally {
+    suites.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("suites reject unknown scenarios, empty suites, and oversized expansions", async () => {
   const { suites, done } = setup();
   try {
