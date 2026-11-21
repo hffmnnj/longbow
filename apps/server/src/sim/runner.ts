@@ -153,6 +153,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const todayStr = deps.calendar.etDate(Date.now());
     let now = 0;
     const clock = { now: () => now };
+    const sessionClose = (date: string): number => deps.calendar.clock(etInstant(date, 12)).nextClose;
     const bus = createSimEventBus(deps.bus, run.id);
     const store = openStore(join(runDir, "app.sqlite"), clock);
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
@@ -190,7 +191,11 @@ export function createSimService(deps: SimServiceDeps): SimService {
       const closes = new Map(days.map((b) => [b.date, b.close]));
       const firstOpen = days[0]!.open;
       benchPrice = (date) => (closes.get(date) ?? NaN) / firstOpen * run.config.startingCash;
-      asOf = (): string => spy.filter((b) => b.date < deps.calendar.etDate(now) || (b.date === deps.calendar.etDate(now) && now >= etInstant(b.date, 16))).at(-1)?.date ?? (() => { throw new Error("No prior trading day available"); })();
+      asOf = (): string => {
+        const date = deps.calendar.etDate(now);
+        return spy.filter((b) => b.date < date || (b.date === date && now >= sessionClose(date))).at(-1)?.date
+          ?? (() => { throw new Error("No prior trading day available"); })();
+      };
       const historicalMarket = new MarketStore({ dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf });
       market = createPointInTimeMarketData(historicalMarket, asOf);
       symbols = universe;
@@ -212,7 +217,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       asOf = (): string => {
         const current = deps.calendar.etDate(now);
         const dates = scenario!.allDates;
-        return dates.filter((d) => d < current || (d === current && now >= etInstant(d, 16))).at(-1)
+        return dates.filter((d) => d < current || (d === current && now >= sessionClose(current))).at(-1)
           ?? (() => { throw new Error("No prior trading day available"); })();
       };
       market = scenario.market(asOf);
@@ -310,17 +315,22 @@ export function createSimService(deps: SimServiceDeps): SimService {
         await broker.advance();
         await gate.sync();
       }
-      const times: [number, number, CycleKind][] = [
-        ...(run.config.cyclesPerDay >= 3 ? [[9, 0, "pre_open"] as [number, number, CycleKind]] : []),
-        [10, 15, "intraday"], ...(run.config.cyclesPerDay === 4 ? [[12, 30, "intraday"] as [number, number, CycleKind]] : []), [15, 30, "intraday"],
-      ];
       for (let i = 0; i < simDays.length && run.status === "running"; i++) {
         const date = simDays[i]!;
+        const session = deps.calendar.clock(etInstant(date, 12));
+        if (session.tradingDay !== date) throw new Error(`No regular session for replay date ${date}`);
+        const close = session.nextClose;
+        const times: [number, CycleKind][] = [
+          ...(run.config.cyclesPerDay >= 3 ? [[etInstant(date, 9), "pre_open"] as [number, CycleKind]] : []),
+          [etInstant(date, 10, 15), "intraday"],
+          ...(run.config.cyclesPerDay === 4 ? [[session.earlyClose ? etInstant(date, 11, 30) : etInstant(date, 12, 30), "intraday"] as [number, CycleKind]] : []),
+          [close - 30 * 60_000, "intraday"],
+        ];
         run.currentDate = date;
         run.progress.day = i + 1;
         for (let j = 0; j < times.length && run.status === "running"; j++) {
-          const [hour, minute, kind] = times[j]!;
-          await advanceTo(date, etInstant(date, hour, minute));
+          const [at, kind] = times[j]!;
+          await advanceTo(date, at);
           if (run.status !== "running") break;
           run.progress.cycle = j + 1;
           save(run);
@@ -333,14 +343,14 @@ export function createSimService(deps: SimServiceDeps): SimService {
           }
         }
         if (run.status !== "running") break;
-        await advanceTo(date, etInstant(date, 16));
+        await advanceTo(date, close);
         if (run.status !== "running") break;
         const account = await broker.snapshot();
         run.equity.push({ date, equity: account.equity, cash: account.cash, benchmark: benchPrice(date) });
         await snapshot();
       }
       if (run.status === "running") {
-        now = etInstant(simDays.at(-1)!, 16, 10);
+        now = sessionClose(simDays.at(-1)!) + 10 * 60_000;
         const result = await stepCycle("post_close");
         if (run.status === "running" && result !== "done") {
           deps.log.warn("simulation post-close analysis did not answer", { id: run.id, date: run.currentDate, result });

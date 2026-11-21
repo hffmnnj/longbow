@@ -14,17 +14,18 @@ export function pathPrice(bar: Bar, fraction: number): number {
   return points[i]! + (points[i + 1]! - points[i]!) * (scaled - i);
 }
 
-export function sessionFraction(date: string, at: number): number {
-  return Math.max(0, Math.min(1, (at - etInstant(date, 9, 30)) / (390 * 60_000)));
+export function sessionFraction(date: string, at: number, close = etInstant(date, 16)): number {
+  const open = etInstant(date, 9, 30);
+  return Math.max(0, Math.min(1, (at - open) / (close - open)));
 }
 
 /** Include every turn between checks, not just their endpoints. */
-export function pathSegment(bar: Bar, from: number, to: number): { at: number; price: number }[] {
+export function pathSegment(bar: Bar, from: number, to: number, close = etInstant(bar.date, 16)): { at: number; price: number }[] {
   const open = etInstant(bar.date, 9, 30);
-  const close = etInstant(bar.date, 16);
-  const times = [Math.max(open, from), open + 130 * 60_000, open + 260 * 60_000, Math.min(close, to)]
+  const third = (close - open) / 3;
+  const times = [Math.max(open, from), open + third, open + 2 * third, Math.min(close, to)]
     .filter((at) => at >= Math.max(open, from) && at <= Math.min(close, to));
-  return [...new Set(times)].sort((a, b) => a - b).map((at) => ({ at, price: pathPrice(bar, sessionFraction(bar.date, at)) }));
+  return [...new Set(times)].sort((a, b) => a - b).map((at) => ({ at, price: pathPrice(bar, sessionFraction(bar.date, at, close)) }));
 }
 
 export function tradingDays(bars: Bar[], startDate: string, days: number): Bar[] {
@@ -103,10 +104,10 @@ function bridgeInto(prices: number[], fromIdx: number, fromPrice: number, toIdx:
   }
 }
 
-function buildRealisticPath(bar: Bar, symbol: string, seed: number): { at: number; price: number }[] {
-  const count = REALISTIC_INTERVALS;
+function buildRealisticPath(bar: Bar, symbol: string, seed: number, close: number): { at: number; price: number }[] {
   const open = etInstant(bar.date, 9, 30);
-  const step = 5 * 60_000;
+  const count = Math.max(3, Math.round((close - open) / (5 * 60_000)));
+  const step = (close - open) / count;
   const at = (i: number): number => open + i * step;
   const low = Math.min(bar.low, bar.high);
   const high = Math.max(bar.low, bar.high);
@@ -143,18 +144,18 @@ function buildRealisticPath(bar: Bar, symbol: string, seed: number): { at: numbe
  * the bar's high and low. The stream derives from seed, symbol and date, and
  * the path is cached, so a symbol and date always map to the same path.
  */
-export function realisticPath(bar: Bar, symbol: string, seed: number): { at: number; price: number }[] {
-  const key = `${seed}|${symbol}|${bar.date}|${bar.open}|${bar.high}|${bar.low}|${bar.close}`;
+export function realisticPath(bar: Bar, symbol: string, seed: number, close = etInstant(bar.date, 16)): { at: number; price: number }[] {
+  const key = `${seed}|${symbol}|${bar.date}|${close}|${bar.open}|${bar.high}|${bar.low}|${bar.close}`;
   const cached = realisticCache.get(key);
   if (cached !== undefined) return cached.map((p) => ({ ...p }));
-  const points = buildRealisticPath(bar, symbol, seed);
+  const points = buildRealisticPath(bar, symbol, seed, close);
   realisticCache.set(key, points);
   return points.map((p) => ({ ...p }));
 }
 
 /** Linear interpolation of the realistic path, clamped to the session. */
-export function realisticPrice(bar: Bar, symbol: string, seed: number, at: number): number {
-  const path = realisticPath(bar, symbol, seed);
+export function realisticPrice(bar: Bar, symbol: string, seed: number, at: number, close = etInstant(bar.date, 16)): number {
+  const path = realisticPath(bar, symbol, seed, close);
   const first = path[0]!;
   const last = path[path.length - 1]!;
   if (at <= first.at) return first.price;
@@ -172,15 +173,15 @@ export function realisticPrice(bar: Bar, symbol: string, seed: number, at: numbe
 }
 
 /** The realistic path sliced to [from, to], with interpolated endpoints and no future points. */
-export function realisticSegment(bar: Bar, symbol: string, seed: number, from: number, to: number): { at: number; price: number }[] {
-  const path = realisticPath(bar, symbol, seed);
+export function realisticSegment(bar: Bar, symbol: string, seed: number, from: number, to: number, close = etInstant(bar.date, 16)): { at: number; price: number }[] {
+  const path = realisticPath(bar, symbol, seed, close);
   const start = Math.max(path[0]!.at, from);
   const end = Math.min(path[path.length - 1]!.at, to);
   if (end < start) return [];
-  const points = [{ at: start, price: realisticPrice(bar, symbol, seed, start) }];
+  const points = [{ at: start, price: realisticPrice(bar, symbol, seed, start, close) }];
   for (const p of path) {
     if (p.at > start && p.at < end) points.push({ ...p });
   }
-  if (end > start) points.push({ at: end, price: realisticPrice(bar, symbol, seed, end) });
+  if (end > start) points.push({ at: end, price: realisticPrice(bar, symbol, seed, end, close) });
   return points;
 }

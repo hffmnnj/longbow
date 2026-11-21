@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
-import type { Bar, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
+import type { Bar, CycleKind, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
 import { createSimService, type SimDriverContext } from "./runner.ts";
 import type { PaperBroker } from "./broker.ts";
 import { etInstant } from "./path.ts";
@@ -13,7 +13,7 @@ import { mountSimRoutes } from "../http/sim-routes.ts";
 import { createEventBus } from "../events.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
 import { loadConfig } from "../config.ts";
-import type { Logger, MarketData, SkillLibrary } from "../ports.ts";
+import type { Logger, MarketCalendar, MarketData, SkillLibrary } from "../ports.ts";
 
 const log: Logger = { info() {}, warn() {}, error() {}, child() { return this; } };
 const market: MarketData = { async history(symbol) { return { symbol, asOf: 0, source: "fixture", bars: [] }; }, async nextEarnings() { return undefined; }, async avgDollarVolume() { return undefined; } };
@@ -100,6 +100,24 @@ function fixtureBars(symbol: string, from: string, to: string): Bar[] {
   return out;
 }
 
+/**
+ * The runner checks a historical start date and its fetched window against
+ * the wall clock. This fixture session is later than the host date, so
+ * wall-clock reads resolve to `wallDate` while every simulated instant keeps
+ * the real New York mapping.
+ */
+function futureSessionCalendar(wallDate: string): MarketCalendar {
+  const base = createNyseCalendar();
+  const startedAt = Date.now();
+  const wallInstant = etInstant(wallDate, 12);
+  const isWallRead = (now: number): boolean => Math.abs(now - startedAt) < 2 * 60_000;
+  return {
+    clock: (now) => base.clock(isWallRead(now) ? wallInstant : now),
+    etDate: (now) => (isWallRead(now) ? wallDate : base.etDate(now)),
+    tradingDaysBetween: (from, to) => base.tradingDaysBetween(from, to),
+  };
+}
+
 async function waitForDone(sim: { get(id: string): SimRun | undefined }, id: string): Promise<SimRun> {
   const start = Date.now();
   for (;;) {
@@ -181,6 +199,35 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     assert.equal(sells[0]!.at, etInstant(dates[2]!, 9, 30));
     assert.ok(sells[0]!.price < 90 && sells[0]!.price > 89);
     assert.equal(sim.orders(run.id).find((o) => o.id === protectionId)?.status, "filled");
+  } finally {
+    await sim.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a historical early-close paper session stops cycles at the 13:00 close", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-early-close-");
+  const date = "2026-12-24";
+  const cycles: { kind: CycleKind; at: number; asOf: string }[] = [];
+  let paper: PaperBroker | undefined;
+  const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: futureSessionCalendar("2026-12-31"),
+    fetchBars: async (s, f, t) => fixtureBars(s, f, t),
+    buildExtensions: ({ broker }) => { paper = broker; return []; },
+    driver: async (_run, ctx) => {
+      assert.ok(paper !== undefined);
+      const quote = await paper.quote(ctx.symbols[0]!);
+      cycles.push({ kind: ctx.kind, at: quote.at, asOf: ctx.asOf() });
+    } });
+  try {
+    const run = await sim.start({ startDate: date, days: 1, startingCash: 1200, cyclesPerDay: 4 }, "user");
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error ?? "early-close replay did not finish");
+    assert.deepEqual(cycles.map((cycle) => cycle.kind), ["pre_open", "intraday", "intraday", "intraday", "post_close"]);
+    assert.deepEqual(cycles.map((cycle) => cycle.at),
+      [etInstant(date, 9), etInstant(date, 10, 15), etInstant(date, 11, 30), etInstant(date, 12, 30), etInstant(date, 13, 10)]);
+    assert.deepEqual(cycles.map((cycle) => cycle.asOf), ["2026-12-23", "2026-12-23", "2026-12-23", "2026-12-23", date]);
+    assert.deepEqual(done.equity.map((point) => point.date), [date]);
   } finally {
     await sim.close();
     rmSync(dataDir, { recursive: true, force: true });
