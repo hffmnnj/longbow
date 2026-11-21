@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_SETTINGS } from "@rh/shared";
 import type { MarketCalendar } from "../ports.ts";
 import type { MarketClock } from "@rh/shared";
-import { etToMs, nextCycle } from "./cycles.ts";
+import { etToMs, nextCycle, startScheduler } from "./cycles.ts";
 
 const settings = { cycleMinutesOpen: 30, cycleMinutesClosed: 240 };
 
@@ -42,6 +42,33 @@ const week = new Set([
 ]);
 const earlyFriday = new Set([...week, "2026-11-27"]);
 const earlyOnly = new Set(["2026-11-27"]);
+
+it("keeps a due post-close cycle armed when status is read before dispatch", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const due = etToMs("2026-10-30", 16 * 60 + 10);
+  let now = due - 1_000;
+  const ran: string[] = [];
+  const log = { info() {}, warn() {}, error() {}, child() { return log; } };
+  const scheduler = startScheduler({
+    agent: { async runCycle(kind) { ran.push(kind); } },
+    calendar: fakeCalendar(week),
+    store: { getSettings: () => ({ ...DEFAULT_SETTINGS, ...settings }) },
+    bus: { publish() {}, subscribe: () => () => {} },
+    clock: { now: () => now },
+    log,
+  });
+  t.after(() => scheduler.stop());
+
+  assert.deepEqual(scheduler.next(), { at: due, kind: "post_close" });
+  now = due + 1;
+  const statusBeforeDispatch = scheduler.next();
+  t.mock.timers.tick(1_000);
+
+  assert.deepEqual(ran, ["post_close"]);
+  assert.deepEqual(statusBeforeDispatch, { at: due, kind: "post_close" });
+  assert.equal(scheduler.next().kind, "overnight");
+  assert.ok(scheduler.next().at > now);
+});
 
 describe("nextCycle", () => {
   it("schedules pre-open before 09:00 on a trading day", () => {

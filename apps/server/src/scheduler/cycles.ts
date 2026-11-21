@@ -137,16 +137,16 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; next(): Cyc
     generation += 1;
     const gen = generation;
     if (timer !== undefined) clearTimeout(timer);
-    current = computeNext();
-    onNext?.(current);
-    const delay = Math.max(0, current.at - clock.now());
+    const point = computeNext();
+    current = point;
+    onNext?.(point);
+    const delay = Math.max(0, point.at - clock.now());
     timer = setTimeout(() => {
       if (stopped || gen !== generation) return;
-      const kind = current.kind;
       // Re-arm before running so a slow cycle cannot shift the next one.
       arm();
-      agent.runCycle(kind).catch((error: unknown) => {
-        log.warn("scheduled cycle failed", { kind, error: error instanceof Error ? error.message : "unknown" });
+      agent.runCycle(point.kind).catch((error: unknown) => {
+        log.warn("scheduled cycle failed", { kind: point.kind, error: error instanceof Error ? error.message : "unknown" });
       });
     }, delay);
     timer.unref?.();
@@ -169,8 +169,8 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; next(): Cyc
       offBus();
     },
     next(): CyclePoint {
-      current = computeNext();
-      return current;
+      // Status reads describe the armed timer; only arm() may replace it.
+      return { ...current };
     },
   };
 }
