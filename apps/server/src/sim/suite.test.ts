@@ -128,9 +128,10 @@ test("two variants compare on paired markets with a seeded bootstrap interval", 
     assert.deepEqual(done2.comparison?.ci95, bootstrapMeanCI([2, 4], suiteSeed(suite.id, "comparison")));
     const [lo, hi] = done2.comparison!.ci95;
     assert.ok(lo <= 3 && 3 <= hi);
-    const reading = comparisonReading(done2);
-    assert.ok(reading.startsWith("B beat A by 3.0 points of excess return, 95% interval"));
-    assert.ok(reading.endsWith(": conclusive"));
+    assert.equal(comparisonReading(done2),
+      "B led A by 3.0 points of excess return across 2 paired markets. 95% resampled range (B minus A): 2.0 to 4.0. Does not establish a live edge.");
+    assert.equal(comparisonReading({ ...done2, comparison: { ...done2.comparison!, meanDiff: 0, ci95: [-2, 2] } }),
+      "A and B tied on excess return across 2 paired markets. 95% resampled range (B minus A): −2.0 to 2.0. Does not establish a live edge.");
     assert.equal(comparisonReading({ ...done2, status: "running", comparison: undefined }).startsWith("Suite still running"), true);
   } finally { done(); }
 });
@@ -142,12 +143,16 @@ test("partial metrics cannot enter a suite comparison", async () => {
     const run = (variant: string, scenario: string) => suite.runs.find((entry) => entry.variant === variant && entry.scenario === scenario)!.runId;
     runner.finish(run("A", "covid-crash-2020"), { returnPct: 3 });
     runner.finish(run("B", "covid-crash-2020"), { returnPct: 5 });
+    assert.equal(comparisonReading(suites.get(suite.id)!),
+      "So far: B led A by 2.0 points of excess return across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.");
     runner.finish(run("A", "steady-bull-2021"), { returnPct: 8 });
     runner.finish(run("B", "steady-bull-2021"), { returnPct: 30, status: "stopped" });
 
     const result = suites.get(suite.id)!;
     assert.equal(result.comparison?.pairs, 1);
     assert.equal(result.comparison?.meanDiff, 2);
+    assert.equal(comparisonReading(result),
+      "B led A by 2.0 points of excess return across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.");
     const b = result.summary.find((row) => row.label === "B")!;
     assert.equal(b.meanReturnPct, 5);
     assert.equal(b.failed, 1);
