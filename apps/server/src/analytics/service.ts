@@ -20,7 +20,6 @@ import {
   brierScore,
   calibrationBuckets,
   classifyRegime,
-  closeOnOrBefore,
   economicCalendar,
   holdingsReplayValues,
   maxDrawdownPct,
@@ -75,6 +74,17 @@ function etDateMinusDays(today: string, days: number): string {
 
 function etDatePlusDays(today: string, days: number): string {
   return new Date(new Date(`${today}T12:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Carry closes across known market closures only, never over a missing session. */
+function benchmarkClose(calendar: MarketCalendar, byDate: Map<string, number>, date: string): number | undefined {
+  for (let back = 0; back <= 10; back++) {
+    const day = etDateMinusDays(date, back);
+    if (calendar.tradingDaysBetween(etDateMinusDays(day, 1), etDatePlusDays(day, 1)) === 0) continue;
+    const close = byDate.get(day);
+    return close !== undefined && Number.isFinite(close) && close > 0 ? close : undefined;
+  }
+  return undefined;
 }
 
 /** Bounded-concurrency map that never throws: each item resolves to a settled result. */
@@ -184,16 +194,19 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     }));
     // Trading days in the range, from SPY's bars: the replay's x axis, independent of when marks began.
     let tradingDays: string[] = [];
+    let benchmarkReturnPct: number | undefined;
     try {
       const spy = await deps.market.history("SPY", range === "all" ? "5y" : "1y");
       tradingDays = spy.bars.map((b) => b.date).filter((date) => date >= cutoff && date <= today);
       const byDate = new Map(spy.bars.map((b) => [b.date, b.close]));
       const first = points[0];
-      const base = first === undefined ? undefined : closeOnOrBefore(byDate, first.date);
-      if (first !== undefined && base !== undefined && base > 0) {
-        for (const point of points) {
-          const close = closeOnOrBefore(byDate, point.date);
+      const base = first === undefined ? undefined : benchmarkClose(deps.calendar, byDate, first.date);
+      if (first !== undefined && base !== undefined) {
+        first.benchmark = first.equity;
+        for (const point of points.slice(1)) {
+          const close = benchmarkClose(deps.calendar, byDate, point.date);
           if (close !== undefined) point.benchmark = (close / base) * first.equity;
+          if (point === points.at(-1) && close !== undefined) benchmarkReturnPct = (close / base - 1) * 100;
         }
       }
     } catch (error) {
@@ -204,11 +217,7 @@ export function createAnalyticsService(deps: AnalyticsDeps) {
     if (points.length >= 2) {
       const ret = returnPct(equities);
       if (ret !== undefined) history.returnPct = ret;
-      const benchmarks = points.map((p) => p.benchmark).filter((b): b is number => b !== undefined);
-      if (benchmarks.length >= 2) {
-        const benchRet = returnPct(benchmarks);
-        if (benchRet !== undefined) history.benchmarkReturnPct = benchRet;
-      }
+      if (benchmarkReturnPct !== undefined) history.benchmarkReturnPct = benchmarkReturnPct;
       const dd = maxDrawdownPct(equities);
       if (dd !== undefined) history.maxDrawdownPct = dd;
     }
