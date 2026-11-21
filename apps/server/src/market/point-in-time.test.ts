@@ -442,6 +442,33 @@ describe("market_tools_point_in_time", () => {
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
   });
 
+  it("compares blind stocks against the fictional benchmark by default and still honors an explicit alias", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "pit-blind-benchmark-"));
+    const calls: string[] = [];
+    const covered = new Set(["MKT", "ZABC", "STECH"]);
+    const prices = dailyBars((i) => 100 + i * 0.05);
+    const market: MarketData = {
+      ...fakeMarket([]),
+      history: async (symbol) => {
+        calls.push(symbol);
+        return { symbol, bars: covered.has(symbol) ? prices : [], source: "fixture", asOf: 0 };
+      },
+    };
+    const extension = createMarketExtension({ market, dataDir, log: silent, clock: fixedClock(0),
+      asOf: () => ASOF, pricesOnly: true, benchmark: "MKT", fetchImpl: fakeFetchImpl([]) });
+    const result = await callTool(extension, "market_compare", { symbols: ["ZABC", "MKT"], range: "1m" });
+    assert.equal(result.isError, undefined);
+    const compared = result.structuredOutput as unknown as { benchmark: string; rows: { symbol: string; relativeStrengthPct: number }[] };
+    assert.equal(compared.benchmark, "MKT");
+    assert.deepEqual(compared.rows.map((row) => [row.symbol, row.relativeStrengthPct]), [["ZABC", 0]]);
+    assert.deepEqual(calls, ["MKT", "ZABC"]);
+
+    calls.length = 0;
+    const explicit = await callTool(extension, "market_compare", { symbols: ["ZABC"], benchmark: "STECH" });
+    assert.equal(explicit.isError, undefined);
+    assert.deepEqual(calls, ["STECH", "ZABC"]);
+  });
+
   it("market comparison matches both dates of a return interval", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "market-compare-dates-"));
     const bars = (rows: [string, number][]): Bar[] => rows.map(([date, close]) => ({
