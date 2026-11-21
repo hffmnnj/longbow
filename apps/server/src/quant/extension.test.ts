@@ -117,6 +117,29 @@ describe("quant extension", () => {
     assert.match(textOf(result), /VaR/);
   });
 
+  it("portfolio_risk_does_not_treat_an_unpriced_holding_as_cash", async () => {
+    const market = fakeMarket();
+    const history = market.history;
+    market.history = async (symbol, range) => {
+      if (symbol === "NVDA") throw new Error("historical data unavailable");
+      return history(symbol, range);
+    };
+    const tool = createQuantExtension(deps({ market })).tools?.find((t) => t.name === "portfolio_risk");
+    assert.ok(tool);
+    const result = await tool.execute({ candidate: { symbol: "MSFT", notional: 200 } }, API, CTX);
+    const data = (result as { structuredOutput: Record<string, unknown> }).structuredOutput;
+    assert.equal(data.beta, null);
+    assert.equal(data.volatilityAnnPct, null);
+    assert.equal(data.var95, null);
+    assert.equal(data.expectedShortfall, null);
+    assert.deepEqual(data.stress, []);
+    assert.equal(data.candidate, undefined);
+    assert.match(String(data.note), /missing.*NVDA/i);
+    assert.match(textOf(result), /2 positions/);
+    assert.deepEqual((data.weights as { symbol: string; weightPct: number }[]).map(({ symbol, weightPct }) => [symbol, weightPct]),
+      [["NVDA", 30], ["AAPL", 20]]);
+  });
+
   it("portfolio_risk_is_plain_without_an_account", async () => {
     const ext = createQuantExtension(deps({ getAccount: async () => null }));
     const tool = ext.tools?.find((t) => t.name === "portfolio_risk");

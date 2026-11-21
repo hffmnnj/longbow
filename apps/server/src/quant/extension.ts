@@ -404,7 +404,8 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "optional candidate, the top pairwise correlation, portfolio beta and annualized volatility on 1y of " +
       "daily returns at current weights, 1-day 95% historical VaR and expected shortfall, sector concentration " +
       "against the risk cap, and a stress replay of the benchmark's five worst days in the past year. " +
-      "With a candidate, reports the change in beta, volatility, VaR, and top correlation.",
+      "With a candidate, reports the change in beta, volatility, VaR, and top correlation. " +
+      "Portfolio metrics are unavailable when a holding has no usable return history.",
     parameters: Type.Object({
       candidate: Type.Optional(
         Type.Object({
@@ -506,14 +507,24 @@ export function createQuantExtension(deps: QuantDeps): Extension {
 
       const equity = account.equity;
       const weights = new Map(positions.map((p) => [p.symbol, equity > 0 ? p.marketValue / equity : 0] as const));
-      const held = positions.map((p) => p.symbol).filter((s) => rets.has(s));
-      const corrSyms = [...held, ...(candidate && rets.has(candidate.symbol) ? [candidate.symbol] : [])];
+      const held = [...weights.keys()];
+      const hasReturns = (symbol: string): boolean => (rets.get(symbol)?.length ?? 0) > 0;
+      const missingHeld = held.filter((symbol) => !hasReturns(symbol));
+      const candidateHistory = candidate && hasReturns(candidate.symbol) ? [candidate.symbol] : [];
+      const corrSyms = [...new Set([...held.filter(hasReturns), ...candidateHistory])];
       const { matrix: corrVecs } = alignLast(rets, corrSyms, 60);
       const corr = correlationMatrix(corrVecs);
 
       // Portfolio series on dates common to holdings, candidate, and benchmark (up to 1y).
-      const all = [...held, benchmark, ...(candidate && rets.has(candidate.symbol) ? [candidate.symbol] : [])];
+      // Include every held name in the intersection. Dropping a holding
+      // without returns would silently treat its invested weight as cash.
+      const all = [...new Set([...held, benchmark, ...candidateHistory])];
       const { dates, matrix } = alignLast(rets, all, 252);
+      const note = missingHeld.length > 0
+        ? `Portfolio risk unavailable: missing return history for holdings ${missingHeld.join(", ")}.`
+        : dates.length === 0
+          ? `Portfolio risk unavailable: no overlapping return history with ${benchmark}.`
+          : undefined;
       const portVec = portfolioSeries(matrix, weights);
       const benchVec = matrix.get(benchmark) ?? [];
       const betaV = portfolioBeta(portVec, benchVec);
@@ -555,7 +566,7 @@ export function createQuantExtension(deps: QuantDeps): Extension {
             deltaVarDollars: number | null;
           }
         | undefined;
-      if (candidate && rets.has(candidate.symbol) && equity > 0) {
+      if (candidate && candidateHistory.length > 0 && dates.length > 0 && equity > 0) {
         const w2 = new Map(weights);
         w2.set(candidate.symbol, (w2.get(candidate.symbol) ?? 0) + candidate.notional / equity);
         const port2 = portfolioSeries(matrix, w2);
@@ -590,11 +601,13 @@ export function createQuantExtension(deps: QuantDeps): Extension {
           ? ` Candidate ${candidate!.symbol} ${money(candidate!.notional)}: beta ${fmtNum((candidateOut as { beta: number | null }).beta)} ` +
             `(Δ ${fmtNum((candidateOut as { deltaBeta: number | null }).deltaBeta)}), ` +
             `VaR Δ ${fmtNum((candidateOut as { deltaVarDollars: number | null }).deltaVarDollars, 0)}.`
-          : "");
+          : "") +
+        (note === undefined ? "" : ` ${note}`);
       return {
         output: [{ type: "text" as const, text }],
         structuredOutput: clean({
           equity,
+          ...(note === undefined ? {} : { note }),
           weights: positions.map((p) => ({
             symbol: p.symbol,
             sector: p.sector ?? sectorOf(deps, p.symbol) ?? null,
