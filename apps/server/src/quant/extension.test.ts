@@ -117,6 +117,27 @@ describe("quant extension", () => {
     assert.match(textOf(result), /VaR/);
   });
 
+  it("portfolio_risk_keeps_the_baseline_when_candidate_history_is_short", async () => {
+    const market = fakeMarket();
+    const history = market.history;
+    const long = bars(300, 100, 0.25);
+    market.history = async (symbol, range) => symbol === "MSFT"
+      ? { symbol, bars: long.slice(-10), source: "fake", asOf: 0 }
+      : history(symbol, range);
+    const tool = createQuantExtension(deps({ market })).tools?.find((t) => t.name === "portfolio_risk");
+    assert.ok(tool);
+    type Readout = { structuredOutput: { var95: unknown; stress: unknown; correlation: unknown;
+      candidate?: { deltaVarDollars: number | null; deltaBeta: number | null } } };
+    const baseline = (await tool.execute({}, API, CTX) as Readout).structuredOutput;
+    const trial = (await tool.execute({ candidate: { symbol: "MSFT", notional: 200 } }, API, CTX) as Readout).structuredOutput;
+    assert.ok(baseline.var95);
+    assert.deepEqual(trial.var95, baseline.var95);
+    assert.deepEqual(trial.stress, baseline.stress);
+    assert.deepEqual(trial.correlation, baseline.correlation);
+    assert.equal(trial.candidate?.deltaVarDollars, null, "nine paired returns are insufficient for candidate VaR");
+    assert.ok(Math.abs((trial.candidate?.deltaBeta ?? NaN) - 0.02) < 1e-9, "identical returns imply 0.02 more beta at 2% weight");
+  });
+
   it("portfolio_risk_does_not_treat_an_unpriced_holding_as_cash", async () => {
     const market = fakeMarket();
     const history = market.history;
