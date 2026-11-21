@@ -9,7 +9,7 @@ import type {
   RiskVerdict,
   Settings,
 } from "@rh/shared";
-import { etDateForInstant } from "./calendar.ts";
+import { earningsSessionsUntil, etDateForInstant } from "./calendar.ts";
 import { roundTripFeePct } from "../fees.ts";
 
 /**
@@ -666,8 +666,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
       `${intent.symbol} earnings on ${nextEarningsDate} already passed (today ${todayEt})`,
     );
   } else {
-    const daysToEarnings =
-      nextEarningsDate === todayEt ? 0 : tradingDaysBetween(todayEt, nextEarningsDate) + 1;
+    const daysToEarnings = earningsSessionsUntil(todayEt, nextEarningsDate, tradingDaysBetween);
     push(
       "earnings_blackout",
       daysToEarnings > risk.earningsBlackoutDays,

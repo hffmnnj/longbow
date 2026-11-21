@@ -81,8 +81,10 @@ function treasuryCsv(dates: string[]): string {
   return lines.join("\n");
 }
 
+type FetchRoute = { match: (url: string) => boolean; body: string };
+
 function fakeFetchImpl(
-  routes: { match: (url: string) => boolean; body: string }[],
+  routes: FetchRoute[],
   calls?: string[],
 ): typeof fetch {
   return (async (url: unknown) => {
@@ -97,7 +99,7 @@ function fakeFetchImpl(
 
 const TREASURY_DATES = ALL_DATES.filter((d) => d >= "2025-01-02");
 
-function marketRoutes(): { match: (url: string) => boolean; body: string }[] {
+function marketRoutes(): FetchRoute[] {
   return [
     { match: (u) => u.includes("/historical?"), body: historyPayload(ALL_DATES) },
     {
@@ -369,7 +371,7 @@ describe("MarketStore_point_in_time", () => {
 describe("market_tools_point_in_time", () => {
   function setup(
     asOf: (() => string | undefined) | undefined,
-    options: { calls?: string[]; now?: number } = {},
+    options: { calls?: string[]; now?: number; routes?: FetchRoute[] } = {},
   ) {
     const dataDir = mkdtempSync(join(tmpdir(), "pit-tools-"));
     const clock = fixedClock(options.now ?? Date.parse("2026-10-24T12:00:00Z"));
@@ -379,7 +381,7 @@ describe("market_tools_point_in_time", () => {
       log: silent,
       clock,
       ...(asOf === undefined ? {} : { asOf }),
-      fetchImpl: fakeFetchImpl(marketRoutes(), options.calls),
+      fetchImpl: fakeFetchImpl(options.routes ?? marketRoutes(), options.calls),
     });
     return { ext };
   }
@@ -501,6 +503,73 @@ describe("market_tools_point_in_time", () => {
     assert.ok(!textOf(calendar).includes("Archival results"));
     assert.equal(calls.length, 2);
     assert.ok(calls[1]?.includes(`calendar/earnings?date=${ASOF}`));
+  });
+
+  it("earnings_exposes_calendar_and_gate_session_countdowns_separately", async () => {
+    // Nov 26 2026 is the Thanksgiving closure. From Nov 25, the gate counts
+    // Nov 27, Nov 30, Dec 1 and Dec 2, plus the report date: 5 sessions.
+    const cases = [
+      {
+        name: "future report across Thanksgiving",
+        analystReport: "12/03/2026",
+        announcementDate: "Dec 03, 2026",
+        want: { nextDate: "2026-12-03", daysUntil: 8, tradingDaysUntil: 5 },
+        expectAnalystOnly: true,
+      },
+      {
+        name: "same-day report",
+        analystReport: "11/25/2026",
+        announcementDate: "Nov 25, 2026",
+        want: { nextDate: "2026-11-25", daysUntil: 0, tradingDaysUntil: 0 },
+        expectAnalystOnly: false,
+      },
+    ];
+    for (const c of cases) {
+      const calls: string[] = [];
+      const { ext } = setup(undefined, {
+        calls,
+        now: Date.parse("2026-11-25T17:00:00Z"),
+        routes: [
+          {
+            match: (u) => u.includes("/analyst/AAPL/earnings-date"),
+            body: JSON.stringify({
+              data: {
+                reportText:
+                  `AAPL is expected* to report earnings on ${c.analystReport} after market close. ` +
+                  "According to Zacks Investment Research, the consensus EPS forecast for the quarter is $2.10.",
+                announcement: `Earnings announcement* for AAPL: ${c.announcementDate}`,
+              },
+            }),
+          },
+          {
+            match: (u) => u.includes("calendar/earnings?date="),
+            body: JSON.stringify({
+              data: {
+                rows: [{ symbol: "AAPL", name: "Apple Inc.", time: "time-after-hours", epsForecast: "$2.10" }],
+              },
+            }),
+          },
+        ],
+      });
+
+      const result = await callTool(ext, "market_earnings", { symbol: "AAPL" });
+      assert.equal(result.isError, undefined, c.name);
+      const structured = result.structuredOutput as unknown as {
+        symbol: string;
+        nextDate: string;
+        daysUntil: number;
+        tradingDaysUntil: number;
+      };
+      assert.equal(structured.symbol, "AAPL", c.name);
+      assert.equal(structured.nextDate, c.want.nextDate, c.name);
+      assert.equal(structured.daysUntil, c.want.daysUntil, c.name);
+      assert.equal(structured.tradingDaysUntil, c.want.tradingDaysUntil, c.name);
+      if (c.expectAnalystOnly) {
+        // The analyst schedule answers it; any calendar scan would be an extra vendor call.
+        assert.equal(calls.length, 1, c.name);
+        assert.ok(calls[0]?.includes("/analyst/AAPL/earnings-date"), c.name);
+      }
+    }
   });
 
   it("economic_calendar_refuses_future_dates_and_blanks_actual_on_asof", async () => {

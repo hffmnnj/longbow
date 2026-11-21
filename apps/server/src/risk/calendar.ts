@@ -220,6 +220,11 @@ function nextTradingDay(fromEtDate: string): string {
   return cur;
 }
 
+/** The earnings gate counts same-day events as 0 and includes the report date for future events. */
+export function earningsSessionsUntil(todayEt: string, reportEt: string, tradingDaysBetween: MarketCalendar["tradingDaysBetween"]): number {
+  return reportEt === todayEt ? 0 : tradingDaysBetween(todayEt, reportEt) + 1;
+}
+
 export function createNyseCalendar(): MarketCalendar {
   return {
     clock(now: number): MarketClock {

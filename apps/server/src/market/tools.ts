@@ -3,6 +3,7 @@ import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-
 import type { Bar, HistoryRange } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
+import { createNyseCalendar, earningsSessionsUntil } from "../risk/calendar.ts";
 import { etDate, MarketCache } from "./cache.ts";
 import {
   avgDollarVolume,
@@ -208,7 +209,8 @@ const earningsSchema = Type.Object({
   nextDate: Type.Union([Type.String(), Type.Null()], {
     description: "Next scheduled earnings date (ET, YYYY-MM-DD) within 30 days, or null.",
   }),
-  daysUntil: Type.Union([Type.Number(), Type.Null()]),
+  daysUntil: numOrNull("Calendar days to the report."),
+  tradingDaysUntil: numOrNull("NYSE trading days to the report, as counted by the earnings blackout rule."),
   time: Type.Optional(Type.String({ description: "Report session, e.g. after hours." })),
   epsForecast: Type.Optional(Type.String({ description: "Consensus EPS forecast, e.g. $2.00." })),
 });
@@ -356,6 +358,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   }
 
   const historicalEarningsUnavailable = "Point-in-time earnings schedules are unavailable in historical replay.";
+  const earningsCalendarDaysBetween = createNyseCalendar().tradingDaysBetween;
 
   const priceHistory = defineTool({
     name: "market_price_history",
@@ -570,7 +573,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     name: "market_earnings",
     description:
       "Next scheduled earnings date for one ticker within the next 30 days (Nasdaq), " +
-      "with the report session and consensus EPS forecast when published. Unavailable in historical replay.",
+      "with both calendar and NYSE trading days remaining, plus report session and consensus EPS when published. " +
+      "Use tradingDaysUntil for the earnings blackout. Unavailable in historical replay.",
     parameters: Type.Object({ symbol: symbolField("Uppercase ticker, e.g. AAPL.") }),
     structuredOutputSchema: earningsSchema,
     replay: "safe",
@@ -588,7 +592,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         }
         found ??= await findUpcomingEarnings(cache, args.symbol, anchor).catch(() => undefined);
         if (found === undefined) {
-          const structured = { symbol: args.symbol, nextDate: null, daysUntil: null };
+          const structured = { symbol: args.symbol, nextDate: null, daysUntil: null, tradingDaysUntil: null };
           return {
             output: [{ type: "text" as const, text: `${tag()}${args.symbol}: no earnings date found in the next 30 days.` }],
             structuredOutput: structured,
@@ -598,6 +602,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           symbol: args.symbol,
           nextDate: found.date,
           daysUntil: calendarDays(anchor, found.date),
+          tradingDaysUntil: earningsSessionsUntil(anchor, found.date, earningsCalendarDaysBetween),
           ...(found.time === undefined ? {} : { time: found.time }),
           ...(found.epsForecast === undefined ? {} : { epsForecast: found.epsForecast }),
         };
@@ -608,7 +613,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           output: [
             {
               type: "text" as const,
-              text: `${tag()}${args.symbol} next earnings ${found.date} (${structured.daysUntil}d${extra === "" ? "" : `, ${extra}`}).`,
+              text: `${tag()}${args.symbol} next earnings ${found.date} (${structured.tradingDaysUntil} trading days, ${structured.daysUntil} calendar days${extra === "" ? "" : `, ${extra}`}).`,
             },
           ],
           structuredOutput: structured,

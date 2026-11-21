@@ -282,14 +282,14 @@ describe("system one extension", () => {
     }
   });
 
-  it("jev_candidates_bands_a_live_earnings_date_into_the_setup_context", async () => {
+  it("jev_candidates_excludes_the_exchange_holiday_from_the_earnings_countdown", async () => {
     const seen: Seen[] = [];
     const calls = { earnings: 0 };
     const ext = createSystemOneExtension(
       deps({
         client: fakeClient([], seen),
-        market: earningsMarket("2026-11-05", calls),
-        clock: { now: () => Date.parse("2026-11-02T12:00:00Z") },
+        market: earningsMarket("2026-12-01", calls),
+        clock: { now: () => Date.parse("2026-11-25T17:00:00Z") },
       }),
     );
     const result = await tool(ext, "jev_candidates").execute({ symbols: ["AAAX"] }, API, CTX);
