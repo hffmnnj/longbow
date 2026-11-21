@@ -175,6 +175,30 @@ describe("scenario market", () => {
     }
   });
 
+  it("preserves the sampled dollar liquidity after rebasing prices", async () => {
+    const bootstrap = await buildScenarioMarket({ ...spec, mode: "bootstrap" });
+    const visibleAt = bootstrap.simDates.at(-1)!;
+    const market = bootstrap.market(() => visibleAt);
+    let rescaled = 0;
+    for (const alias of bootstrap.symbols) {
+      const bars = await bootstrap.bars(alias);
+      const original = new Map(genBars(bootstrap.aliases[alias]!, BOOTSTRAP_HISTORY_START, spec.today).map((bar) => [bar.date, bar]));
+      let sourceDollars = 0;
+      for (let i = 0; i < bars.length; i++) {
+        const bar = bars[i]!;
+        const raw = original.get(bootstrap.sourceDates[i]!)!;
+        assert.ok(Number.isInteger(bar.volume) && bar.volume > 0);
+        assert.ok(Math.abs(bar.close * bar.volume - raw.close * raw.volume) <= bar.close / 2 + 1e-5,
+          `${alias} dollar volume must agree within half a rescaled share`);
+        if (Math.abs(raw.close - bar.close) > raw.close * 0.05) rescaled++;
+        if (i >= bars.length - 20) sourceDollars += raw.close * raw.volume;
+      }
+      const adv = await market.avgDollarVolume(alias, 20);
+      assert.ok(adv !== undefined && Math.abs(adv - sourceDollars / 20) / (sourceDollars / 20) < 1e-5);
+    }
+    assert.ok(rescaled > 100, "the control exercises material price rebasing");
+  });
+
   it("samples only shared close-to-close intervals around listings and interior tape gaps", async () => {
     const listing = "2018-01-02";
     const missing = "2018-05-11";
