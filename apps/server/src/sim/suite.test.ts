@@ -135,6 +135,25 @@ test("two variants compare on paired markets with a seeded bootstrap interval", 
   } finally { done(); }
 });
 
+test("partial metrics cannot enter a suite comparison", async () => {
+  const { runner, suites, done } = setup();
+  try {
+    const suite = await suites.start({ name: "One complete pair", scenarios: ["covid-crash-2020", "steady-bull-2021"], startingCash: 1200, variants }, "user");
+    const run = (variant: string, scenario: string) => suite.runs.find((entry) => entry.variant === variant && entry.scenario === scenario)!.runId;
+    runner.finish(run("A", "covid-crash-2020"), { returnPct: 3 });
+    runner.finish(run("B", "covid-crash-2020"), { returnPct: 5 });
+    runner.finish(run("A", "steady-bull-2021"), { returnPct: 8 });
+    runner.finish(run("B", "steady-bull-2021"), { returnPct: 30, status: "stopped" });
+
+    const result = suites.get(suite.id)!;
+    assert.equal(result.comparison?.pairs, 1);
+    assert.equal(result.comparison?.meanDiff, 2);
+    const b = result.summary.find((row) => row.label === "B")!;
+    assert.equal(b.meanReturnPct, 5);
+    assert.equal(b.failed, 1);
+  } finally { done(); }
+});
+
 test("suites finish done when runs complete and failed when every run fails", async () => {
   const { runner, suites, seen, done } = setup();
   try {

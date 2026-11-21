@@ -112,7 +112,7 @@ function marketKey(entry: { scenario?: string; seed?: number }): string {
 }
 
 function summarizeVariant(label: string, runs: SimRun[]): SimSuiteVariantSummary {
-  const withMetrics = runs.filter((r) => r.metrics !== undefined);
+  const withMetrics = runs.filter((r) => r.status === "done" && r.metrics !== undefined);
   const summary: SimSuiteVariantSummary = {
     label,
     runs: runs.length,
@@ -172,7 +172,7 @@ export function createSuiteService(deps: SuiteServiceDeps): SuiteService {
       const markets = new Map<string, { a?: SimRun; b?: SimRun }>();
       for (const entry of suite.runs) {
         const run = byId.get(entry.runId);
-        if (run?.metrics === undefined) continue;
+        if (run?.status !== "done" || run.metrics === undefined) continue;
         const key = marketKey(entry);
         const pair = markets.get(key) ?? {};
         if (entry.variant === a) pair.a = run;

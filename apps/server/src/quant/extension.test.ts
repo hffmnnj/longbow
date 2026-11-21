@@ -181,6 +181,17 @@ describe("quant extension", () => {
     assert.match(textOf(result), /MSFT/);
   });
 
+  it("size_position_uses_the_remaining_sector_headroom_for_a_new_name", async () => {
+    const d = deps({ getRisk: () => ({ ...DEFAULT_RISK, maxSectorPct: 51, maxPositionPct: 30 }) });
+    const tool = createQuantExtension(d).tools?.find((t) => t.name === "size_position");
+    assert.ok(tool);
+    const result = await tool.execute({ symbol: "MSFT", entry: 100, stop: 90 }, API, CTX);
+    const size = (result as { structuredOutput: { quantity: number; boundBy: string; checks: { rule: string; ok: boolean }[] } }).structuredOutput;
+    assert.equal(size.quantity, 1, "the $5,000 technology exposure leaves only $100 before the sector cap");
+    assert.equal(size.boundBy, "sector");
+    assert.ok(size.checks.some((c) => c.rule === "sector" && c.ok));
+  });
+
   it("size_position_rejects_a_bad_stop", async () => {
     const ext = createQuantExtension(deps());
     const tool = ext.tools?.find((t) => t.name === "size_position");
