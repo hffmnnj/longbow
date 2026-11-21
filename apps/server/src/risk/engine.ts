@@ -256,10 +256,14 @@ export function evaluate(input: RiskInput): RiskVerdict {
     const stop = intent.stopPrice ?? Number.NaN;
     const triggerOk = intent.side === "buy" ? stop >= mid : stop <= mid;
     const limitOk = intent.side === "buy" ? intent.limitPrice >= stop : intent.limitPrice <= stop;
+    const crossedProtection = isExit && stop > mid && limitOk;
     push(
       "limit_vs_mid",
       triggerOk && limitOk,
-      `${intent.side} stop ${stop} limit ${intent.limitPrice} vs current ${mid} ` +
+      crossedProtection
+        ? `Sell stop ${stop} is already above the current mid ${mid}; no new protection was armed. ` +
+          "Reconcile the position and existing orders before a separate exit decision. Do not lower the stop to pass this check."
+        : `${intent.side} stop ${stop} limit ${intent.limitPrice} vs current ${mid} ` +
         `(must trigger at or ${intent.side === "buy" ? "above" : "below"} the current price, ` +
         `with the limit at or ${intent.side === "buy" ? "above" : "below"} the stop)`,
     );

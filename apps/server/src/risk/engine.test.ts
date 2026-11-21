@@ -433,6 +433,20 @@ describe("risk engine", () => {
     assert.ok(failedRules(input).includes("limit_vs_mid"));
   });
 
+  it("explains when a reducing stop cannot arm because its level was already crossed", () => {
+    const input = passingInput();
+    input.quote = { ...input.quote, bid: 133.99, ask: 134.01, last: 134 };
+    input.intent = { ...input.intent, side: "sell", quantity: 1, orderType: "stop_limit", stopPrice: 140, limitPrice: 139.5, timeInForce: "gtc" };
+    input.recentOrders = [submittedBuy("AAPL", NOW - 3 * 86_400_000, 140)];
+    const check = evaluate(input).checks.find((entry) => entry.rule === "limit_vs_mid");
+    assert.equal(check?.ok, false);
+    assert.match(check.detail, /no new protection was armed/i);
+    assert.match(check.detail, /do not lower the stop/i);
+
+    input.quote = { ...input.quote, bid: 140.99, ask: 141.01, last: 141 };
+    assert.equal(evaluate(input).checks.find((entry) => entry.rule === "limit_vs_mid")?.ok, true);
+  });
+
   it("day_trades blocks a same-day round trip at the limit, even as a stop", () => {
     const input = passingInput();
     input.intent = { ...input.intent, side: "sell", quantity: 1 };
