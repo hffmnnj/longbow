@@ -203,6 +203,57 @@ describe("scenario market", () => {
     }
   });
 
+  it("bootstrap_completed_bars_do_not_change_the_source_dates_or_tape", async () => {
+    // Monday: a same-day source bar would still be forming while the run starts.
+    const today = "2026-10-26";
+    const future = "2026-10-27";
+    const completedVolume = 987_654_321;
+    const futureVolume = 987_654_322;
+    const spikeVolume = (symbol: string, date: string, volume: number): Bar => {
+      const base = genBars(symbol, date, date)[0]!;
+      const open = base.close * 12;
+      const close = base.close * 9;
+      return { date, open, high: Math.max(open, close) * 1.1, low: Math.min(open, close) * 0.9, close, volume };
+    };
+    // Both feeds serve the same deterministic prefix. The second also returns a
+    // completed bar dated today plus one beyond `to`, as a vendor might.
+    const prefixOnly = async (symbol: string, from: string, to: string): Promise<Bar[]> =>
+      genBars(symbol, from, to).filter((bar) => bar.date < today);
+    const withCompleted = async (symbol: string, from: string, to: string): Promise<Bar[]> => [
+      ...(await prefixOnly(symbol, from, to)),
+      spikeVolume(symbol, today, completedVolume),
+      spikeVolume(symbol, future, futureVolume),
+    ];
+    const base = { ...spec, mode: "bootstrap" as const, seed: 7, today };
+    const clean = await buildScenarioMarket({ ...base, fetch: prefixOnly });
+    const dirty = await buildScenarioMarket({ ...base, fetch: withCompleted });
+
+    // Precondition: the extra bars are wildly different, so any leak would show.
+    const feed = await withCompleted("SPY", BOOTSTRAP_HISTORY_START, today);
+    const lastPrefix = feed.find((bar) => bar.date < today)!;
+    const completed = feed.find((bar) => bar.date === today)!;
+    assert.ok(completed.close > lastPrefix.close * 5, "fixture: completed close should dwarf the prefix");
+    assert.ok(completed.volume > lastPrefix.volume * 100, "fixture: completed volume should dwarf the prefix");
+    assert.equal(feed.at(-1)!.date, future, "fixture: the feed should return a bar beyond to");
+
+    assert.equal(clean.sourceDates.length, WARMUP_SESSIONS + base.days);
+    assert.deepEqual(dirty.sourceDates, clean.sourceDates);
+    assert.deepEqual(dirty.simDates, clean.simDates);
+    assert.deepEqual(dirty.aliases, clean.aliases);
+    assert.deepEqual(dirty.symbols, clean.symbols);
+    for (const alias of clean.symbols) {
+      const tape = await dirty.bars(alias);
+      assert.deepEqual(tape, await clean.bars(alias), `${alias} tape changed when a completed bar was available`);
+      assert.ok(
+        tape.every((bar) => bar.volume !== completedVolume && bar.volume !== futureVolume),
+        `${alias} tape sampled the completed or future bar`,
+      );
+    }
+    for (const date of [...clean.sourceDates, ...dirty.sourceDates]) {
+      assert.ok(date < today, `selected source date ${date} is not strictly before ${today}`);
+    }
+  });
+
   it("drops_symbols_without_covering_history", async () => {
     const thin = async (symbol: string, from: string, to: string): Promise<Bar[]> =>
       symbol === "AAA" ? [] : fetch(symbol, from, to);
