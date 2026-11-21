@@ -107,6 +107,29 @@ test("turnover, costs and risk blocks come from fills and rejected orders", () =
   assert.ok(Math.abs(metrics.costsPct - 0.103) < 1e-10);
   assert.deepEqual(metrics.riskBlocks, { sector: 2 });
 });
+test("counts accepted paper broker orders independently of their final status", () => {
+  const booked: OrderRecord = {
+    id: "filled", brokerOrderId: "paper-1", createdAt: 1, updatedAt: 2, status: "filled",
+    verdict: { approved: true, isExit: false, checks: [] },
+    intent: {
+      symbol: "SPY", side: "buy", quantity: 1, orderType: "limit", limitPrice: 101, invalidationPrice: 95, timeInForce: "day",
+      timeStopDate: "2026-07-10", thesis: "A fixture for accepted paper order counting.",
+      probabilityWin: 0.6, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["fixture"],
+    },
+  };
+  const metrics = calculateMetrics(1200, [], [], [
+    booked,
+    { ...booked, id: "partial", status: "partially_filled", brokerOrderId: "paper-2" },
+    { ...booked, id: "cancelled", status: "cancelled", brokerOrderId: "paper-3" },
+    { ...booked, id: "pending", status: "submitted", brokerOrderId: "paper-4" },
+    { ...booked, id: "duplicate", status: "cancelled", brokerOrderId: "paper-4" },
+    { ...booked, id: "held", status: "held", brokerOrderId: undefined },
+    { ...booked, id: "rejected", status: "rejected_risk", brokerOrderId: undefined },
+  ]);
+  assert.equal(metrics.ordersSubmitted, 4);
+  assert.equal(metrics.ordersRejected, 1);
+});
+
 test("round-trip metrics wait for a fully closed entry and use original intent risk", () => {
   const fills: SimFill[] = [
     { at: 1, date: "2026-07-01", symbol: "SPY", side: "buy", quantity: 2, price: 100, orderId: "entry" },
