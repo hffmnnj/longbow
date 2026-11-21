@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { etInstant, pathPrice, pathSegment, realisticPath, realisticPrice, realisticSegment, tradingDays, REALISTIC_INTERVALS } from "./path.ts";
+import { assertReplayBenchmarkCoverage, etInstant, pathPrice, pathSegment, realisticPath, realisticPrice, realisticSegment, tradingDays, REALISTIC_INTERVALS } from "./path.ts";
+import { createNyseCalendar } from "../risk/calendar.ts";
 
 const bar = { date: "2026-07-02", open: 100, low: 90, high: 120, close: 110, volume: 1000 };
 test("up days visit low before high, down days visit high before low", () => {
@@ -16,6 +17,13 @@ test("path segments include turns between checks and never include future points
 test("trading days come from bars and skip Independence Day holiday", () => {
   const bars = ["2026-07-01", "2026-07-02", "2026-07-06", "2026-07-07"].map((date) => ({ ...bar, date }));
   assert.deepEqual(tradingDays(bars, "2026-07-02", 2).map((b) => b.date), ["2026-07-02", "2026-07-06"]);
+});
+test("replay skips observed Juneteenth 2022 but rejects a missing next-session SPY bar", () => {
+  const calendar = createNyseCalendar();
+  const start = "2022-06-17";
+  assert.doesNotThrow(() => assertReplayBenchmarkCoverage([start, "2022-06-21", "2022-06-22"], start, calendar));
+  assert.throws(() => assertReplayBenchmarkCoverage([start, "2022-06-22"], start, calendar),
+    /Missing SPY bar for scheduled replay session 2022-06-21/);
 });
 test("ET instant respects winter and summer offsets", () => {
   assert.equal(new Date(etInstant("2026-01-05", 10, 15)).toISOString(), "2026-01-05T15:15:00.000Z");

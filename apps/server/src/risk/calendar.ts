@@ -7,9 +7,15 @@ import type { MarketCalendar } from "../ports.ts";
  * `Intl.DateTimeFormat` in America/New_York so daylight saving is handled by
  * the platform, not by hand-rolled offsets.
  *
- * Full-closure and early-close tables cover 2024-2027. Outside that range
+ * Full-closure and early-close tables cover 2021-2027. Outside that range
  * the calendar falls back to weekdays only.
  *
+ * 2021 dates and early closes, plus the revised 2022-2023 dates, come from the
+ * NYSE Group calendars in these ICE press releases:
+ * https://ir.theice.com/press/news-details/2020/NYSE-Group-Announces-2021-2022-and-2023-Holiday-and-Early-Closings-Calendar/default.aspx
+ * https://ir.theice.com/press/news-details/2021/NYSE-Group-Announces-2022-2023-and-2024-Holiday-and-Early-Closings-Calendar/default.aspx
+ * Juneteenth is first observed as a full closure in 2022, and 2021-12-31
+ * remains a normal session because New Year's Day 2022 fell on a Saturday.
  * 2024-2026 dates and early closes come from the NYSE Group calendar in the
  * 11/10/2023 ICE press release:
  * https://ir.theice.com/press/news-details/2023/NYSE-Group-Announces-2024-2025-and-2026-Holiday-and-Early-Closings-Calendar/default.aspx
@@ -18,9 +24,47 @@ import type { MarketCalendar } from "../ports.ts";
  * https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2024-87
  */
 
-export const NYSE_HOLIDAY_COVERAGE = { first: "2024-01-01", last: "2027-12-31" } as const;
+export const NYSE_HOLIDAY_COVERAGE = { first: "2021-01-01", last: "2027-12-31" } as const;
 
 const FULL_CLOSURES = new Set<string>([
+  // 2021: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Independence Day (observed Jul 5), Labor Day, Thanksgiving,
+  // Christmas (observed Dec 24).
+  "2021-01-01",
+  "2021-01-18",
+  "2021-02-15",
+  "2021-04-02",
+  "2021-05-31",
+  "2021-07-05",
+  "2021-09-06",
+  "2021-11-25",
+  "2021-12-24",
+  // 2022: MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Juneteenth (first observance, observed Jun 20), Independence Day,
+  // Labor Day, Thanksgiving, Christmas (observed Dec 26). New Year's Day 2022
+  // fell on a Saturday and was not observed on 2021-12-31.
+  "2022-01-17",
+  "2022-02-21",
+  "2022-04-15",
+  "2022-05-30",
+  "2022-06-20",
+  "2022-07-04",
+  "2022-09-05",
+  "2022-11-24",
+  "2022-12-26",
+  // 2023: New Year's Day (observed Jan 2), MLK Day, Presidents Day,
+  // Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day,
+  // Thanksgiving, Christmas.
+  "2023-01-02",
+  "2023-01-16",
+  "2023-02-20",
+  "2023-04-07",
+  "2023-05-29",
+  "2023-06-19",
+  "2023-07-04",
+  "2023-09-04",
+  "2023-11-23",
+  "2023-12-25",
   // 2024: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
   // Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas.
   "2024-01-01",
@@ -76,6 +120,13 @@ const FULL_CLOSURES = new Set<string>([
 
 /** ET dates with a 13:00 regular-session close. */
 const EARLY_CLOSES = new Set<string>([
+  // 2021: day after Thanksgiving. New Year's Eve was a full session.
+  "2021-11-26",
+  // 2022: day after Thanksgiving.
+  "2022-11-25",
+  // 2023: Independence Day eve and the day after Thanksgiving.
+  "2023-07-03",
+  "2023-11-24",
   "2024-07-03",
   "2024-11-29",
   "2024-12-24",
