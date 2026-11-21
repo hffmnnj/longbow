@@ -556,9 +556,10 @@ test("a known exchange closure without a bar is not a missing replay session", a
 
 test("resolves scenario config and records seed, suite, variant, and aliases", async () => {
   const dataDir = mkdtempSync("/tmp/sim-scenario-test-");
+  const calendar = createNyseCalendar();
   const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
-    calendar: createNyseCalendar(),
-    fetchBars: async (s, f, t) => fixtureBars(s, f, t),
+    calendar,
+    fetchBars: async (s, f, t) => fixtureBars(s, f, t).filter((bar) => calendar.clock(etInstant(bar.date, 12)).tradingDay === bar.date),
     driver: async () => {},
     sectorSource: createStaticSectorDirectory({}) });
   try {

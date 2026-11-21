@@ -7,8 +7,16 @@ import type { MarketCalendar } from "../ports.ts";
  * `Intl.DateTimeFormat` in America/New_York so daylight saving is handled by
  * the platform, not by hand-rolled offsets.
  *
- * Full-closure and early-close tables cover 2021-2027. Outside that range
+ * Full-closure and early-close tables cover 2018-2027. Outside that range
  * the calendar falls back to weekdays only.
+ *
+ * 2018-2020 dates and early closes come from the NYSE Group calendars in these
+ * ICE press releases:
+ * https://ir.theice.com/press/news-details/2017/NYSE-Group-Announces-2018-2019-and-2020-Holiday-and-Early-Closings-Calendar/default.aspx
+ * https://ir.theice.com/press/news-details/2019/NYSE-Group-Announces-2020-2021-and-2022-Holiday-and-Early-Closings-Calendar/default.aspx
+ * 2018-12-05 is the one-off National Day of Mourning for President George H.W.
+ * Bush, announced after the annual calendar:
+ * https://ir.theice.com/press/news-details/2018/New-York-Stock-Exchange-to-Honor-President-George-H-W-Bush/default.aspx
  *
  * 2021 dates and early closes, plus the revised 2022-2023 dates, come from the
  * NYSE Group calendars in these ICE press releases:
@@ -24,9 +32,44 @@ import type { MarketCalendar } from "../ports.ts";
  * https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2024-87
  */
 
-export const NYSE_HOLIDAY_COVERAGE = { first: "2021-01-01", last: "2027-12-31" } as const;
+export const NYSE_HOLIDAY_COVERAGE = { first: "2018-01-01", last: "2027-12-31" } as const;
 
 const FULL_CLOSURES = new Set<string>([
+  // 2018: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Independence Day, Labor Day, Thanksgiving, the one-off National Day of
+  // Mourning for President George H.W. Bush, and Christmas.
+  "2018-01-01",
+  "2018-01-15",
+  "2018-02-19",
+  "2018-03-30",
+  "2018-05-28",
+  "2018-07-04",
+  "2018-09-03",
+  "2018-11-22",
+  "2018-12-05",
+  "2018-12-25",
+  // 2019: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Independence Day, Labor Day, Thanksgiving, Christmas.
+  "2019-01-01",
+  "2019-01-21",
+  "2019-02-18",
+  "2019-04-19",
+  "2019-05-27",
+  "2019-07-04",
+  "2019-09-02",
+  "2019-11-28",
+  "2019-12-25",
+  // 2020: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Independence Day (observed Jul 3), Labor Day, Thanksgiving, Christmas.
+  "2020-01-01",
+  "2020-01-20",
+  "2020-02-17",
+  "2020-04-10",
+  "2020-05-25",
+  "2020-07-03",
+  "2020-09-07",
+  "2020-11-26",
+  "2020-12-25",
   // 2021: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
   // Independence Day (observed Jul 5), Labor Day, Thanksgiving,
   // Christmas (observed Dec 24).
@@ -120,6 +163,16 @@ const FULL_CLOSURES = new Set<string>([
 
 /** ET dates with a 13:00 regular-session close. */
 const EARLY_CLOSES = new Set<string>([
+  // 2018-2020: Independence Day eve, the day after Thanksgiving, and Christmas
+  // Eve, except 2020, whose Independence Day eve was the observed full closure.
+  "2018-07-03",
+  "2018-11-23",
+  "2018-12-24",
+  "2019-07-03",
+  "2019-11-29",
+  "2019-12-24",
+  "2020-11-27",
+  "2020-12-24",
   // 2021: day after Thanksgiving. New Year's Eve was a full session.
   "2021-11-26",
   // 2022: day after Thanksgiving.
