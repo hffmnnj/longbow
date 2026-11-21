@@ -447,6 +447,45 @@ describe("trade selection", () => {
     assert.equal(facts.periodEnd, "2026-10-26");
   });
 
+  it("reports_cancelled_partial_fills_as_executed_entry_and_exit_legs", async () => {
+    const entry = etMorning("2026-10-22") - 7200_000;
+    const partialBuyAt = etMorning("2026-10-22") - 3600_000;
+    const exit = etMorning("2026-10-26");
+    const firstBuy = filledOrder(1, "NVDA", "buy", 100, entry);
+    // Cancelled after filling 4 of 10; the recorded fill is still an executed lot.
+    const partialBuy: OrderRecord = {
+      ...filledOrder(2, "NVDA", "buy", 110, partialBuyAt, "cancelled"),
+      filledQuantity: 4,
+      averageFillPrice: 110,
+    };
+    // Cancelled after selling 14 of 20; the recorded sale closes the round trip.
+    const partialExit: OrderRecord = {
+      ...filledOrder(3, "NVDA", "sell", 120, exit, "cancelled"),
+      intent: { ...baseIntent("NVDA", "sell", 120), quantity: 20 },
+      filledQuantity: 14,
+      averageFillPrice: 120,
+    };
+    const { deps: d } = deps({ orders: [firstBuy, partialBuy, partialExit] });
+
+    const facts = await buildTradeFacts(d, "NVDA");
+
+    assert.equal(facts.trade?.trade.source, "harness");
+    assert.equal(facts.trade?.trade.quantity, 14);
+    // 10 @ 100 + 4 @ 110 -> entry 1440/14, exiting 14 @ 120.
+    assert.ok(Math.abs((facts.trade?.trade.entryPrice ?? 0) - 1440 / 14) < 1e-9);
+    assert.equal(facts.trade?.trade.exitPrice, 120);
+    assert.equal(facts.trade?.entryOrderId, "o1");
+    assert.equal(facts.trade?.exitOrderId, "o3");
+    assert.equal(facts.trade?.plan?.thesis, firstBuy.intent.thesis);
+    assert.equal(facts.trade?.plan?.invalidationPrice, 90);
+    // The trade report's headline keeps its existing gross P&L semantics.
+    assert.ok(Math.abs((facts.pnl ?? 0) - 240) < 1e-9);
+    // The period aggregate stays fee-aware: the $1,680 sale carries a 4¢ SEC fee.
+    assert.ok(Math.abs(facts.realizedPnl - (240 - 0.04)) < 1e-9);
+    assert.equal(facts.periodStart, "2026-10-22");
+    assert.equal(facts.periodEnd, "2026-10-26");
+  });
+
   it("falls_back_to_robinhood_history_without_entry_detail", async () => {
     // Sixty consecutive dates ending on the 2026-10-23 exit.
     const bars = barsFrom("2026-08-25", Array.from({ length: 60 }, (_, i) => 150 + i));

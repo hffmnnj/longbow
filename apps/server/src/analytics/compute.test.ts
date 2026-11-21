@@ -65,6 +65,48 @@ describe("pairHarnessTrades", () => {
     assert.equal(trade.closedAt, 3000);
   });
 
+  it("includes a cancelled order's partial buy fill at its updated time", () => {
+    const orders = [
+      order({ intent: intent("AAPL", "buy", 10), filledQuantity: 10, averageFillPrice: 100, createdAt: 1000, updatedAt: 1000 }),
+      // The sale was submitted first, but its fill was observed after this partial buy.
+      order({ intent: intent("AAPL", "sell", 14), filledQuantity: 14, averageFillPrice: 120, createdAt: 1500, updatedAt: 3000 }),
+      order({ intent: intent("AAPL", "buy", 10), status: "cancelled", filledQuantity: 4, averageFillPrice: 110, createdAt: 1800, updatedAt: 2000 }),
+    ];
+    const trades = pairHarnessTrades(orders);
+    assert.equal(trades.length, 1);
+    const trade = trades[0]!;
+    assert.equal(trade.quantity, 14);
+    // 10 @ 100 + 4 @ 110 -> entry 1440/14; epoch timestamps carry no regulatory fees.
+    assert.ok(Math.abs((trade.entryPrice ?? 0) - 1440 / 14) < 1e-9);
+    assert.ok(Math.abs(trade.pnl - (14 * 120 - 1440)) < 1e-9);
+    assert.equal(trade.openedAt, 1000);
+    assert.equal(trade.closedAt, 3000);
+  });
+
+  it("includes a cancelled order's partial sell fill and its sale fees", () => {
+    const day = Date.UTC(2026, 10, 2, 15);
+    const orders = [
+      order({ intent: intent("MSFT", "buy", 10), filledQuantity: 10, averageFillPrice: 100, createdAt: day, updatedAt: day }),
+      // Cancelled after selling 5: a partial exit rather than the full intended order.
+      order({ intent: intent("MSFT", "sell", 10), status: "cancelled", filledQuantity: 5, averageFillPrice: 120, createdAt: day + 86_400_000, updatedAt: day + 86_400_000 }),
+    ];
+    const [trade] = pairHarnessTrades(orders);
+    assert.equal(trade?.quantity, 5);
+    assert.equal(trade?.exitPrice, 120);
+    // $600 sale: SEC fee $0.01236 rounds up to $0.02; TAF is zero at 5 shares and paused, CAT rounds to zero.
+    assert.equal(trade?.fees, 0.02);
+    assert.ok(Math.abs((trade?.pnl ?? 0) - (100 - 0.02)) < 1e-9);
+  });
+
+  it("ignores a cancelled order with no recorded fill or price", () => {
+    const orders = [
+      order({ intent: intent("NVDA", "buy", 5), status: "cancelled", createdAt: 1000, updatedAt: 1000 }),
+      order({ intent: intent("NVDA", "buy", 5), status: "cancelled", filledQuantity: 5, createdAt: 2000, updatedAt: 2000 }),
+      order({ intent: intent("NVDA", "sell", 5), filledQuantity: 5, averageFillPrice: 200, createdAt: 3000, updatedAt: 3000 }),
+    ];
+    assert.deepEqual(pairHarnessTrades(orders), []);
+  });
+
   it("reports P&L net of regulatory fees", () => {
     const day = Date.UTC(2026, 10, 2, 15);
     const orders = [

@@ -8,7 +8,7 @@ import type {
   ReportFacts,
 } from "@rh/shared";
 import type { Broker, Clock, Logger, MarketCalendar, MarketData, Notes, Store } from "../ports.ts";
-import { parseThesisStop, summarizeTrades } from "../analytics/compute.ts";
+import { executedHarnessOrders, parseThesisStop, summarizeTrades } from "../analytics/compute.ts";
 import { readAllClosedTrades } from "../analytics/trades.ts";
 import { endOfEtDateMs } from "../market/market-data.ts";
 import { etAddDays, isTradingDay, mondayOfWeek, weekDates } from "./ids.ts";
@@ -304,16 +304,10 @@ function selectHarnessTrade(orders: OrderRecord[], symbol: string): SelectedTrad
   }
   const queue: Lot[] = [];
   let best: SelectedTrade | undefined;
-  const executed = orders.filter(
-    (o) =>
-      o.intent.symbol === symbol &&
-      (o.status === "filled" || o.status === "partially_filled") &&
-      (o.filledQuantity ?? 0) > 0 &&
-      o.averageFillPrice !== undefined,
-  );
+  const executed = executedHarnessOrders(orders.filter((order) => order.intent.symbol === symbol));
   for (const order of executed) {
-    const price = order.averageFillPrice as number;
-    const quantity = order.filledQuantity as number;
+    const price = order.averageFillPrice;
+    const quantity = order.filledQuantity;
     if (order.intent.side === "buy") {
       queue.push({
         quantity,
