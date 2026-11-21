@@ -20,24 +20,29 @@ export interface FillLeg {
   probabilityWin?: number;
 }
 
-/**
- * Executed legs of filled harness orders, oldest first. Partially filled
- * orders contribute their filled quantity at the average fill price; orders
- * without a fill price are not executed and are skipped.
- */
+type ExecutedOrder = OrderRecord & { filledQuantity: number; averageFillPrice: number };
+
+/** Broker-confirmed execution is independent of whether the remainder was cancelled. */
+export function executedHarnessOrders(orders: readonly OrderRecord[]): ExecutedOrder[] {
+  return orders.filter((order): order is ExecutedOrder =>
+    (order.status === "filled" || order.status === "partially_filled" || order.status === "cancelled") &&
+    order.filledQuantity !== undefined && Number.isFinite(order.filledQuantity) && order.filledQuantity > 0 &&
+    order.averageFillPrice !== undefined && Number.isFinite(order.averageFillPrice) && order.averageFillPrice > 0,
+  ).sort((a, b) => a.updatedAt - b.updatedAt);
+}
+
+/** Cumulative local order observations, oldest first; updatedAt is not an execution timestamp. */
 export function harnessLegs(orders: OrderRecord[]): FillLeg[] {
-  return orders
-    .filter((o) => (o.status === "filled" || o.status === "partially_filled") && (o.filledQuantity ?? 0) > 0 && o.averageFillPrice !== undefined)
+  return executedHarnessOrders(orders)
     .map((o) => ({
       symbol: o.intent.symbol,
       side: o.intent.side,
       at: o.updatedAt,
-      quantity: o.filledQuantity as number,
-      price: o.averageFillPrice as number,
+      quantity: o.filledQuantity,
+      price: o.averageFillPrice,
       invalidationPrice: o.intent.invalidationPrice,
       ...(o.intent.probabilityWin === undefined ? {} : { probabilityWin: o.intent.probabilityWin }),
-    }))
-    .sort((a, b) => a.at - b.at);
+    }));
 }
 
 /**
