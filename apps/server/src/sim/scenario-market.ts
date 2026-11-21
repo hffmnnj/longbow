@@ -143,22 +143,6 @@ function byDate(bars: Bar[]): Map<string, Bar> {
   return new Map(bars.map((b) => [b.date, b]));
 }
 
-/**
- * Every date in a symbol's own sorted series mapped to its chronologically
- * preceding close. The first bar has no predecessor, so it maps to its own
- * open, keeping the first session an open-to-close move rather than a jump
- * from the far end of the tape.
- */
-function precedingCloseByDate(bars: Bar[]): Map<string, number> {
-  const sorted = [...bars].sort((a, b) => a.date.localeCompare(b.date));
-  const out = new Map<string, number>();
-  for (let i = 0; i < sorted.length; i++) {
-    const bar = sorted[i]!;
-    out.set(bar.date, i === 0 ? bar.open : sorted[i - 1]!.close);
-  }
-  return out;
-}
-
 /** "Z" plus three seeded capital letters. */
 function stockAlias(rng: () => number): string {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -294,30 +278,35 @@ async function buildBlind(spec: ScenarioMarketSpec, rng: () => number): Promise<
 async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Promise<ScenarioMarket> {
   const { days, today } = spec;
   const realUniverse = [...new Set([...spec.watchlist.map((s) => s.toUpperCase()), "SPY", ...SECTOR_ETFS.map((e) => e.real)])];
-  const fetched = new Map<string, Bar[]>();
+  const bySymbol = new Map<string, Map<string, Bar>>();
   for (const symbol of realUniverse) {
     const bars = await spec.fetch(symbol, BOOTSTRAP_HISTORY_START, today);
     // Nasdaq needs a current transport end date, but a same-day bar may
     // still be forming. Keep it out of both the sample pool and seed prices.
-    fetched.set(symbol, bars.filter((bar) => bar.date < (spec.completedBefore ?? today)));
+    bySymbol.set(symbol, byDate(bars.filter((bar) => bar.date < (spec.completedBefore ?? today))));
   }
-  const dateSets = new Map<string, Set<string>>(realUniverse.map((s) => [s, new Set((fetched.get(s) ?? []).map((b) => b.date))]));
+  // A shared end date is not enough: at a listing or after a missing bar,
+  // individual tapes may use different start dates (or an open instead of a close).
+  const benchmarkDates = [...bySymbol.get("SPY")!.keys()].sort();
+  const intervals = benchmarkDates.slice(1).map((date, i) => ({ date, from: benchmarkDates[i]! }));
+  const eligibleBySymbol = new Map(realUniverse.map((symbol) => {
+    const tape = bySymbol.get(symbol)!;
+    return [symbol, new Set(intervals.filter(({ date, from }) => tape.has(date) && tape.has(from)).map(({ date }) => date))] as const;
+  }));
   // Drop the sparsest names until the joint history covers warmup plus the run. SPY is never dropped.
   const kept = [...realUniverse];
   const dropped: string[] = [];
-  const commonDates = (): string[] => {
-    const sets = kept.map((s) => dateSets.get(s) ?? new Set<string>());
-    const [first, ...rest] = sets;
-    if (first === undefined) return [];
-    return [...first].filter((d) => rest.every((s) => s.has(d))).sort();
+  const commonIntervals = (): typeof intervals => {
+    const coverage = kept.map((symbol) => eligibleBySymbol.get(symbol)!);
+    return intervals.filter(({ date }) => coverage.every((available) => available.has(date)));
   };
-  let common = commonDates();
+  let common = commonIntervals();
   while (common.length < WARMUP_SESSIONS + days && kept.length > 1) {
-    const sparse = kept.filter((s) => s !== "SPY").sort((a, b) => (dateSets.get(a)?.size ?? 0) - (dateSets.get(b)?.size ?? 0))[0];
+    const sparse = kept.filter((s) => s !== "SPY").sort((a, b) => eligibleBySymbol.get(a)!.size - eligibleBySymbol.get(b)!.size)[0];
     if (sparse === undefined) break;
     kept.splice(kept.indexOf(sparse), 1);
     dropped.push(sparse);
-    common = commonDates();
+    common = commonIntervals();
   }
   if (common.length < WARMUP_SESSIONS + days) throw new Error("Insufficient joint history for a bootstrap run");
   const total = WARMUP_SESSIONS + days;
@@ -328,30 +317,23 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
     const length = Math.min(geometricLength(rng, BOOTSTRAP_BLOCK_MEAN), total - draws.length);
     for (let i = 0; i < length; i++) draws.push((start + i) % common.length);
   }
-  const sourceDates = draws.map((i) => common[i]!);
-  const bySymbol = new Map<string, Map<string, Bar>>();
-  const priorClose = new Map<string, Map<string, number>>();
-  for (const symbol of kept) {
-    const bars = fetched.get(symbol) ?? [];
-    bySymbol.set(symbol, byDate(bars));
-    priorClose.set(symbol, precedingCloseByDate(bars));
-  }
-  const closeOn = (symbol: string, date: string): number => bySymbol.get(symbol)?.get(date)?.close ?? NaN;
+  const sourceIntervals = draws.map((i) => common[i]!);
+  const sourceDates = sourceIntervals.map(({ date }) => date);
   const stocks = kept.filter((s) => s !== "SPY" && !SECTOR_ETFS.some((e) => e.real === s));
   const { aliases } = assignAliases(rng, stocks, new Set(realUniverse));
   await spec.sectors?.resolve(kept);
   const fictionalDates = fictionalCalendar(rng, WARMUP_SESSIONS, days);
-  const seedDate = pick(rng, common);
+  const seedDate = pick(rng, common).date;
   const factors = new Map<string, number>(kept.map((s) => [s, 0.4 + rng() * (2.5 - 0.4)]));
   const fictional = new Map<string, Bar[]>();
   for (const [alias, real] of Object.entries(aliases)) {
     if (!kept.includes(real)) continue;
     const factor = factors.get(real) ?? 1;
-    const prior = priorClose.get(real)!;
-    let previous = closeOn(real, seedDate) * factor;
-    fictional.set(alias, sourceDates.map((date, i) => {
-      const bar = bySymbol.get(real)?.get(date);
-      const prevSource = prior.get(date);
+    const tape = bySymbol.get(real)!;
+    let previous = (tape.get(seedDate)?.close ?? NaN) * factor;
+    fictional.set(alias, sourceIntervals.map(({ date, from }, i) => {
+      const bar = tape.get(date);
+      const prevSource = tape.get(from)?.close;
       if (bar === undefined || prevSource === undefined || !Number.isFinite(previous)) {
         throw new Error(`Missing source bar for ${real} on ${date}`);
       }

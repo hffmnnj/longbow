@@ -53,13 +53,13 @@ function returns(bars: Bar[]): number[] {
   return bars.slice(1).map((b, i) => b.close / bars[i]!.close - 1);
 }
 
-/** Source session return per date: close over the preceding close in the symbol's own series (its open on the first bar). */
+/** Source close-to-close return per date; the first bar has no known return. */
 function sourceSessionReturns(bars: Bar[]): Map<string, number> {
   const sorted = [...bars].sort((a, b) => a.date.localeCompare(b.date));
   const out = new Map<string, number>();
-  for (let i = 0; i < sorted.length; i++) {
+  for (let i = 1; i < sorted.length; i++) {
     const bar = sorted[i]!;
-    out.set(bar.date, bar.close / (i === 0 ? bar.open : sorted[i - 1]!.close) - 1);
+    out.set(bar.date, bar.close / sorted[i - 1]!.close - 1);
   }
   return out;
 }
@@ -175,31 +175,38 @@ describe("scenario market", () => {
     }
   });
 
-  it("draws_the_earliest_date_from_its_own_predecessor_not_the_tape_end", async () => {
-    const common = weekdaysBetween("2018-01-02", "2019-06-28");
-    const split = async (symbol: string, from: string, to: string): Promise<Bar[]> => splitEndBars(symbol, from, to);
+  it("samples only shared close-to-close intervals around listings and interior tape gaps", async () => {
+    const listing = "2018-01-02";
+    const missing = "2018-05-11";
+    const afterMissing = "2018-05-14";
+    const split = async (symbol: string, from: string, to: string): Promise<Bar[]> =>
+      splitEndBars(symbol, from, to).filter((bar) => symbol !== "AAA" || bar.date !== missing);
     const market = await buildScenarioMarket({ mode: "bootstrap", seed: 43, watchlist: ["AAA"], days: 3, today: "2026-10-24", fetch: split });
-    // Seed 43's first block starts on the last common date, so the second session draws the earliest one.
-    assert.equal(market.sourceDates[0], common.at(-1));
-    assert.equal(market.sourceDates[1], common[0]);
     const aaaAlias = Object.entries(market.aliases).find(([, real]) => real === "AAA")?.[0];
     assert.ok(aaaAlias !== undefined, "AAA should be kept and aliased");
+    const benchmark = await split("SPY", BOOTSTRAP_HISTORY_START, "2026-10-24");
+    const previous = new Map(benchmark.slice(1).map((bar, i) => [bar.date, benchmark[i]!.date]));
+    assert.equal(previous.get(afterMissing), missing);
+    for (const date of [listing, missing, afterMissing]) {
+      assert.ok(!market.sourceDates.includes(date), `${date} has no shared interval and must not be sampled`);
+    }
+    // Ensure the sampled block wraps to touch the start of the joint window.
+    assert.ok(market.sourceDates.includes("2018-01-03"));
+    assert.ok(market.sourceDates.includes("2018-05-15"));
     for (const alias of ["MKT", aaaAlias]) {
       const real = market.aliases[alias]!;
       const bars = await market.bars(alias);
-      const original = splitEndBars(real, BOOTSTRAP_HISTORY_START, "2026-10-24");
-      const expected = sourceSessionReturns(original);
+      const originals = await split(real, BOOTSTRAP_HISTORY_START, "2026-10-24");
+      const closes = new Map(originals.map((bar) => [bar.date, bar.close]));
       for (let i = 1; i < bars.length; i++) {
-        const source = expected.get(market.sourceDates[i]!);
-        assert.ok(source !== undefined, `no source session for ${alias} at ${i}`);
+        const date = market.sourceDates[i]!;
+        const priorClose = closes.get(previous.get(date)!);
+        const close = closes.get(date);
+        assert.ok(priorClose !== undefined && close !== undefined, `no shared close interval for ${alias} at ${i}`);
         const actual = bars[i]!.close / bars[i - 1]!.close - 1;
-        assert.ok(Math.abs(source - actual) < 1e-9, `source session return broken for ${alias} at ${i}: ${actual} vs ${source}`);
+        const expected = close / priorClose - 1;
+        assert.ok(Math.abs(expected - actual) < 1e-9, `source session return broken for ${alias} at ${i}: ${actual} vs ${expected}`);
       }
-      // The old circular lookup paired the earliest date with the tape's final close.
-      const earliest = original.find((b) => b.date === common[0])!;
-      const wrapped = earliest.close / original.at(-1)!.close - 1;
-      const actual = bars[1]!.close / bars[0]!.close - 1;
-      assert.ok(Math.abs(actual - wrapped) > 0.1, `${alias} still uses the tape end (${actual} vs ${wrapped})`);
     }
   });
 
