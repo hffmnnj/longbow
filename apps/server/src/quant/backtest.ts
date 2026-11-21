@@ -239,7 +239,8 @@ function summarize(symbol: string, trades: BacktestTrade[], bars: Bar[], windowS
 /**
  * Deterministic rule backtest over daily bars (oldest first per symbol).
  * Signals use the signal day's close and fill at the next day's open;
- * stops/targets are checked on later bars with gaps filling at the open.
+ * stops/targets are checked from the entry bar with gaps filling at the open.
+ * An exit frees the symbol for that close's signal, which can only fill on the next open.
  * One position per symbol at a time. Pure: no network, no clock.
  */
 export function runBacktest(
@@ -327,7 +328,8 @@ export function runBacktest(
             exitReason: reason,
           };
           trades.push(done);
-          i = j + 1;
+          // Position is flat by this close; evaluating it does not allow a same-session re-entry.
+          i = j;
           break;
         }
         // Daily OHLC does not tell us whether today's high came before its
