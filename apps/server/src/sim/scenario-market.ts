@@ -141,6 +141,22 @@ function byDate(bars: Bar[]): Map<string, Bar> {
   return new Map(bars.map((b) => [b.date, b]));
 }
 
+/**
+ * Every date in a symbol's own sorted series mapped to its chronologically
+ * preceding close. The first bar has no predecessor, so it maps to its own
+ * open, keeping the first session an open-to-close move rather than a jump
+ * from the far end of the tape.
+ */
+function precedingCloseByDate(bars: Bar[]): Map<string, number> {
+  const sorted = [...bars].sort((a, b) => a.date.localeCompare(b.date));
+  const out = new Map<string, number>();
+  for (let i = 0; i < sorted.length; i++) {
+    const bar = sorted[i]!;
+    out.set(bar.date, i === 0 ? bar.open : sorted[i - 1]!.close);
+  }
+  return out;
+}
+
 /** "Z" plus three seeded capital letters. */
 function stockAlias(rng: () => number): string {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -303,7 +319,12 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
   }
   const sourceDates = draws.map((i) => common[i]!);
   const bySymbol = new Map<string, Map<string, Bar>>();
-  for (const symbol of kept) bySymbol.set(symbol, byDate(fetched.get(symbol) ?? []));
+  const priorClose = new Map<string, Map<string, number>>();
+  for (const symbol of kept) {
+    const bars = fetched.get(symbol) ?? [];
+    bySymbol.set(symbol, byDate(bars));
+    priorClose.set(symbol, precedingCloseByDate(bars));
+  }
   const closeOn = (symbol: string, date: string): number => bySymbol.get(symbol)?.get(date)?.close ?? NaN;
   const stocks = kept.filter((s) => s !== "SPY" && !SECTOR_ETFS.some((e) => e.real === s));
   const { aliases } = assignAliases(rng, stocks, new Set(realUniverse));
@@ -315,11 +336,14 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
   for (const [alias, real] of Object.entries(aliases)) {
     if (!kept.includes(real)) continue;
     const factor = factors.get(real) ?? 1;
+    const prior = priorClose.get(real)!;
     let previous = closeOn(real, seedDate) * factor;
     fictional.set(alias, sourceDates.map((date, i) => {
       const bar = bySymbol.get(real)?.get(date);
-      if (bar === undefined || !Number.isFinite(previous)) throw new Error(`Missing source bar for ${real} on ${date}`);
-      const prevSource = closeOn(real, common[(draws[i]! - 1 + common.length) % common.length]!);
+      const prevSource = prior.get(date);
+      if (bar === undefined || prevSource === undefined || !Number.isFinite(previous)) {
+        throw new Error(`Missing source bar for ${real} on ${date}`);
+      }
       const open = (bar.open / prevSource) * previous;
       const high = (bar.high / prevSource) * previous;
       const low = (bar.low / prevSource) * previous;
