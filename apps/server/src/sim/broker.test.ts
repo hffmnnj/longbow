@@ -7,6 +7,11 @@ import { etInstant } from "./path.ts";
 
 const intent: OrderIntent = { symbol: "SPY", side: "buy", quantity: 1, orderType: "limit", limitPrice: 101, timeInForce: "day", invalidationPrice: 90,
   timeStopDate: "2026-07-10", thesis: "A valid test thesis with enough detail.", probabilityWin: 0.6, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["test historical quote"] };
+// A flat $100 session makes the realistic path and every quote deterministic.
+const latencyBars: Bar[] = [
+  { date: "2026-06-30", open: 100, low: 99, high: 101, close: 100, volume: 10_000_000 },
+  { date: "2026-07-01", open: 100, low: 100, high: 100, close: 100, volume: 10_000_000 },
+];
 function fixture(cash = 1200, execution: SimExecution = "ideal") {
   let now = etInstant("2026-07-01", 9, 30);
   const broker = createPaperBroker({ startingCash: cash, clock: { now: () => now }, calendar: createNyseCalendar(), execution,
@@ -17,7 +22,9 @@ function barsFixture(bars: Bar[], start: string, cash = 1200, seed = 1, executio
   let now = etInstant(start, 9, 30);
   const broker = createPaperBroker({ startingCash: cash, clock: { now: () => now }, calendar: createNyseCalendar(),
     bars: async () => bars, execution, seed });
-  return { broker, at: (date: string, hour: number, minute = 0) => { now = etInstant(date, hour, minute); } };
+  // Optional sub-minute components pin latency boundaries like 10:15:59.999.
+  return { broker, at: (date: string, hour: number, minute = 0, second = 0, millisecond = 0) => {
+    now = etInstant(date, hour, minute) + second * 1_000 + millisecond; } };
 }
 test("marketable buy executes at ask, not the higher limit", async () => {
   const { broker } = fixture();
@@ -71,6 +78,21 @@ test("an early close ends both execution paths and expires day orders at 13:00 E
     assert.deepEqual(broker.fills(), []);
   }
 });
+test("a late realistic order fills on the early close, not before or after it", async () => {
+  const day = "2026-12-24";
+  const bars: Bar[] = [{ date: day, open: 100, high: 100, low: 100, close: 100, volume: 1_000_000 }];
+  const { broker, at } = barsFixture(bars, day);
+  at(day, 12, 59, 55);
+  const placed = await broker.placeOrder(intent);
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "submitted");
+  at(day, 12, 59, 59, 999);
+  await broker.advance();
+  assert.deepEqual(broker.fills(), []);
+  at(day, 13);
+  await broker.advance();
+  assert.equal(broker.fills()[0]?.at, etInstant(day, 13));
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "filled");
+});
 test("sale cash cannot fund a same-day rebuy and settles on the next session", async () => {
   const { broker, at } = fixture(100.01);
   await broker.placeOrder({ ...intent, limitPrice: 100.01 });
@@ -103,7 +125,7 @@ test("resting buys reserve cash and cancellation releases it", async () => {
   const order = await broker.placeOrder({ ...intent, limitPrice: 95 });
   assert.equal((await broker.snapshot()).buyingPower, 5);
   await assert.rejects(broker.placeOrder({ ...intent, limitPrice: 95 }), /Insufficient settled cash/);
-  broker.cancel(order.brokerOrderId);
+  await broker.cancelOrder(order.brokerOrderId);
   assert.equal((await broker.snapshot()).buyingPower, 100);
 });
 test("stop-limit triggers before it fills, never retroactively on earlier path lows", async () => {
@@ -130,6 +152,61 @@ test("a resting protective stop sells when the path falls through it", async () 
   assert.equal(sells[0]!.price, 94.5);
   assert.equal((await broker.snapshot()).positions.length, 0);
 });
+test("a realistic marketable fill is causal: it commits at its latency due, not before", async () => {
+  const { broker, at } = barsFixture(latencyBars, "2026-07-01");
+  at("2026-07-01", 10, 15);
+  const placed = await broker.placeOrder({ ...intent, limitPrice: 101 });
+  // The attempt is queued 60 seconds out: it reserves cash but commits nothing.
+  assert.deepEqual(broker.fills(), []);
+  assert.equal(broker.orders()[0]!.status, "open");
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "submitted");
+  const queued = await broker.snapshot();
+  assert.deepEqual(queued.positions, []);
+  assert.equal(queued.cash, 1200);
+  assert.equal(queued.buyingPower, 1200 - 101);
+
+  at("2026-07-01", 10, 15, 59, 999);
+  await broker.advance();
+  assert.deepEqual(broker.fills(), []);
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "submitted");
+  assert.equal((await broker.snapshot()).cash, 1200);
+
+  at("2026-07-01", 10, 16);
+  await broker.advance();
+  const fills = broker.fills();
+  assert.equal(fills.length, 1);
+  const fill = fills[0]!;
+  assert.equal(fill.orderId, placed.brokerOrderId);
+  assert.equal(fill.at, etInstant("2026-07-01", 10, 16));
+  assert.equal(fill.quantity, 1);
+  assert.equal(fill.mid, 100);
+  assert.ok(fill.price > fill.mid! && fill.price <= 101, `unexpected fill ${fill.price}`);
+  const state = await broker.orderState(placed.brokerOrderId);
+  assert.equal(state.status, "filled");
+  assert.equal(state.filledQuantity, 1);
+  assert.equal(state.averageFillPrice, fill.price);
+  const done = await broker.snapshot();
+  assert.equal(done.positions[0]!.quantity, 1);
+  assert.equal(done.cash, 1200 - fill.price);
+  assert.equal(done.buyingPower, 1200 - fill.price);
+});
+test("an order cancelled before due never fills", async () => {
+  const { broker, at } = barsFixture(latencyBars, "2026-07-01");
+  at("2026-07-01", 10, 15);
+  const placed = await broker.placeOrder({ ...intent, limitPrice: 101 });
+  assert.deepEqual(broker.fills(), []);
+  at("2026-07-01", 10, 15, 59, 999);
+  await broker.cancelOrder(placed.brokerOrderId);
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "cancelled");
+  at("2026-07-01", 10, 16);
+  await broker.advance();
+  assert.deepEqual(broker.fills(), []);
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "cancelled");
+  const after = await broker.snapshot();
+  assert.deepEqual(after.positions, []);
+  assert.equal(after.cash, 1200);
+  assert.equal(after.buyingPower, 1200);
+});
 test("a realistically modeled protective stop does not pay its entire stop-limit buffer", async () => {
   const bars: Bar[] = [
     { date: "2026-07-06", open: 100, low: 99.9, high: 100.5, close: 100, volume: 100_000_000 },
@@ -137,6 +214,9 @@ test("a realistically modeled protective stop does not pay its entire stop-limit
   ];
   const { broker, at } = barsFixture(bars, "2026-07-06");
   await broker.placeOrder({ ...intent, limitPrice: 101 });
+  at("2026-07-06", 9, 31);
+  await broker.advance();
+  assert.equal(broker.fills().filter((fill) => fill.side === "buy").length, 1);
   await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 99.5, limitPrice: 99, timeInForce: "gtc" });
   assert.equal(broker.orders()[1]?.triggered, false);
 
@@ -188,6 +268,8 @@ test("a gap below a sell stop triggers at the open while a stop_limit above the 
   ];
   const { broker, at } = barsFixture(bars, "2026-07-06");
   await broker.placeOrder({ ...intent, limitPrice: 200 });
+  at("2026-07-06", 9, 31);
+  await broker.advance();
   assert.equal(broker.fills().length, 1);
   await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
   assert.equal(broker.orders()[1]!.triggered, false);
@@ -204,13 +286,21 @@ test("marketable fills include slippage and never cross the limit", async () => 
   const prior: Bar[] = Array.from({ length: 21 }, (_, i) => ({ date: `2026-06-${String(i + 1).padStart(2, "0")}`,
     open: 100, high: 112, low: 98, close: i % 2 === 0 ? 100 : 110, volume: 10_000_000 }));
   const bars: Bar[] = prior.concat([{ date: "2026-07-01", open: 100, low: 100, high: 100, close: 100, volume: 10_000_000 }]);
-  const { broker } = barsFixture(bars, "2026-07-01");
+  const { broker, at } = barsFixture(bars, "2026-07-01");
   const q = await broker.quote("SPY");
   await broker.placeOrder({ ...intent, limitPrice: q.ask });
   assert.deepEqual(broker.fills(), []);
   assert.equal(broker.orders()[0]!.status, "open");
-  await broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 101 });
-  const fill = broker.fills()[0]!;
+  at("2026-07-01", 9, 31);
+  await broker.advance();
+  // The latency attempt prices above the quoted ask, so the order still rests.
+  assert.deepEqual(broker.fills(), []);
+  assert.equal(broker.orders()[0]!.status, "open");
+  const fractional = await broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 101 });
+  assert.deepEqual(broker.fills(), []);
+  at("2026-07-01", 9, 32);
+  await broker.advance();
+  const fill = broker.fills().find((f) => f.orderId === fractional.brokerOrderId)!;
   assert.ok(fill.price <= 101);
   assert.ok(fill.price > fill.mid!);
   assert.equal(fill.mid, 100);

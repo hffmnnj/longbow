@@ -181,15 +181,22 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     fetchBars: async () => bars,
     buildExtensions: ({ broker }) => { paper = broker; return []; },
     driver: async (run, ctx) => {
-      if (run.progress.day !== 1 || run.progress.cycle !== 1) return;
-      const db = new DatabaseSync(join(dataDir, "sim", run.id, "app.sqlite"), { readOnly: true });
-      try {
-        assert.equal(db.prepare("SELECT day_start FROM equity_marks WHERE et_date = ?").get(dates[1]!)?.day_start, 1200,
-          "a model-free cycle must have the same starting equity mark as an agent cycle");
-      } finally {
-        db.close();
+      if (ctx.kind !== "intraday" || run.progress.day !== 1) return;
+      if (run.progress.cycle === 1) {
+        const db = new DatabaseSync(join(dataDir, "sim", run.id, "app.sqlite"), { readOnly: true });
+        try {
+          assert.equal(db.prepare("SELECT day_start FROM equity_marks WHERE et_date = ?").get(dates[1]!)?.day_start, 1200,
+            "a model-free cycle must have the same starting equity mark as an agent cycle");
+        } finally {
+          db.close();
+        }
+        const order = await paper.placeOrder(entry);
+        assert.equal((await paper.orderState(order.brokerOrderId)).status, "submitted");
+        assert.deepEqual(paper.fills(), []);
+        assert.deepEqual((await paper.snapshot()).positions, []);
+        return;
       }
-      await paper.placeOrder(entry);
+      assert.equal(paper.fills()[0]?.at, etInstant(dates[1]!, 10, 16));
       const stop = await ctx.submit({ ...entry, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
       assert.equal(stop.status, "held");
       assert.equal(paper.orders().length, 1, "protection must not rest as a venue order");

@@ -30,6 +30,8 @@ export interface RiskInput {
   equityMarks: { dayStart?: number; monthPeak?: number };
   /** Submitted orders of the last 7 days. */
   recentOrders: OrderRecord[];
+  /** Pending paper buys reserve entry capacity without becoming inventory. */
+  openBuyCommitments?: readonly Pick<OrderIntent, "symbol" | "sector" | "quantity" | "limitPrice">[];
   /** ET date the current position in this symbol was first bought, if known. */
   lotOpenedEtDate?: string;
   /** Next scheduled earnings date (ET YYYY-MM-DD) within 30 days, when known. */
@@ -148,6 +150,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     now,
   } = input;
   const risk = settings.risk;
+  const openBuys = input.openBuyCommitments ?? [];
   const checks: RiskCheck[] = [];
   const waived = new Set(["entry_window", "spread", "daily_loss", "drawdown", "risk_per_trade", "position_size", "sector", "max_positions", "entries_per_day", "min_hold", "ev_after_costs", "time_stop", "earnings_blackout", "liquidity", "crypto_sleeve", "crypto_reward_risk"]);
   const push = (rule: string, ok: boolean, detail: string): void => {
@@ -367,7 +370,8 @@ export function evaluate(input: RiskInput): RiskVerdict {
   if (!isEntry) {
     push("position_size", true, "exit; position sizing does not apply");
   } else {
-    const existing = position?.marketValue ?? 0;
+    const committed = openBuys.filter((o) => o.symbol === intent.symbol).reduce((sum, o) => sum + o.quantity * o.limitPrice, 0);
+    const existing = (position?.marketValue ?? 0) + committed;
     const allowance = equity * (risk.maxPositionPct / 100);
     if (intent.limitPrice > 0) {
       positionQty = floorQty((allowance - existing) / intent.limitPrice);
@@ -391,7 +395,9 @@ export function evaluate(input: RiskInput): RiskVerdict {
     if (sector === undefined) {
       push("sector", true, `no sector known for ${intent.symbol}; skipping`);
     } else {
-      const held = account.positions
+      const committed = openBuys.filter((o) => (sectorOf(o.symbol) ?? o.sector) === sector)
+        .reduce((sum, o) => sum + o.quantity * o.limitPrice, 0);
+      const held = committed + account.positions
         .filter((p) => (sectorOf(p.symbol) ?? p.sector) === sector)
         .reduce((sum, p) => sum + p.marketValue, 0);
       const allowance = equity * (risk.maxSectorPct / 100);
@@ -476,6 +482,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
     const heldSymbols = new Set(
       account.positions.filter((p) => p.quantity > 0 && !isCryptoSymbol(p.symbol)).map((p) => p.symbol),
     );
+    for (const order of openBuys) if (!isCryptoSymbol(order.symbol)) heldSymbols.add(order.symbol);
     const alreadyHeld = heldSymbols.has(intent.symbol);
     push(
       "max_positions",

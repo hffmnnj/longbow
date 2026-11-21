@@ -86,7 +86,7 @@ function atomic(file: string, value: unknown): void {
   renameSync(`${file}.tmp`, file);
 }
 
-function paperTools(broker: PaperBroker, calendar: MarketCalendar, now: () => number): Extension {
+function paperTools(broker: PaperBroker, calendar: MarketCalendar, now: () => number, sync: () => Promise<void>): Extension {
   return defineExtension({ name: "paper-account", tools: [
     defineTool({ name: "sim_quote", description: "Current simulated bid, ask and last. No future daily OHLC is disclosed.",
       parameters: Type.Object({ symbol: Type.String({ pattern: "^[A-Z.]{1,10}$" }) }),
@@ -98,7 +98,7 @@ function paperTools(broker: PaperBroker, calendar: MarketCalendar, now: () => nu
         return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: jsonValue(result) }; } }),
     defineTool({ name: "sim_cancel_order", description: "Cancel a resting paper order by broker order id.", parameters: Type.Object({ orderId: Type.String() }),
       structuredOutputSchema: Type.Object({ cancelled: Type.Boolean() }),
-      async execute({ orderId }) { broker.cancel(orderId); return { output: [{ type: "text", text: "Cancelled" }], structuredOutput: { cancelled: true } }; } }),
+      async execute({ orderId }) { await broker.cancelOrder(orderId); await sync(); return { output: [{ type: "text", text: "Cancelled" }], structuredOutput: { cancelled: true } }; } }),
   ] });
 }
 
@@ -234,6 +234,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
       execution: run.config.execution, seed: run.seed });
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
+      openBuyCommitments: () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent),
       ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
       ...(scenario === undefined ? {} : { sectors: createStaticSectorDirectory(Object.fromEntries(scenario.symbols.map((s) => [s, scenario!.sectorOf(s)]))) }) });
     let agent: TradingAgent | undefined;
@@ -261,7 +262,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       createSubagentExtension({ log: deps.log, maxConcurrent: 4,
         excludedTools: ["submit_order", "notes_write", "notes_append", "record_decision", "delegate", "sim_cancel_order"],
         onRun(child) { children.add(child.id); bus.publish({ type: "subagent", run: child }); if (child.status === "running") void agent?.watchChild(child.id).catch((error: unknown) => deps.log.warn("simulation child watch failed", { error: String(error) })); } }),
-      paperTools(broker, deps.calendar, clock.now),
+      paperTools(broker, deps.calendar, clock.now, gate.sync),
       defineExtension({ name: "simulation-prompt", sections: [section("simulation", () =>
         scenario === undefined ? historicalPrompt(run.config.strategy) : scenarioPrompt(scenario, run.config.strategy))] }),
       ...(deps.buildExtensions?.({ run: structuredClone(run), broker }) ?? []),

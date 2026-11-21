@@ -37,6 +37,8 @@ export interface OrderGateDeps {
   market?: MarketData;
   /** Consistent sector groups for the concentration check when known. */
   sectors?: SectorDirectory;
+  /** Optional paper broker snapshot of entry commitments. No simulated executions become inventory early. */
+  openBuyCommitments?: () => readonly Pick<OrderIntent, "symbol" | "sector" | "quantity" | "limitPrice">[];
   /**
    * System One review of an approved entry. Returns the `system_one` check to append, or undefined to skip.
    * It must fail open (an outage returns a passing check or undefined) and only fails the check when
@@ -373,7 +375,8 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
       const account = snapshot;
-      if (ownerMessageId === undefined) await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
+      const openBuyCommitments = deps.openBuyCommitments?.();
+      if (ownerMessageId === undefined) await deps.sectors?.resolve([valid.symbol, ...account.positions.map((p) => p.symbol), ...(openBuyCommitments ?? []).map((o) => o.symbol)].filter((s) => !isCryptoSymbol(s)));
       const engineVerdict = evaluate({
         intent: valid,
         ownerDirected: ownerMessageId !== undefined,
@@ -383,6 +386,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         market,
         equityMarks: store.equityMarks(calendar.etDate(now)),
         recentOrders,
+        ...(openBuyCommitments === undefined ? {} : { openBuyCommitments }),
         ...(lotOpenedEtDate === undefined ? {} : { lotOpenedEtDate }),
         ...(marketInputs.nextEarningsDate === undefined
           ? {}
@@ -593,7 +597,8 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         )
         .map((o) => calendar.etDate(o.createdAt))
         .sort()[0];
-      if (existing.ownerMessageId === undefined) await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol)].filter((s) => !isCryptoSymbol(s)));
+      const openBuyCommitments = deps.openBuyCommitments?.();
+      if (existing.ownerMessageId === undefined) await deps.sectors?.resolve([existing.intent.symbol, ...snapshot.positions.map((p) => p.symbol), ...(openBuyCommitments ?? []).map((o) => o.symbol)].filter((s) => !isCryptoSymbol(s)));
       const engineVerdict = evaluate({
         intent: existing.intent,
         ownerDirected: existing.ownerMessageId !== undefined,
@@ -603,6 +608,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         market,
         equityMarks: store.equityMarks(calendar.etDate(checkAt)),
         recentOrders,
+        ...(openBuyCommitments === undefined ? {} : { openBuyCommitments }),
         ...(lotOpenedEtDate === undefined ? {} : { lotOpenedEtDate }),
         ...(marketInputs.nextEarningsDate === undefined
           ? {}
