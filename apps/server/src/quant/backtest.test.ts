@@ -33,6 +33,23 @@ describe("breakout_20d", () => {
     assert.equal(trade.exitReason, "end");
   });
 
+  it("includes a final-session entry that reaches the end without hitting a stop or target", () => {
+    const bars = mkBars([...new Array(20).fill(100), 102, 102], {
+      opens: [...new Array(21).fill(100), 101],
+      lows: [...new Array(21).fill(99.5), 100.5],
+    });
+    const result = runBacktest(new Map([["AAA", bars]]), {
+      entry: "breakout_20d", exit: EXIT, years: 3, costBps: 10,
+    });
+    assert.equal(result.pooled.trades, 1);
+    const trade = result.pooled.lastTrades[0];
+    assert.equal(trade?.entryDate, "2024-01-22");
+    assert.equal(trade?.exitDate, "2024-01-22");
+    assert.equal(trade?.exitReason, "end");
+    assert.equal(trade?.holdingDays, 1);
+    assert.equal(trade?.returnPct, (102 * 0.999) / (101 * 1.001) - 1);
+  });
+
   it("fills_a_gap_through_the_stop_at_the_open", () => {
     const flat = new Array(20).fill(100);
     const bars = mkBars([...flat, 102, 101, 98, 98, 98], {
