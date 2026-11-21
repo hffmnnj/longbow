@@ -149,7 +149,7 @@ async function main(): Promise<void> {
   });
 
   const extensions = [
-    createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, cancelOrder: (id) => gate.cancel(id) }),
+    createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, getAccount: () => cachedAccount, cancelOrder: (id) => gate.cancel(id) }),
     await createWebsearchExtension({ keyFile: config.EXA_KEY_FILE, log: log.child("websearch") }),
     createJournalExtension({ store, bus, clock, currentCycleId }),
     // Live only: simulations build their own extension list and never publish reports.

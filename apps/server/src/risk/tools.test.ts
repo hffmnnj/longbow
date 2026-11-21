@@ -235,4 +235,26 @@ describe("risk extension", () => {
     assert.match(text, /day trades \(5d\): 0\/3/);
     assert.match(text, /order-7/);
   });
+
+  it("get_risk_state shows recorded review dates without fetching or trading", async () => {
+    const order = cannedOrder("filled");
+    const ext = createRiskExtension({
+      gate: { halts: async () => [] } as unknown as OrderGate,
+      store: {
+        getSettings: () => structuredClone(DEFAULT_SETTINGS),
+        ordersSince: () => [{ ...order, filledQuantity: 1, averageFillPrice: 150 }],
+      } as unknown as Store,
+      calendar: createNyseCalendar(),
+      clock: { now: () => NOW },
+      broker: { status: () => ({ state: "connected", tools: [] }) } as unknown as Broker,
+      getAccount: () => ({ at: NOW, equity: 1150, cash: 1000, buyingPower: 1000,
+        positions: [{ symbol: "AAPL", quantity: 1, sharesAvailableForSells: 1, averageCost: 150, marketValue: 150, unrealizedPnl: 0 }] }),
+      currentCycleId: () => undefined,
+    });
+    const tool = ext.tools?.find((candidate) => candidate.name === "get_risk_state");
+    assert.ok(tool);
+    const result = await tool.execute({}, undefined as unknown as ToolExecutionApi, undefined as unknown as Context);
+    assert.match(outputText(result), /AAPL: 2026-12-02 \(upcoming, 1 held\)/);
+    assert.match(outputText(result), /original intent, not necessarily the current plan/);
+  });
 });
