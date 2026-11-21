@@ -67,6 +67,22 @@ describe("breakout_20d", () => {
     assert.equal(result.pooled.maxDrawdownR, trade.pnlR);
   });
 
+  it("uses a fresh breakout on the exit day's close for the next open only", () => {
+    const bars = mkBars([...new Array(20).fill(100), 102, 101, 106, 105, 105], {
+      opens: [...new Array(20).fill(100), 102, 101, 98, 105, 105],
+      lows: [...new Array(20).fill(99.5), 101.5, 100.5, 97, 104.5, 104.5],
+    });
+    const result = runBacktest(new Map([["AAA", bars]]), {
+      entry: "breakout_20d", exit: EXIT, years: 3, costBps: 10,
+    });
+    assert.deepEqual(result.symbols[0]?.lastTrades.map((trade) => [
+      trade.entryDate, trade.entryPrice, trade.exitDate, trade.exitReason,
+    ]), [
+      ["2024-01-22", 101, "2024-01-23", "stop"],
+      ["2024-01-24", 105, "2024-01-25", "end"],
+    ]);
+  });
+
   it("exits_a_failed_breakout_at_the_time_stop_close", () => {
     const flat = new Array(20).fill(100);
     const bars = mkBars([...flat, 102, 101, 101, 101, 100.5, 100.5]);
