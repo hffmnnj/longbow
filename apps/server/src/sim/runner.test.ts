@@ -593,9 +593,87 @@ test("starts a bootstrap run without a start date", async () => {
     const done = await waitForDone(sim, run.id);
     assert.equal(done.status, "done", done.error ?? "");
     assert.equal(done.aliases?.["MKT"], "SPY");
+    assert.equal(done.unavailableWatchlist, undefined);
   } finally {
     await sim.close();
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("blind and bootstrap reveal requested coverage omissions only after the run ends", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-watchlist-coverage-");
+  const bus = createEventBus();
+  const calendar = createNyseCalendar();
+  const events: SimRun[] = [];
+  bus.subscribe((event) => { if (event.type === "sim") events.push(event.run); });
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus, market, skills, calendar,
+    wallNow: () => etInstant("2026-10-23", 12),
+    fetchBars: async (symbol, from, to) => ["AAPL", "SPY"].includes(symbol)
+      ? fixtureBars(symbol, from, to).filter((bar) => calendar.clock(etInstant(bar.date, 12)).tradingDay === bar.date)
+      : [],
+    sectorSource: createStaticSectorDirectory({}),
+    driver: async (run) => {
+      assert.equal(run.unavailableWatchlist, undefined, "the paper trader must only receive the aliased market");
+      assert.equal(sim.get(run.id)?.unavailableWatchlist, undefined);
+      assert.equal((JSON.parse(readFileSync(join(dataDir, "sim", run.id, "run.json"), "utf8")) as SimRun).unavailableWatchlist, undefined);
+    },
+  });
+  try {
+    for (const mode of ["blind", "bootstrap", "historical"] as const) {
+      const run = await sim.start({ mode, startDate: "2025-06-02", days: 2, startingCash: 1200, cyclesPerDay: 2, seed: 7,
+        watchlist: ["AAPL", "MISSING", "XLK"] }, "user");
+      assert.equal(run.unavailableWatchlist, undefined);
+      const done = await waitForDone(sim, run.id);
+      assert.equal(done.status, "done", done.error ?? "");
+      const expected = mode === "historical" ? undefined : ["MISSING", "XLK"];
+      assert.deepEqual(done.unavailableWatchlist, expected, "exclude unrequested reference ETFs");
+      const runEvents = events.filter((event) => event.id === run.id);
+      assert.ok(runEvents.some((event) => event.status === "running"));
+      assert.ok(runEvents.filter((event) => event.status === "running" || event.status === "queued")
+        .every((event) => event.unavailableWatchlist === undefined));
+      const terminal = runEvents.find((event) => event.status === "done");
+      assert.ok(terminal?.finishedAt !== undefined, "publish terminal results together");
+      assert.deepEqual(terminal.unavailableWatchlist, expected);
+      assert.deepEqual((JSON.parse(readFileSync(join(dataDir, "sim", run.id, "run.json"), "utf8")) as SimRun).unavailableWatchlist, expected);
+    }
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
+test("stopping during scenario construction cannot publish a late ticker disclosure", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-stopped-coverage-");
+  const bus = createEventBus();
+  const loading = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const events: SimRun[] = [];
+  bus.subscribe((event) => { if (event.type === "sim") events.push(event.run); });
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus, market, skills,
+    calendar: createNyseCalendar(), wallNow: () => etInstant("2026-10-23", 12),
+    fetchBars: async (symbol, from, to) => {
+      if (symbol === "MISSING") { loading.resolve(); await release.promise; return []; }
+      return fixtureBars(symbol, from, to);
+    },
+    sectorSource: createStaticSectorDirectory({}),
+    driver: async () => assert.fail("a run stopped while loading should not reach the trader"),
+  });
+  try {
+    const run = await sim.start({ mode: "bootstrap", days: 2, seed: 7, startingCash: 1200, cyclesPerDay: 2, watchlist: ["AAPL", "MISSING"] }, "user");
+    await loading.promise;
+    const stopped = await sim.stop(run.id);
+    assert.equal(stopped?.status, "stopped");
+    assert.equal(stopped?.unavailableWatchlist, undefined);
+    release.resolve();
+    await sim.close();
+    assert.equal(sim.get(run.id)?.status, "stopped");
+    assert.ok(events.every((event) => event.unavailableWatchlist === undefined && event.aliases === undefined));
+  } finally {
+    release.resolve();
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
   }
 });
 

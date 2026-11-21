@@ -198,6 +198,41 @@ class _RunBody extends ConsumerWidget {
   }
 }
 
+/// Requested tickers skipped for lack of price history: terminal
+/// blind/bootstrap runs only, never a separate panel. The real list shows
+/// only after Reveal; before that, and on terminal runs without the reveal
+/// affordance, show just the count.
+List<String> _unavailableTickers(SimRun run) =>
+    (run.unavailableWatchlist ?? const <String>[])
+        .where((t) => t.isNotEmpty)
+        .toList();
+
+bool _showUnavailable(SimRun run) {
+  if (isActive(run.status)) return false;
+  if (run.status != SimRunStatus.done &&
+      run.status != SimRunStatus.stopped &&
+      run.status != SimRunStatus.failed) {
+    return false;
+  }
+  if (run.config.mode != SimMode.blind &&
+      run.config.mode != SimMode.bootstrap) {
+    return false;
+  }
+  return _unavailableTickers(run).isNotEmpty;
+}
+
+String _unavailableText(SimRun run, bool revealed) {
+  final tickers = _unavailableTickers(run);
+  if (canReveal(run) && revealed) {
+    return 'Requested tickers not replayed '
+        '(insufficient price history): ${tickers.join(', ')}';
+  }
+  return tickers.length == 1
+      ? '1 requested ticker not replayed (insufficient price history)'
+      : '${tickers.length} requested tickers not replayed '
+            '(insufficient price history)';
+}
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.run,
@@ -340,6 +375,13 @@ class _Header extends StatelessWidget {
             subtitle: revealed ? 'Showing real symbols' : 'Showing aliases',
             value: revealed,
             onChanged: onReveal,
+          ),
+        ],
+        if (_showUnavailable(run)) ...[
+          const SizedBox(height: 10),
+          Text(
+            _unavailableText(run, revealed),
+            style: LbText.muted(context, size: 12.5),
           ),
         ],
         if (live) ...[

@@ -120,10 +120,10 @@ function historicalPrompt(strategy: string | undefined): string {
   return "This is a historical paper-account simulation. The simulated date is in each cycle. Web search and Robinhood tools are unavailable to prevent look-ahead. Use sim_quote for current prices and sim_orders to confirm fills and account state; sim_cancel_order cancels resting orders. Historical indicators exclude today's incomplete bar. Point-in-time earnings schedules are unavailable, so the order gate blocks new entries when earnings blackout is enabled. The economic calendar is unavailable; do not assume there are no releases. Never use remembered future events or prices.\n" + (strategy ?? "");
 }
 
-function scenarioPrompt(scenario: ScenarioMarket, strategy: string | undefined): string {
-  const dropped = scenario.dropped.length === 0
+function scenarioPrompt(scenario: ScenarioMarket, unavailableCount: number, strategy: string | undefined): string {
+  const dropped = unavailableCount === 0
     ? ""
-    : ` ${scenario.dropped.length} requested instruments are unavailable because their history was incomplete.`;
+    : ` ${unavailableCount} requested instruments are unavailable because their history was incomplete.`;
   return "This is a paper-account simulation on a fictional market. Tickers are aliases with disclosed sectors, dates are fictional weekdays, and prices are rescaled; treat MKT as the broad-market index. Macro, earnings, calendar, volatility, yield and SEC tools are unavailable. Trade only on what the market, quant and account tools show; never use remembered real-world events or prices." +
     " The prices-only cycle job and any supplied simulation rule replace live research and discretionary strategy requirements only where they conflict. Keep account reconciliation, protection and the order gate in force. Use scenario evidence and do not add a discretionary filter that is not in the supplied rule." +
     ` Visible universe: ${scenario.universeText}.${dropped}\n` + (strategy ?? "");
@@ -137,8 +137,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
   const runs = new Map<string, SimRun>();
   const agents = new Map<string, TradingAgent>();
   const artifacts = new Map<string, { journal: () => JournalEntry[]; orders: () => OrderRecord[] }>();
-  const aliasMaps = new Map<string, Record<string, string>>();
-  const calendars = new Map<string, ScenarioMarket["calendar"]>();
+  const scenarioDetails = new Map<string, Pick<SimRun, "aliases" | "calendar" | "unavailableWatchlist">>();
   const queue: { id: string; completedBefore: string; baseSettings: Settings | undefined }[] = [];
   const captureBaseSettings = (): Settings => structuredClone(deps.settings?.() ?? DEFAULT_SETTINGS);
   const wallNow = deps.wallNow ?? Date.now;
@@ -153,6 +152,14 @@ export function createSimService(deps: SimServiceDeps): SimService {
   function save(run: SimRun): void {
     atomic(join(dir(run.id), "run.json"), run);
     deps.bus.publish({ type: "sim", run: structuredClone(run) });
+  }
+  function finish(run: SimRun, status: "done" | "failed" | "stopped"): void {
+    run.status = status;
+    const details = scenarioDetails.get(run.id);
+    if (details !== undefined) Object.assign(run, details);
+    scenarioDetails.delete(run.id);
+    run.finishedAt ??= Date.now();
+    save(run);
   }
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^[\w-]+$/.test(entry.name)) continue;
@@ -181,6 +188,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     let simDays: string[];
     let benchPrice: (date: string) => number;
     let scenario: ScenarioMarket | undefined;
+    let unavailableCount = 0;
     if (!blindish) {
       const startDate = run.config.startDate;
       if (startDate === undefined) throw new Error("Simulation start date is missing");
@@ -220,12 +228,18 @@ export function createSimService(deps: SimServiceDeps): SimService {
         watchlist: universe, days: run.config.days,
         ...(run.config.startDate === undefined ? {} : { startDate: run.config.startDate }),
         today: todayStr, completedBefore, fetch: fetchBars, sectors: sectorSource });
+      if (run.status !== "running") return;
       if (run.config.mode === "blind" && run.config.startDate !== undefined) {
         const scoredDates = scenario.sourceDates.slice(-run.config.days);
         assertReplayBenchmarkCoverage(scoredDates, run.config.startDate, deps.calendar);
       }
-      aliasMaps.set(run.id, scenario.aliases);
-      calendars.set(run.id, { ...scenario.calendar });
+      // Scenario builders also request reference ETFs. Only disclose tickers the watchlist actually requested.
+      const requested = [...new Set(universe.map((symbol) => symbol.toUpperCase()))];
+      const dropped = new Set(scenario.dropped);
+      const unavailableWatchlist = requested.filter((symbol) => dropped.has(symbol));
+      unavailableCount = unavailableWatchlist.length;
+      scenarioDetails.set(run.id, { aliases: { ...scenario.aliases }, calendar: { ...scenario.calendar },
+        ...(unavailableCount === 0 ? {} : { unavailableWatchlist }) });
       bars = (symbol: string) => scenario!.bars(symbol);
       simDays = scenario.simDates;
       const benchBars = new Map((await scenario.bars(scenario.benchmark)).map((b) => [b.date, b]));
@@ -287,7 +301,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         onRun(child) { children.add(child.id); bus.publish({ type: "subagent", run: child }); if (child.status === "running") void agent?.watchChild(child.id).catch((error: unknown) => deps.log.warn("simulation child watch failed", { error: String(error) })); } }),
       paperTools(broker, deps.calendar, clock.now, gate.sync),
       defineExtension({ name: "simulation-prompt", sections: [section("simulation", () =>
-        scenario === undefined ? historicalPrompt(run.config.strategy) : scenarioPrompt(scenario, run.config.strategy))] }),
+        scenario === undefined ? historicalPrompt(run.config.strategy) : scenarioPrompt(scenario, unavailableCount, run.config.strategy))] }),
       ...(deps.buildExtensions?.({ run: structuredClone(run), broker }) ?? []),
     ];
     async function snapshot(): Promise<void> {
@@ -387,7 +401,6 @@ export function createSimService(deps: SimServiceDeps): SimService {
         if (run.status === "running" && result !== "done") {
           deps.log.warn("simulation post-close analysis did not answer", { id: run.id, date: run.currentDate, result });
         }
-        if (run.status === "running") run.status = "done";
       }
       await snapshot();
     } finally {
@@ -410,23 +423,16 @@ export function createSimService(deps: SimServiceDeps): SimService {
       active.add(id);
       run.status = "running";
       save(run);
+      let outcome: "done" | "failed" = "done";
       const task = execute(run, completedBefore, baseSettings).catch((error: unknown) => {
-        if (run.status !== "stopped") { run.status = "failed"; run.error = error instanceof Error ? error.message : String(error); }
+        outcome = "failed";
+        if (run.status !== "stopped") run.error = error instanceof Error ? error.message : String(error);
         deps.log.warn("simulation ended", { id, error: String(error) });
       }).finally(() => {
         try {
-          if (run.config.mode !== "historical") {
-            const aliases = aliasMaps.get(id);
-            if (aliases !== undefined) run.aliases = { ...aliases };
-            aliasMaps.delete(id);
-            const calendar = calendars.get(id);
-            if (calendar !== undefined) run.calendar = { ...calendar };
-            calendars.delete(id);
-          }
+          if (run.status !== "stopped") finish(run, outcome);
         } finally {
           artifacts.delete(id);
-          run.finishedAt = Date.now();
-          save(run);
           active.delete(id);
           pump();
         }
@@ -498,13 +504,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     get: (id) => { const run = runs.get(id); return run === undefined ? undefined : structuredClone(run); },
     async stop(id) { const run = runs.get(id); if (run === undefined) return undefined;
       if (run.status === "running" || run.status === "queued") {
-        if (run.config.mode !== "historical") {
-          const aliases = aliasMaps.get(id);
-          if (aliases !== undefined) run.aliases = { ...aliases };
-          const calendar = calendars.get(id);
-          if (calendar !== undefined) run.calendar = { ...calendar };
-        }
-        run.status = "stopped"; run.finishedAt = Date.now(); save(run); await agents.get(id)?.abortCycle();
+        finish(run, "stopped"); await agents.get(id)?.abortCycle();
       }
       return structuredClone(run); },
     async messages(id, limit, conversationId) {
@@ -527,7 +527,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
     async close() {
       closed = true;
       const running = [...active];
-      for (const run of runs.values()) if (run.status === "running" || run.status === "queued") { run.status = "stopped"; run.finishedAt = Date.now(); save(run); }
+      for (const run of runs.values()) if (run.status === "running" || run.status === "queued") finish(run, "stopped");
       // A completed run can still be snapshotting/closing after its final event.
       // Join that work rather than racing its close with an unnecessary abort.
       await Promise.all(running.map((id) => agents.get(id)?.abortCycle()));

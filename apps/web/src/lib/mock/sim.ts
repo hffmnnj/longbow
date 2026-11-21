@@ -254,6 +254,8 @@ export function simFixtures(now = Date.now()): SimRun[] {
     seed: 11,
     aliases: { QX1: "SPY", QZ7: "JPM", QA4: "XLE", QB2: "MSFT" },
     calendar: { firstDay: blindDates[0]!, sourceStart: "2020-02-19", sourceEnd: "2020-03-03" },
+    // Mock display target for the unavailable-watchlist line.
+    unavailableWatchlist: ["QQQ", "NVDA"],
     status: "done",
     currentDate: blindEq.at(-1)!.date,
     progress: { day: 10, days: 10, cycle: 2, cyclesPerDay: 2 },

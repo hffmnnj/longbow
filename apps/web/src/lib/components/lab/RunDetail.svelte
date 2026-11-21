@@ -42,6 +42,15 @@
   const live = $derived(isActive(run.status));
   const badge = $derived(envBadge(run));
   const revealable = $derived(canReveal(run));
+  const unavailable = $derived(run.unavailableWatchlist ?? []);
+  const blindOrBootstrap = $derived(run.config.mode === "blind" || run.config.mode === "bootstrap");
+  const showUnavailable = $derived(!live && blindOrBootstrap && unavailable.length > 0);
+  const showUnavailableTickers = $derived(showUnavailable && revealable && revealed);
+  const unavailableCountText = $derived(
+    unavailable.length === 1
+      ? "1 requested ticker not replayed (insufficient price history)"
+      : `${unavailable.length} requested tickers not replayed (insufficient price history)`,
+  );
   const left = $derived(
     estimateMinutes(run.progress.days - run.progress.day, run.progress.cyclesPerDay) +
       (run.progress.cyclesPerDay - run.progress.cycle + 1) * 1.5,
@@ -104,6 +113,12 @@
           {revealed ? "Showing tickers" : "Reveal tickers"}
         </Button>
       </div>
+    {/if}
+    {#if showUnavailable}
+      <p class="text-muted-foreground max-w-prose text-[12.5px] leading-relaxed break-words">
+        {#if showUnavailableTickers}Requested tickers not replayed (insufficient price history): {unavailable.join(", ")}
+        {:else}{unavailableCountText}{/if}
+      </p>
     {/if}
     {#if run.config.strategy}
       <p class="text-muted-foreground line-clamp-3 max-w-prose text-[12.5px] leading-relaxed">{run.config.strategy}</p>

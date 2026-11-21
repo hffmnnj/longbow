@@ -367,6 +367,7 @@ class SimRun {
     this.aliases,
     this.calendar,
     this.suiteId,
+    this.unavailableWatchlist,
     this.variant,
     required this.status,
     this.currentDate,
@@ -396,6 +397,10 @@ class SimRun {
   final SimCalendar? calendar;
   final String? suiteId;
 
+  /// For blind and bootstrap runs: requested tickers skipped for lack of
+  /// price history. Present only on terminal runs with a non-empty list.
+  final List<String>? unavailableWatchlist;
+
   /// Suite variant label, for example "A".
   final String? variant;
   @JsonKey(unknownEnumValue: SimRunStatus.failed)
@@ -420,6 +425,7 @@ class SimRun {
     Map<String, String>? aliases,
     SimCalendar? calendar,
     String? suiteId,
+    List<String>? unavailableWatchlist,
     String? variant,
     SimRunStatus? status,
     String? currentDate,
@@ -440,6 +446,7 @@ class SimRun {
       aliases: aliases ?? this.aliases,
       calendar: calendar ?? this.calendar,
       suiteId: suiteId ?? this.suiteId,
+      unavailableWatchlist: unavailableWatchlist ?? this.unavailableWatchlist,
       variant: variant ?? this.variant,
       status: status ?? this.status,
       currentDate: currentDate ?? this.currentDate,
