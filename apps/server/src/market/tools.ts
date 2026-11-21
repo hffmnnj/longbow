@@ -1,19 +1,17 @@
 import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import type { HistoryRange } from "@rh/shared";
+import type { Bar, HistoryRange } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
 import { etDate, MarketCache } from "./cache.ts";
 import {
   avgDollarVolume,
   atr,
-  betaAndCorrelation,
+  beta,
   bollinger,
   classifyTrend,
   closes,
   correlation,
-  dailyReturns,
-  alignReturns,
   donchian,
   ema,
   macd,
@@ -188,18 +186,18 @@ const compareSchema = Type.Object({
   rows: Type.Array(
     Type.Object({
       symbol: Type.String(),
-      returnPct: numOrNull("Window return as a fraction."),
+      returnPct: numOrNull("Symbol's own available window return, as a fraction."),
       volPct: numOrNull("Annualized volatility as a fraction."),
-      beta: numOrNull("Beta of daily returns against the benchmark."),
-      correlation: numOrNull("Correlation of daily returns against the benchmark."),
-      relativeStrengthPct: numOrNull("Return minus the benchmark return, as a fraction."),
+      beta: numOrNull("Beta against the benchmark over adjacent common date intervals."),
+      correlation: numOrNull("Correlation against the benchmark over adjacent common date intervals."),
+      relativeStrengthPct: numOrNull("Symbol minus benchmark return over the same quoted dates, as a fraction."),
     }),
   ),
   correlation: Type.Object({
     symbols: Type.Array(Type.String()),
     matrix: Type.Array(
       Type.Array(Type.Union([Type.Number(), Type.Null()]), {
-        description: "Pairwise correlation of daily returns; row i vs column j.",
+        description: "Pairwise correlation of returns over adjacent common dates; row i vs column j.",
       }),
     ),
   }),
@@ -484,7 +482,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     description:
       "Compare up to 12 tickers over one window against a benchmark (default SPY): window return, " +
       "annualized volatility, beta, correlation, return minus benchmark, and the pairwise correlation matrix. " +
-      "Crypto pairs like BTC-USD use daily Coinbase candles in UTC days and trade 24/7; mixed calendars are aligned by date so only common days count. " +
+      "Beta, correlation and relative strength use common date intervals. Crypto prices are UTC daily closes and equities are exchange closes; equal dates do not mean equal timestamps. " +
       "Use the structured output for math; the text is only a summary.",
     parameters: Type.Object({
       symbols: Type.Array(cryptoSymbolField("Uppercase ticker or crypto pair."), {
@@ -516,8 +514,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         const benchCl = closes(bench.bars);
         const benchRet = periodReturn(benchCl, benchCl.length - 1) ?? 0;
         const rows: Static<typeof compareSchema>["rows"] = [];
-        const series = new Map<string, { date: string; r: number }[]>();
-        series.set(benchmark, dailyReturns(bench.bars));
+        const series = new Map<string, Bar[]>([[benchmark, bench.bars]]);
         for (const symbol of symbols) {
           const hist = await effective.history(symbol, range);
           if (hist.bars.length < 2) {
@@ -527,16 +524,20 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           const cl = closes(hist.bars);
           const ret = periodReturn(cl, cl.length - 1);
           const vol = realizedVol(cl, cl.length - 1, isCryptoSymbol(symbol) ? 365 : 252);
-          const { beta, correlation: corr } = betaAndCorrelation(hist.bars, bench.bars);
+          const [paired, pairedBench] = commonCloses(hist.bars, bench.bars);
+          const pairedRet = periodReturn(paired, paired.length - 1);
+          const pairedBenchRet = periodReturn(pairedBench, pairedBench.length - 1);
+          const returns = intervalReturns(paired);
+          const benchReturns = intervalReturns(pairedBench);
           rows.push({
             symbol,
             returnPct: nullIfUndef(ret),
             volPct: nullIfUndef(vol),
-            beta: nullIfUndef(beta),
-            correlation: nullIfUndef(corr),
-            relativeStrengthPct: ret === undefined ? null : ret - benchRet,
+            beta: nullIfUndef(beta(returns, benchReturns)),
+            correlation: nullIfUndef(correlation(returns, benchReturns)),
+            relativeStrengthPct: pairedRet === undefined || pairedBenchRet === undefined ? null : pairedRet - pairedBenchRet,
           });
-          series.set(symbol, dailyReturns(hist.bars));
+          series.set(symbol, hist.bars);
         }
         const names = [benchmark, ...symbols];
         const matrix = names.map((a) =>
@@ -545,15 +546,16 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
             const sa = series.get(a);
             const sb = series.get(b);
             if (!sa || !sb) return null;
-            return correlation(...pairArrays(sa, sb)) ?? null;
+            const [pa, pb] = commonCloses(sa, sb);
+            return correlation(intervalReturns(pa), intervalReturns(pb)) ?? null;
           }),
         );
         const structured = { benchmark, rows, correlation: { symbols: names, matrix } };
         const lines = rows.map(
-          (r) => `${r.symbol}: ret ${fmtPct(r.returnPct)} vs bench ${fmtPct(r.relativeStrengthPct)} beta ${fmtNum(r.beta)} corr ${fmtNum(r.correlation)}`,
+          (r) => `${r.symbol}: ret ${fmtPct(r.returnPct)}; vs bench on common dates ${fmtPct(r.relativeStrengthPct)}, beta ${fmtNum(r.beta)}, corr ${fmtNum(r.correlation)}`,
         );
         const text =
-          `${tag()}Compare ${range} vs ${benchmark} (bench ret ${fmtPct(benchRet)}):\n` +
+          `${tag()}Compare ${range} vs ${benchmark} (benchmark's full window ${fmtPct(benchRet)}):\n` +
           (lines.length === 0 ? "(no symbols)" : lines.join("\n"));
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {
@@ -867,12 +869,22 @@ async function latestPoint(
   }
 }
 
-function pairArrays(
-  a: { date: string; r: number }[],
-  b: { date: string; r: number }[],
-): [number[], number[]] {
-  const { a: pa, b: pb } = alignReturns(a, b);
+/** Intersect close dates before forming returns, so missing or weekend bars cannot change just one leg. */
+function commonCloses(a: Bar[], b: Bar[]): [number[], number[]] {
+  const byDate = new Map(b.map((bar) => [bar.date, bar.close]));
+  const pa: number[] = [];
+  const pb: number[] = [];
+  for (const { date, close } of a) {
+    const other = byDate.get(date);
+    if (!Number.isFinite(close) || close <= 0 || other === undefined || !Number.isFinite(other) || other <= 0) continue;
+    pa.push(close);
+    pb.push(other);
+  }
   return [pa, pb];
+}
+
+function intervalReturns(prices: number[]): number[] {
+  return prices.slice(1).map((close, i) => close / prices[i]! - 1);
 }
 
 function shortError(error: unknown): string {
