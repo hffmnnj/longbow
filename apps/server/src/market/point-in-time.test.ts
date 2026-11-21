@@ -394,6 +394,33 @@ describe("market_tools_point_in_time", () => {
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
   });
 
+  it("market comparison matches both dates of a return interval", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "market-compare-dates-"));
+    const bars = (rows: [string, number][]): Bar[] => rows.map(([date, close]) => ({
+      date, open: close, high: close, low: close, close, volume: 1_000_000,
+    }));
+    const same: [string, number][] = [["2026-10-09", 100], ["2026-10-12", 110], ["2026-10-13", 99]];
+    const bySymbol = new Map([
+      ["SPY", bars([["2026-10-08", 500], ...same, ["2026-10-14", 200]])],
+      ["BTC-USD", bars([same[0]!, ["2026-10-10", 180], ["2026-10-11", 220], ...same.slice(1)])],
+      ["MISS", bars([["2026-10-15", 100], ["2026-10-16", 110]])],
+    ]);
+    const market: MarketData = {
+      history: async (symbol) => ({ symbol, bars: bySymbol.get(symbol) ?? [], source: "fixture", asOf: 0 }),
+      nextEarnings: async () => undefined,
+      avgDollarVolume: async () => undefined,
+    };
+    const ext = createMarketExtension({ market, dataDir, log: silent, clock: fixedClock(0) });
+    const result = await callTool(ext, "market_compare", { symbols: ["BTC-USD", "MISS"], range: "1m" });
+    const output = result.structuredOutput as unknown as {
+      rows: { symbol: string; relativeStrengthPct: number | null; beta: number | null; correlation: number | null }[];
+      correlation: { matrix: (number | null)[][] };
+    };
+    assert.deepEqual(output.rows.map(({ symbol, relativeStrengthPct, beta, correlation }) =>
+      [symbol, relativeStrengthPct, beta, correlation]), [["BTC-USD", 0, 1, 1], ["MISS", null, null, null]]);
+    assert.equal(output.correlation.matrix[0]?.[1], 1);
+  });
+
   it("earnings_counts_days_from_asof", async () => {
     const { ext } = setup(() => ASOF);
     const result = await callTool(ext, "market_earnings", { symbol: "AAPL" });
