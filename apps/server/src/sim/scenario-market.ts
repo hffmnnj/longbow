@@ -334,15 +334,18 @@ async function buildBootstrap(spec: ScenarioMarketSpec, rng: () => number): Prom
     fictional.set(alias, sourceIntervals.map(({ date, from }, i) => {
       const bar = tape.get(date);
       const prevSource = tape.get(from)?.close;
-      if (bar === undefined || prevSource === undefined || !Number.isFinite(previous)) {
+      if (bar === undefined || prevSource === undefined || !(prevSource > 0) || !(bar.close > 0) || !Number.isFinite(previous)) {
         throw new Error(`Missing source bar for ${real} on ${date}`);
       }
       const open = (bar.open / prevSource) * previous;
       const high = (bar.high / prevSource) * previous;
       const low = (bar.low / prevSource) * previous;
       const close = (bar.close / prevSource) * previous;
+      if (!(close > 0) || !Number.isFinite(close)) throw new Error(`Invalid synthetic close for ${real} on ${date}`);
       previous = close;
-      return { date: fictionalDates[i]!, open, high, low, close, volume: bar.volume };
+      // A fictional price scale must not change the sampled session's dollar liquidity.
+      const volume = Math.round(bar.volume * (bar.close / close));
+      return { date: fictionalDates[i]!, open, high, low, close, volume };
     }));
   }
   const symbols = Object.keys(aliases).filter((a) => fictional.has(a));
