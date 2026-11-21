@@ -819,6 +819,7 @@ export interface SimMetrics {
   avgR?: number;
   /** Average share of equity invested at the close. */
   exposurePct: number;
+  /** Distinct orders accepted by the paper broker, regardless of terminal status. */
   ordersSubmitted: number;
   ordersRejected: number;
   /** @deprecated Legacy exit-P&L score, not calibration of the forecasted event. */
