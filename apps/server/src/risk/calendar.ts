@@ -7,13 +7,46 @@ import type { MarketCalendar } from "../ports.ts";
  * `Intl.DateTimeFormat` in America/New_York so daylight saving is handled by
  * the platform, not by hand-rolled offsets.
  *
- * Full-closure and early-close tables cover 2026-2027. Outside that range
+ * Full-closure and early-close tables cover 2024-2027. Outside that range
  * the calendar falls back to weekdays only.
+ *
+ * 2024-2026 dates and early closes come from the NYSE Group calendar in the
+ * 11/10/2023 ICE press release:
+ * https://ir.theice.com/press/news-details/2023/NYSE-Group-Announces-2024-2025-and-2026-Holiday-and-Early-Closings-Calendar/default.aspx
+ * 2025-01-09 is the one-off National Day of Mourning for President Carter,
+ * Nasdaq Trader notice ETA2024-87:
+ * https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2024-87
  */
 
-export const NYSE_HOLIDAY_COVERAGE = { first: "2026-01-01", last: "2027-12-31" } as const;
+export const NYSE_HOLIDAY_COVERAGE = { first: "2024-01-01", last: "2027-12-31" } as const;
 
 const FULL_CLOSURES = new Set<string>([
+  // 2024: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas.
+  "2024-01-01",
+  "2024-01-15",
+  "2024-02-19",
+  "2024-03-29",
+  "2024-05-27",
+  "2024-06-19",
+  "2024-07-04",
+  "2024-09-02",
+  "2024-11-28",
+  "2024-12-25",
+  // 2025: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
+  // Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas, plus the
+  // one-off National Day of Mourning on Jan 9.
+  "2025-01-01",
+  "2025-01-09",
+  "2025-01-20",
+  "2025-02-17",
+  "2025-04-18",
+  "2025-05-26",
+  "2025-06-19",
+  "2025-07-04",
+  "2025-09-01",
+  "2025-11-27",
+  "2025-12-25",
   // 2026: New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day,
   // Juneteenth, Independence Day (observed Jul 3), Labor Day, Thanksgiving, Christmas.
   "2026-01-01",
@@ -42,7 +75,17 @@ const FULL_CLOSURES = new Set<string>([
 ]);
 
 /** ET dates with a 13:00 regular-session close. */
-const EARLY_CLOSES = new Set<string>(["2026-11-27", "2026-12-24", "2027-11-26"]);
+const EARLY_CLOSES = new Set<string>([
+  "2024-07-03",
+  "2024-11-29",
+  "2024-12-24",
+  "2025-07-03",
+  "2025-11-28",
+  "2025-12-24",
+  "2026-11-27",
+  "2026-12-24",
+  "2027-11-26",
+]);
 
 const PRE_OPEN_MIN = 4 * 60;
 const REGULAR_OPEN_MIN = 9 * 60 + 30;
