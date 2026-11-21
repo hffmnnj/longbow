@@ -15,7 +15,12 @@ const points = (n: number): string => `${n < 0 ? "−" : ""}${Math.abs(n).toFixe
 export function comparisonReading(suite: SimSuite): string {
   const comparison = suite.comparison;
   const variants = suite.config.variants;
+  const excluded = suite.unverifiedPairs ?? 0;
+  const disclosure = excluded === 0 ? "" : excluded === 1
+    ? "1 completed pair was excluded: its market data could not be verified as matching."
+    : `${excluded} completed pairs were excluded: their market data could not be verified as matching.`;
   if (comparison === undefined || comparison.pairs < 1 || variants.length !== 2) {
+    if (disclosure !== "") return disclosure;
     const finished = suite.summary.reduce((sum, s) => sum + s.done + s.failed, 0);
     const total = suite.summary.reduce((sum, s) => sum + s.runs, 0);
     if (suite.status === "running" || suite.status === "queued") return `Suite still running: ${finished} of ${total} runs finished.`;
@@ -28,9 +33,10 @@ export function comparisonReading(suite: SimSuite): string {
     ? `${a!.label} and ${b!.label} tied on excess return`
     : `${diff > 0 ? `${b!.label} led ${a!.label}` : `${a!.label} led ${b!.label}`} by ${magnitude === "0.0" ? "less than 0.1" : magnitude} points of excess return`;
   const prefix = suite.status === "running" || suite.status === "queued" ? "So far: " : "";
-  if (comparison.pairs === 1) return `${prefix}${lead} across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.`;
+  const suffix = disclosure === "" ? "" : ` ${disclosure}`;
+  if (comparison.pairs === 1) return `${prefix}${lead} across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.${suffix}`;
   const [lo, hi] = comparison.ci95;
-  return `${prefix}${lead} across ${comparison.pairs} paired markets. 95% resampled range (${b!.label} minus ${a!.label}): ${points(lo)} to ${points(hi)}. Does not establish a live edge.`;
+  return `${prefix}${lead} across ${comparison.pairs} paired markets. 95% resampled range (${b!.label} minus ${a!.label}): ${points(lo)} to ${points(hi)}. Does not establish a live edge.${suffix}`;
 }
 
 export function createSimToolsExtension({ sim, suites }: { sim: SimService; suites?: SuiteService }): Extension {
@@ -91,9 +97,9 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
         const result = { id: suite.id, status: suite.status, runs: suite.runs.length };
         return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: jsonValue(result) };
       } }),
-    defineTool({ name: "sim_suite_results", description: "Read a simulation suite's per-variant summary, the paired B-minus-A result, and per-run returns. The resampled range describes the completed pairs only. One pair cannot estimate uncertainty. Do not treat small samples or a range excluding zero as proof of a live trading edge.",
+    defineTool({ name: "sim_suite_results", description: "Read per-variant and per-run returns plus B minus A on completed pairs whose price-only market inputs match. Historical or unverifiable pairs are omitted. One pair cannot estimate uncertainty. Do not treat small samples or a range excluding zero as proof of a live trading edge.",
       parameters: Type.Object({ id: Type.String() }), replay: "safe",
-      structuredOutputSchema: Type.Object({ id: Type.String(), status: Type.String(), summary: Type.Any(), comparison: Type.Any(), reading: Type.Union([Type.String(), Type.Null()]), runs: Type.Array(Type.Any()) }),
+      structuredOutputSchema: Type.Object({ id: Type.String(), status: Type.String(), summary: Type.Any(), comparison: Type.Any(), unverifiedPairs: Type.Optional(Type.Integer()), reading: Type.Union([Type.String(), Type.Null()]), runs: Type.Array(Type.Any()) }),
       async execute({ id }) {
         if (suites === undefined) throw new Error("Simulation suites are unavailable");
         const suite = suites.get(id); if (suite === undefined) throw new Error("Unknown simulation suite");
@@ -106,7 +112,8 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
             mode: entry.mode, status: run?.status ?? "failed",
             ...(metrics === undefined ? {} : { returnPct: metrics.returnPct, excessPct: metrics.returnPct - metrics.benchmarkReturnPct }) };
         });
-        const result = { id, status: suite.status, summary: suite.summary, comparison: suite.comparison ?? null, reading: comparisonReading(suite), runs };
+        const result = { id, status: suite.status, summary: suite.summary, comparison: suite.comparison ?? null,
+          ...(suite.unverifiedPairs === undefined ? {} : { unverifiedPairs: suite.unverifiedPairs }), reading: comparisonReading(suite), runs };
         return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: jsonValue(result) };
       } }),
   ] });

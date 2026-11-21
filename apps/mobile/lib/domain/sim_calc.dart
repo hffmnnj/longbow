@@ -558,13 +558,25 @@ String _points(double x) =>
 String _leadPoints(double x) =>
     _points(x) == '0.0' && x != 0 ? 'less than 0.1' : _points(x);
 
+/// One compact sentence disclosing finished pairs left out of the
+/// comparison. Null when none.
+String? unverifiedPairsSentence(int? n) {
+  if (n == null || n < 1) return null;
+  return n == 1
+      ? '1 completed pair was excluded: its market data could not be verified as matching.'
+      : '$n completed pairs were excluded: their market data could not be verified as matching.';
+}
+
 /// Plain reading of a two-variant suite comparison, for example "B led A by
 /// 0.8 points of excess return across 2 paired markets. 95% resampled range
 /// (B minus A): −0.3 to 1.9. Does not establish a live edge.". Null with no
-/// comparison or no pairs.
+/// comparison or no pairs, unless pairs were excluded: the exclusion sentence
+/// then supplies the display text. An exclusion sentence is appended when
+/// verified stats are present.
 String? comparisonReading(SimSuite suite) {
+  final excluded = unverifiedPairsSentence(suite.unverifiedPairs);
   final c = suite.comparison;
-  if (c == null || !(c.pairs >= 1)) return null;
+  if (c == null || !(c.pairs >= 1)) return excluded;
   final a = suite.config.variants.isNotEmpty
       ? suite.config.variants[0].label
       : 'A';
@@ -588,7 +600,8 @@ String? comparisonReading(SimSuite suite) {
   final tail = c.pairs == 1
       ? 'One pair cannot estimate uncertainty.'
       : '95% resampled range ($b minus $a): ${_points(c.ci95[0])} to ${_points(c.ci95[1])}.';
-  return '$prefix$head. $tail Does not establish a live edge.';
+  final base = '$prefix$head. $tail Does not establish a live edge.';
+  return excluded == null ? base : '$base $excluded';
 }
 
 class SuiteProgress {

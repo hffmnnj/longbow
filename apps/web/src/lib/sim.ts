@@ -306,10 +306,19 @@ const points = (x: number): string => `${x < 0 ? "−" : ""}${Math.abs(x).toFixe
 /** One-decimal lead that never prints "0.0" for a nonzero gap. */
 const leadPoints = (x: number): string => (points(x) === "0.0" && x !== 0 ? "less than 0.1" : points(x));
 
-/** Plain reading of a two-variant suite comparison, for example "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.". Null with no comparison or no pairs. */
-export function comparisonReading(suite: Pick<SimSuite, "config" | "comparison" | "status">): string | null {
+/** One compact sentence disclosing finished pairs left out of the comparison. Null when none. */
+export function unverifiedPairsSentence(n: number | undefined): string | null {
+  if (n === undefined || !Number.isInteger(n) || n < 1) return null;
+  return n === 1
+    ? "1 completed pair was excluded: its market data could not be verified as matching."
+    : `${n} completed pairs were excluded: their market data could not be verified as matching.`;
+}
+
+/** Plain reading of a two-variant suite comparison, for example "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.". Null with no comparison or pairs, unless pairs were excluded: the exclusion sentence then supplies the display text. An exclusion sentence is appended when verified stats are present. */
+export function comparisonReading(suite: Pick<SimSuite, "config" | "comparison" | "status" | "unverifiedPairs">): string | null {
+  const excluded = unverifiedPairsSentence(suite.unverifiedPairs);
   const c = suite.comparison;
-  if (!c || !(c.pairs >= 1)) return null;
+  if (!c || !(c.pairs >= 1)) return excluded;
   const a = suite.config.variants[0]?.label ?? "A";
   const b = suite.config.variants[1]?.label ?? "B";
   const markets = c.pairs === 1 ? "across 1 paired market" : `across ${c.pairs} paired markets`;
@@ -324,7 +333,8 @@ export function comparisonReading(suite: Pick<SimSuite, "config" | "comparison" 
     c.pairs === 1
       ? "One pair cannot estimate uncertainty."
       : `95% resampled range (${b} minus ${a}): ${points(c.ci95[0])} to ${points(c.ci95[1])}.`;
-  return `${prefix}${head}. ${tail} Does not establish a live edge.`;
+  const base = `${prefix}${head}. ${tail} Does not establish a live edge.`;
+  return excluded ? `${base} ${excluded}` : base;
 }
 
 /** Finished runs out of the suite's total, resolved against the lab's run list. */

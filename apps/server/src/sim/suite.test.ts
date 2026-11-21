@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerEvent } from "@rh/shared";
 import { createEventBus } from "../events.ts";
@@ -184,6 +184,56 @@ test("partial metrics cannot enter a suite comparison", async () => {
   } finally { done(); }
 });
 
+test("only complete pairs with matching verified market markers enter the comparison", async () => {
+  const { runner, suites, done } = setup();
+  try {
+    const suite = await suites.start({ name: "Verified", scenarios: ["covid-crash-2020", "steady-bull-2021"],
+      bootstrapRuns: 1, bootstrapDays: 10, startingCash: 1200, variants }, "user");
+    const run = (variant: string, scenario: string | undefined) =>
+      suite.runs.find((entry) => entry.variant === variant && entry.scenario === scenario)!.runId;
+    // Both variants see the fake's fixed marker by default, so this pair verifies.
+    runner.finish(run("A", "covid-crash-2020"), { returnPct: 4, benchmarkReturnPct: 1 });
+    runner.finish(run("B", "covid-crash-2020"), { returnPct: 6, benchmarkReturnPct: 1 });
+    // A differing but well-formed marker must not contribute.
+    runner.finish(run("A", "steady-bull-2021"), { returnPct: 10, benchmarkReturnPct: 2 });
+    runner.finish(run("B", "steady-bull-2021"), { returnPct: 13, benchmarkReturnPct: 1,
+      fingerprint: `scenario-v1:${"ab".repeat(32)}` });
+    // A missing marker (a run whose tape could not be hashed) must not contribute.
+    runner.finish(run("A", undefined), { returnPct: 7, benchmarkReturnPct: 0, fingerprint: null });
+    runner.finish(run("B", undefined), { returnPct: 9, benchmarkReturnPct: 0 });
+
+    const result = suites.get(suite.id)!;
+    assert.equal(result.status, "done");
+    assert.equal(result.comparison?.pairs, 1);
+    assert.equal(result.comparison?.meanDiff, 2);
+    assert.equal(result.unverifiedPairs, 2);
+    const b = result.summary.find((row) => row.label === "B")!;
+    assert.deepEqual({ runs: b.runs, done: b.done, failed: b.failed }, { runs: 3, done: 3, failed: 0 });
+    assert.equal(b.meanReturnPct, (6 + 13 + 9) / 3, "omitting a pair from the comparison must keep its variant stats");
+    assert.equal(comparisonReading(result),
+      "B led A by 2.0 points of excess return across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge. 2 completed pairs were excluded: their market data could not be verified as matching.");
+  } finally { done(); }
+});
+
+test("historical complete pairs never enter the comparison, even if a marker is present", async () => {
+  const { runner, suites, done } = setup();
+  try {
+    const suite = await suites.start({ name: "Historical", scenarios: ["covid-crash-2020"], scenarioMode: "historical",
+      startingCash: 1200, variants }, "user");
+    const marker = `scenario-v1:${"ab".repeat(32)}`;
+    runner.finish(suite.runs.find((entry) => entry.variant === "A")!.runId, { returnPct: 4, fingerprint: marker });
+    runner.finish(suite.runs.find((entry) => entry.variant === "B")!.runId, { returnPct: 6, fingerprint: marker });
+
+    const result = suites.get(suite.id)!;
+    assert.equal(result.status, "done");
+    assert.equal(result.comparison, undefined);
+    assert.equal(result.unverifiedPairs, 1);
+    assert.equal(result.summary.find((row) => row.label === "A")?.meanReturnPct, 4);
+    assert.equal(comparisonReading(result),
+      "1 completed pair was excluded: its market data could not be verified as matching.");
+  } finally { done(); }
+});
+
 test("suites finish done when runs complete and failed when every run fails", async () => {
   const { runner, suites, seen, done } = setup();
   try {
@@ -214,6 +264,38 @@ test("suites reload from disk and fail when their runs are gone", async () => {
     second = createSuiteService({ runner: empty, bus: bus2, log, dataDir, now: () => 1_700_000_000_001 });
     assert.equal(second.get(finished.id)?.status, "done");
     assert.equal(second.get(open.id)?.status, "failed");
+  } finally { second?.close(); done(); }
+});
+
+test("reloading a terminal legacy suite reports its old pairs as unverified without rewriting its bytes", () => {
+  const { dataDir, bus, runner, done } = setup();
+  let second: SuiteService | undefined;
+  try {
+    const id = "20240101000000000-abcdef";
+    const path = join(dataDir, "sim", "suites", `${id}.json`);
+    const legacy = {
+      id, createdAt: 1_700_000_000_000, startedBy: "user",
+      config: { name: "Legacy", scenarios: ["covid-crash-2020"], bootstrapRuns: 0, scenarioMode: "blind",
+        bootstrapDays: 40, startingCash: 1200, cyclesPerDay: 2, execution: "realistic", variants },
+      status: "done",
+      runs: [
+        { runId: "gone-a", variant: "A", scenario: "covid-crash-2020", seed: 7, mode: "blind" },
+        { runId: "gone-b", variant: "B", scenario: "covid-crash-2020", seed: 7, mode: "blind" },
+      ],
+      summary: [{ label: "A", runs: 1, done: 1, failed: 0, meanReturnPct: 4 },
+        { label: "B", runs: 1, done: 1, failed: 0, meanReturnPct: 6 }],
+      comparison: { metric: "excessReturnPct", meanDiff: 2, ci95: [1, 3], pairs: 1 },
+      finishedAt: 1_700_000_000_001,
+    };
+    writeFileSync(path, JSON.stringify(legacy, null, 2));
+    const bytes = readFileSync(path, "utf8");
+
+    second = createSuiteService({ runner, bus, log, dataDir, now: () => 1_700_000_000_002 });
+    const loaded = second.get(id)!;
+    assert.equal(loaded.comparison, undefined, "an old pair without match evidence must not be displayed as verified");
+    assert.equal(loaded.unverifiedPairs, 1);
+    assert.equal(loaded.summary.find((row) => row.label === "A")?.meanReturnPct, 4);
+    assert.equal(readFileSync(path, "utf8"), bytes, "loading a terminal suite must preserve its original record");
   } finally { second?.close(); done(); }
 });
 

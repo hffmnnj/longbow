@@ -20,6 +20,7 @@ import {
   shownSymbol,
   startDateProblem,
   suiteProgress,
+  unverifiedPairsSentence,
   upsertSuite,
   weekdaysAgo,
 } from "./sim.ts";
@@ -290,7 +291,8 @@ describe("comparisonReading", () => {
     ci95: [number, number],
     pairs = 2,
     status: SimSuite["status"] = "done",
-  ): Pick<SimSuite, "config" | "comparison" | "status"> => ({
+    unverifiedPairs?: number,
+  ): Pick<SimSuite, "config" | "comparison" | "status" | "unverifiedPairs"> => ({
     config: {
       name: "s",
       scenarios: [],
@@ -304,6 +306,7 @@ describe("comparisonReading", () => {
     },
     status,
     comparison: { metric: "excessReturnPct", meanDiff, ci95, pairs },
+    ...(unverifiedPairs !== undefined ? { unverifiedPairs } : {}),
   });
   it("reads a lead plainly without claiming a live edge", () => {
     expect(comparisonReading(suite(0.8, [-0.3, 1.9]))).toBe(
@@ -338,6 +341,36 @@ describe("comparisonReading", () => {
   it("is null with no comparison or no pairs", () => {
     expect(comparisonReading({ ...suite(0, [0, 0]), comparison: undefined })).toBeNull();
     expect(comparisonReading(suite(0.8, [-0.3, 1.9], 0))).toBeNull();
+  });
+  it("ignores an absent or zero exclusion count", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 2, "done", 0))).toBe(
+      "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.",
+    );
+    expect(unverifiedPairsSentence(undefined)).toBeNull();
+    expect(unverifiedPairsSentence(0)).toBeNull();
+  });
+  it("supplies the display text when every pair was excluded", () => {
+    expect(comparisonReading({ ...suite(0, [0, 0]), comparison: undefined, unverifiedPairs: 3 })).toBe(
+      "3 completed pairs were excluded: their market data could not be verified as matching.",
+    );
+  });
+  it("uses the singular when one pair was excluded", () => {
+    expect(unverifiedPairsSentence(1)).toBe(
+      "1 completed pair was excluded: its market data could not be verified as matching.",
+    );
+    expect(comparisonReading({ ...suite(0, [0, 0]), comparison: undefined, unverifiedPairs: 1 })).toBe(
+      "1 completed pair was excluded: its market data could not be verified as matching.",
+    );
+  });
+  it("appends one exclusion sentence to verified stats", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 2, "done", 3))).toBe(
+      "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge. 3 completed pairs were excluded: their market data could not be verified as matching.",
+    );
+  });
+  it("keeps the running qualifier on the stats when exclusions are appended", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 2, "running", 1))).toBe(
+      "So far: B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge. 1 completed pair was excluded: its market data could not be verified as matching.",
+    );
   });
 });
 

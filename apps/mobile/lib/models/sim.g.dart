@@ -364,5 +364,6 @@ SimSuite _$SimSuiteFromJson(Map<String, dynamic> json) => SimSuite(
   comparison: json['comparison'] == null
       ? null
       : SimComparison.fromJson(json['comparison'] as Map<String, dynamic>),
+  unverifiedPairs: (json['unverifiedPairs'] as num?)?.toInt(),
   finishedAt: (json['finishedAt'] as num?)?.toInt(),
 );
