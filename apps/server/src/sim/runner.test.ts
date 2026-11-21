@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -181,6 +182,13 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     buildExtensions: ({ broker }) => { paper = broker; return []; },
     driver: async (run, ctx) => {
       if (run.progress.day !== 1 || run.progress.cycle !== 1) return;
+      const db = new DatabaseSync(join(dataDir, "sim", run.id, "app.sqlite"), { readOnly: true });
+      try {
+        assert.equal(db.prepare("SELECT day_start FROM equity_marks WHERE et_date = ?").get(dates[1]!)?.day_start, 1200,
+          "a model-free cycle must have the same starting equity mark as an agent cycle");
+      } finally {
+        db.close();
+      }
       await paper.placeOrder(entry);
       const stop = await ctx.submit({ ...entry, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
       assert.equal(stop.status, "held");
