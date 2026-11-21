@@ -46,6 +46,8 @@ export interface MarketExtensionDeps {
   dataDir: string;
   log: Logger;
   clock: Clock;
+  /** The default benchmark visible in this market. Defaults to SPY. */
+  benchmark?: string;
   /** ET date YYYY-MM-DD the simulation has reached; absent for the live harness. */
   asOf?: () => string | undefined;
   /** Overridable fetch for tests; defaults to global fetch. */
@@ -327,6 +329,7 @@ const CRYPTO_VOL_WINDOW: Record<HistoryRange, number> = {
 
 export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   const { market, clock, log, asOf } = deps;
+  const defaultBenchmark = deps.benchmark ?? "SPY";
   const store = new MarketStore({ dataDir: deps.dataDir, log, clock, asOf, fetchImpl: deps.fetchImpl });
   const cache = store.cache;
   // Point-in-time view over the injected market for simulated dates (also
@@ -485,7 +488,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   const compare = defineTool({
     name: "market_compare",
     description:
-      "Compare up to 12 tickers over one window against a benchmark (default SPY): window return, " +
+      `Compare up to 12 tickers over one window against a benchmark (default ${defaultBenchmark}): window return, ` +
       "annualized volatility, beta, correlation, return minus benchmark, and the pairwise correlation matrix. " +
       "Beta, correlation and relative strength use common date intervals. Crypto prices are UTC daily closes and equities are exchange closes; equal dates do not mean equal timestamps. " +
       "Use the structured output for math; the text is only a summary.",
@@ -498,7 +501,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
       range: rangeField("History window; defaults to 6m."),
       benchmark: Type.Optional(
         Type.String({
-          description: "Benchmark ticker or crypto pair; defaults to SPY.",
+          description: `Benchmark ticker or crypto pair; defaults to ${defaultBenchmark}.`,
           pattern: CRYPTO_OR_TICKER_PATTERN,
           minLength: 1,
           maxLength: 14,
@@ -511,7 +514,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     async execute(args) {
       try {
         const range = rangeOr(args.range as RangeArg, "6m");
-        const benchmark = args.benchmark ?? "SPY";
+        const benchmark = args.benchmark ?? defaultBenchmark;
         const effective = asOf?.() === undefined ? market : pit;
         const symbols = [...new Set(args.symbols)].filter((s) => s !== benchmark);
         const bench = await effective.history(benchmark, range);

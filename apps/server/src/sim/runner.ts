@@ -297,7 +297,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       // every agent-visible market date is independently constrained by asOf.
       // Blind and bootstrap runs read only the scenario market: no earnings,
       // calendars, VIX, yields, or SEC tools are registered.
-      createMarketExtension({ market, dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf,
+      createMarketExtension({ market, dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf, benchmark,
         ...(blindish ? { pricesOnly: true as const } : {}) }),
       quant,
       ...(deps.systemOne === undefined ? [] : [createSystemOneExtension({ client: deps.systemOne, market, isEnabled: () => store.getSettings().systemOne.enabled,
