@@ -9,12 +9,13 @@ import { jsonValue } from "./json.ts";
 const ModeParam = Type.Union([Type.Literal("historical"), Type.Literal("blind"), Type.Literal("bootstrap")]);
 const ExecutionParam = Type.Union([Type.Literal("realistic"), Type.Literal("ideal")]);
 const ModelParam = Type.Union([Type.Literal("main"), Type.Literal("subagent")]);
+const points = (n: number): string => `${n < 0 ? "−" : ""}${Math.abs(n).toFixed(1)}`;
 
-/** Plain-language reading of the paired B-minus-A comparison, for example "B beat A by 0.8 points of excess return, 95% interval -0.3 to 1.9: not conclusive". */
+/** Describe the completed pairs, without treating a resampled range as a promotion decision. */
 export function comparisonReading(suite: SimSuite): string {
   const comparison = suite.comparison;
   const variants = suite.config.variants;
-  if (comparison === undefined || variants.length !== 2) {
+  if (comparison === undefined || comparison.pairs < 1 || variants.length !== 2) {
     const finished = suite.summary.reduce((sum, s) => sum + s.done + s.failed, 0);
     const total = suite.summary.reduce((sum, s) => sum + s.runs, 0);
     if (suite.status === "running" || suite.status === "queued") return `Suite still running: ${finished} of ${total} runs finished.`;
@@ -22,14 +23,19 @@ export function comparisonReading(suite: SimSuite): string {
   }
   const [a, b] = variants;
   const diff = comparison.meanDiff;
-  const lead = diff >= 0 ? `${b!.label} beat ${a!.label}` : `${a!.label} beat ${b!.label}`;
-  const conclusive = comparison.ci95[0] > 0 || comparison.ci95[1] < 0;
-  return `${lead} by ${Math.abs(diff).toFixed(1)} points of excess return, 95% interval ${comparison.ci95[0].toFixed(1)} to ${comparison.ci95[1].toFixed(1)}: ${conclusive ? "conclusive" : "not conclusive"}`;
+  const magnitude = Math.abs(diff).toFixed(1);
+  const lead = diff === 0
+    ? `${a!.label} and ${b!.label} tied on excess return`
+    : `${diff > 0 ? `${b!.label} led ${a!.label}` : `${a!.label} led ${b!.label}`} by ${magnitude === "0.0" ? "less than 0.1" : magnitude} points of excess return`;
+  const prefix = suite.status === "running" || suite.status === "queued" ? "So far: " : "";
+  if (comparison.pairs === 1) return `${prefix}${lead} across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.`;
+  const [lo, hi] = comparison.ci95;
+  return `${prefix}${lead} across ${comparison.pairs} paired markets. 95% resampled range (${b!.label} minus ${a!.label}): ${points(lo)} to ${points(hi)}. Does not establish a live edge.`;
 }
 
 export function createSimToolsExtension({ sim, suites }: { sim: SimService; suites?: SuiteService }): Extension {
   return defineExtension({ name: "simulations", tools: [
-    defineTool({ name: "sim_start", description: "Test a strategy with a full Muse agent and the real risk engine in an accelerated historical paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. A single historical run is a quick sanity check, but the model's memory of real events can contaminate it; for a trustworthy strategy comparison use sim_suite_start with blind scenarios and bootstrap markets.",
+    defineTool({ name: "sim_start", description: "Test a strategy with a full Muse agent and the real risk engine in an accelerated historical paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. A single historical run is a quick sanity check, but the model's memory of real events can contaminate it; use sim_suite_start for paired paper comparisons across blind scenarios and bootstrap markets.",
       parameters: Type.Object({ days: Type.Integer({ minimum: 1, maximum: 20 }), startDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
         scenario: Type.Optional(Type.String()), mode: Type.Optional(ModeParam), seed: Type.Optional(Type.Integer({ minimum: 0, maximum: 2147483647 })),
         execution: Type.Optional(ExecutionParam), model: Type.Optional(ModelParam),
@@ -64,7 +70,7 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
       async execute() {
         return { output: [{ type: "text", text: JSON.stringify(SCENARIOS) }], structuredOutput: jsonValue(SCENARIOS) };
       } }),
-    defineTool({ name: "sim_suite_start", description: "Compare up to two strategy variants (A against B) on the same markets: every variant runs on each blind scenario and each seeded bootstrap market, so differences come from the strategy rather than the market draw. Suites with blind scenarios and bootstrap markets are the trustworthy way to test a strategy change; a single sim_start run is only a quick sanity check. Agent suites hold at most 8 runs and default to the cheaper subagent model.",
+    defineTool({ name: "sim_suite_start", description: "Compare up to two variants (A against B) on the same markets. Each variant receives the same blind scenarios and seeded bootstrap markets. To test one change, vary only that factor; model, risk and strategy can all affect results. Agent suites hold at most 8 runs and default to the cheaper subagent model.",
       parameters: Type.Object({ name: Type.String({ minLength: 1, maxLength: 80 }),
         scenarios: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 12 })),
         bootstrapRuns: Type.Optional(Type.Integer({ minimum: 0, maximum: 10 })),
@@ -85,7 +91,7 @@ export function createSimToolsExtension({ sim, suites }: { sim: SimService; suit
         const result = { id: suite.id, status: suite.status, runs: suite.runs.length };
         return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: jsonValue(result) };
       } }),
-    defineTool({ name: "sim_suite_results", description: "Read a simulation suite's per-variant summary, the paired B-minus-A comparison with its bootstrap confidence interval in plain language, and per-run returns. A conclusive interval means the change likely matters; otherwise treat it as noise.",
+    defineTool({ name: "sim_suite_results", description: "Read a simulation suite's per-variant summary, the paired B-minus-A result, and per-run returns. The resampled range describes the completed pairs only. One pair cannot estimate uncertainty. Do not treat small samples or a range excluding zero as proof of a live trading edge.",
       parameters: Type.Object({ id: Type.String() }), replay: "safe",
       structuredOutputSchema: Type.Object({ id: Type.String(), status: Type.String(), summary: Type.Any(), comparison: Type.Any(), reading: Type.Union([Type.String(), Type.Null()]), runs: Type.Array(Type.Any()) }),
       async execute({ id }) {

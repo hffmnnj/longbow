@@ -127,15 +127,9 @@
   </header>
 
   {#if reading}
-    <section
-      class={cn(
-        "shrink-0 rounded-lg border px-3.5 py-3",
-        reading.conclusive ? "border-lab/50 bg-lab-bg" : "border-border bg-card",
-      )}
-      aria-label="Variant comparison"
-    >
+    <section class="border-border bg-card shrink-0 rounded-lg border px-3.5 py-3" aria-label="Variant comparison">
       <h3 class="label-caps pb-1">{variants.length === 2 ? `${variants[0]} vs ${variants[1]}` : "Comparison"}</h3>
-      <p class="text-[14px] leading-snug font-medium">{reading.text}</p>
+      <p class="text-[14px] leading-snug font-medium">{reading}</p>
     </section>
   {/if}
 

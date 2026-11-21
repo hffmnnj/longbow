@@ -560,45 +560,41 @@ List<MetricRow> metricRows(SimRun run) =>
 String _points(double x) =>
     '${x < 0 ? '\u2212' : ''}${x.abs().toStringAsFixed(1)}';
 
-class ComparisonReading {
-  const ComparisonReading({required this.text, required this.conclusive});
+/// One-decimal lead that never prints "0.0" for a nonzero gap.
+String _leadPoints(double x) =>
+    _points(x) == '0.0' && x != 0 ? 'less than 0.1' : _points(x);
 
-  /// True only when the 95% interval excludes zero.
-  final bool conclusive;
-  final String text;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ComparisonReading &&
-      other.text == text &&
-      other.conclusive == conclusive;
-
-  @override
-  int get hashCode => Object.hash(text, conclusive);
-}
-
-/// Plain reading of a two-variant suite comparison, for example "B beat A by
-/// 0.8 points; 95% interval −0.3 to 1.9; not conclusive".
-ComparisonReading? comparisonReading(SimSuite suite) {
+/// Plain reading of a two-variant suite comparison, for example "B led A by
+/// 0.8 points of excess return across 2 paired markets. 95% resampled range
+/// (B minus A): −0.3 to 1.9. Does not establish a live edge.". Null with no
+/// comparison or no pairs.
+String? comparisonReading(SimSuite suite) {
   final c = suite.comparison;
-  if (c == null) return null;
+  if (c == null || !(c.pairs >= 1)) return null;
   final a = suite.config.variants.isNotEmpty
       ? suite.config.variants[0].label
       : 'A';
   final b = suite.config.variants.length > 1
       ? suite.config.variants[1].label
       : 'B';
-  final head = c.meanDiff > 0
-      ? '$b beat $a by ${_points(c.meanDiff)} points'
-      : c.meanDiff < 0
-          ? '$a beat $b by ${_points(-c.meanDiff)} points'
-          : '$a tied $b';
-  final conclusive = c.ci95[0] > 0 || c.ci95[1] < 0;
-  return ComparisonReading(
-    text:
-        '$head; 95% interval ${_points(c.ci95[0])} to ${_points(c.ci95[1])}; ${conclusive ? 'conclusive' : 'not conclusive'}',
-    conclusive: conclusive,
-  );
+  final markets = c.pairs == 1
+      ? 'across 1 paired market'
+      : 'across ${c.pairs} paired markets';
+  final prefix = isActive(suite.status) ? 'So far: ' : '';
+  final String head;
+  if (c.meanDiff > 0) {
+    head =
+        '$b led $a by ${_leadPoints(c.meanDiff)} points of excess return $markets';
+  } else if (c.meanDiff < 0) {
+    head =
+        '$a led $b by ${_leadPoints(-c.meanDiff)} points of excess return $markets';
+  } else {
+    head = '$a and $b tied on excess return $markets';
+  }
+  final tail = c.pairs == 1
+      ? 'One pair cannot estimate uncertainty.'
+      : '95% resampled range ($b minus $a): ${_points(c.ci95[0])} to ${_points(c.ci95[1])}.';
+  return '$prefix$head. $tail Does not establish a live edge.';
 }
 
 class SuiteProgress {

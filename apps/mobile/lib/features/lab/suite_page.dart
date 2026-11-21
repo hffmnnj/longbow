@@ -185,7 +185,6 @@ class _SuiteBody extends StatelessWidget {
                 ? '${labels[0]} vs ${labels[1]}'
                 : 'Comparison',
             reading: reading,
-            pairs: suite.comparison!.pairs,
           ),
           const SizedBox(height: LbSpace.gap),
         ],
@@ -207,36 +206,23 @@ class _SuiteBody extends StatelessWidget {
 }
 
 class _Verdict extends StatelessWidget {
-  const _Verdict({
-    required this.title,
-    required this.reading,
-    required this.pairs,
-  });
+  const _Verdict({required this.title, required this.reading});
 
   final String title;
-  final ComparisonReading reading;
-  final int pairs;
+  final String reading;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.lb;
     return Semantics(
       container: true,
       label: 'Variant comparison',
       child: LbCard(
-        color: reading.conclusive ? c.labBg : null,
-        borderColor: reading.conclusive ? c.lab.withValues(alpha: 0.5) : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SectionLabel(title),
             const SizedBox(height: 4),
-            Text(reading.text, style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'Excess return over the benchmark, paired across $pairs markets.',
-              style: LbText.muted(context, size: 12),
-            ),
+            Text(reading, style: Theme.of(context).textTheme.titleSmall),
           ],
         ),
       ),

@@ -305,29 +305,28 @@ export { DASH };
 /** One-decimal points with a true minus sign: 0.8, −0.3. */
 const points = (x: number): string => `${x < 0 ? "−" : ""}${Math.abs(x).toFixed(1)}`;
 
-export interface ComparisonReading {
-  text: string;
-  /** True only when the 95% interval excludes zero. */
-  conclusive: boolean;
-}
+/** One-decimal lead that never prints "0.0" for a nonzero gap. */
+const leadPoints = (x: number): string => (points(x) === "0.0" && x !== 0 ? "less than 0.1" : points(x));
 
-/** Plain reading of a two-variant suite comparison, for example "B beat A by 0.8 points; 95% interval −0.3 to 1.9; not conclusive". */
-export function comparisonReading(suite: Pick<SimSuite, "config" | "comparison">): ComparisonReading | null {
+/** Plain reading of a two-variant suite comparison, for example "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.". Null with no comparison or no pairs. */
+export function comparisonReading(suite: Pick<SimSuite, "config" | "comparison" | "status">): string | null {
   const c = suite.comparison;
-  if (!c) return null;
+  if (!c || !(c.pairs >= 1)) return null;
   const a = suite.config.variants[0]?.label ?? "A";
   const b = suite.config.variants[1]?.label ?? "B";
+  const markets = c.pairs === 1 ? "across 1 paired market" : `across ${c.pairs} paired markets`;
+  const prefix = isActive(suite.status) ? "So far: " : "";
   const head =
     c.meanDiff > 0
-      ? `${b} beat ${a} by ${points(c.meanDiff)} points`
+      ? `${b} led ${a} by ${leadPoints(c.meanDiff)} points of excess return ${markets}`
       : c.meanDiff < 0
-        ? `${a} beat ${b} by ${points(-c.meanDiff)} points`
-        : `${a} tied ${b}`;
-  const conclusive = c.ci95[0] > 0 || c.ci95[1] < 0;
-  return {
-    text: `${head}; 95% interval ${points(c.ci95[0])} to ${points(c.ci95[1])}; ${conclusive ? "conclusive" : "not conclusive"}`,
-    conclusive,
-  };
+        ? `${a} led ${b} by ${leadPoints(-c.meanDiff)} points of excess return ${markets}`
+        : `${a} and ${b} tied on excess return ${markets}`;
+  const tail =
+    c.pairs === 1
+      ? "One pair cannot estimate uncertainty."
+      : `95% resampled range (${b} minus ${a}): ${points(c.ci95[0])} to ${points(c.ci95[1])}.`;
+  return `${prefix}${head}. ${tail} Does not establish a live edge.`;
 }
 
 /** Finished runs out of the suite's total, resolved against the lab's run list. */

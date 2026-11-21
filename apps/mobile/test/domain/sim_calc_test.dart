@@ -438,50 +438,95 @@ void main() {
   });
 
   group('comparisonReading', () {
-    SimSuite suite(double meanDiff, List<double> ci95) => _suite(
-          's',
-          variants: const [SimVariant(label: 'A'), SimVariant(label: 'B')],
-          comparison: SimComparison(
-            metric: 'excessReturnPct',
-            meanDiff: meanDiff,
-            ci95: ci95,
-            pairs: 2,
-          ),
-        );
+    SimSuite suite(
+      double meanDiff,
+      List<double> ci95, {
+      int pairs = 2,
+      SimRunStatus status = SimRunStatus.done,
+    }) => _suite(
+      's',
+      status: status,
+      variants: const [
+        SimVariant(label: 'A'),
+        SimVariant(label: 'B'),
+      ],
+      comparison: SimComparison(
+        metric: 'excessReturnPct',
+        meanDiff: meanDiff,
+        ci95: ci95,
+        pairs: pairs,
+      ),
+    );
 
-    test('reads an inconclusive lead plainly', () {
+    test('reads a lead plainly without claiming a live edge', () {
       expect(
         comparisonReading(suite(0.8, [-0.3, 1.9])),
-        const ComparisonReading(
-          text:
-              'B beat A by 0.8 points; 95% interval \u22120.3 to 1.9; not conclusive',
-          conclusive: false,
-        ),
+        'B led A by 0.8 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.3 to 1.9. '
+        'Does not establish a live edge.',
       );
     });
 
-    test('calls an interval that excludes zero conclusive, either direction', () {
-      expect(comparisonReading(suite(1.4, [0.2, 2.6]))?.conclusive, isTrue);
+    test('names the leader first when the gap is negative', () {
       expect(
         comparisonReading(suite(-1.1, [-2.0, -0.2])),
-        const ComparisonReading(
-          text:
-              'A beat B by 1.1 points; 95% interval \u22122.0 to \u22120.2; conclusive',
-          conclusive: true,
-        ),
+        'A led B by 1.1 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22122.0 to \u22120.2. '
+        'Does not establish a live edge.',
       );
     });
 
-    test('is null with no comparison', () {
+    test('says less than 0.1 instead of 0.0 for a tiny nonzero lead', () {
+      expect(
+        comparisonReading(suite(0.04, [-0.1, 0.2])),
+        'B led A by less than 0.1 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.1 to 0.2. '
+        'Does not establish a live edge.',
+      );
+    });
+
+    test('skips the interval for a single pair', () {
+      expect(
+        comparisonReading(suite(0.8, [-0.3, 1.9], pairs: 1)),
+        'B led A by 0.8 points of excess return across 1 paired market. '
+        'One pair cannot estimate uncertainty. '
+        'Does not establish a live edge.',
+      );
+    });
+
+    test('names both variants on an exact tie', () {
+      expect(
+        comparisonReading(suite(0, [-0.5, 0.5])),
+        'A and B tied on excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.5 to 0.5. '
+        'Does not establish a live edge.',
+      );
+    });
+
+    test('prefixes a partial result while the suite is still running', () {
+      expect(
+        comparisonReading(
+          suite(0.8, [-0.3, 1.9], status: SimRunStatus.running),
+        ),
+        'So far: B led A by 0.8 points of excess return across 2 paired markets. '
+        '95% resampled range (B minus A): \u22120.3 to 1.9. '
+        'Does not establish a live edge.',
+      );
+    });
+
+    test('is null with no comparison or no pairs', () {
       expect(comparisonReading(_suite('s')), isNull);
+      expect(comparisonReading(suite(0.8, [-0.3, 1.9], pairs: 0)), isNull);
     });
   });
 
   group('alias reveal', () {
-    SimRun blind() => _run('b',
-        status: SimRunStatus.done,
-        config: _cfg(mode: SimMode.blind),
-        aliases: const {'QX1': 'SPY'});
+    SimRun blind() => _run(
+      'b',
+      status: SimRunStatus.done,
+      config: _cfg(mode: SimMode.blind),
+      aliases: const {'QX1': 'SPY'},
+    );
 
     test('maps aliases to real symbols only when revealed', () {
       final r = blind();

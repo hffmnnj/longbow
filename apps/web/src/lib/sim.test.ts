@@ -284,7 +284,12 @@ describe("fillCost", () => {
 });
 
 describe("comparisonReading", () => {
-  const suite = (meanDiff: number, ci95: [number, number]): Pick<SimSuite, "config" | "comparison"> => ({
+  const suite = (
+    meanDiff: number,
+    ci95: [number, number],
+    pairs = 2,
+    status: SimSuite["status"] = "done",
+  ): Pick<SimSuite, "config" | "comparison" | "status"> => ({
     config: {
       name: "s",
       scenarios: [],
@@ -296,23 +301,42 @@ describe("comparisonReading", () => {
       execution: "realistic",
       variants: [{ label: "A" }, { label: "B" }],
     },
-    comparison: { metric: "excessReturnPct", meanDiff, ci95, pairs: 2 },
+    status,
+    comparison: { metric: "excessReturnPct", meanDiff, ci95, pairs },
   });
-  it("reads an inconclusive lead plainly", () => {
-    expect(comparisonReading(suite(0.8, [-0.3, 1.9]))).toEqual({
-      text: "B beat A by 0.8 points; 95% interval −0.3 to 1.9; not conclusive",
-      conclusive: false,
-    });
+  it("reads a lead plainly without claiming a live edge", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9]))).toBe(
+      "B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.",
+    );
   });
-  it("calls an interval that excludes zero conclusive, either direction", () => {
-    expect(comparisonReading(suite(1.4, [0.2, 2.6]))?.conclusive).toBe(true);
-    expect(comparisonReading(suite(-1.1, [-2.0, -0.2]))).toEqual({
-      text: "A beat B by 1.1 points; 95% interval −2.0 to −0.2; conclusive",
-      conclusive: true,
-    });
+  it("names the leader first when the gap is negative", () => {
+    expect(comparisonReading(suite(-1.1, [-2.0, -0.2]))).toBe(
+      "A led B by 1.1 points of excess return across 2 paired markets. 95% resampled range (B minus A): −2.0 to −0.2. Does not establish a live edge.",
+    );
   });
-  it("is null with no comparison", () => {
+  it("says less than 0.1 instead of 0.0 for a tiny nonzero lead", () => {
+    expect(comparisonReading(suite(0.04, [-0.1, 0.2]))).toBe(
+      "B led A by less than 0.1 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.1 to 0.2. Does not establish a live edge.",
+    );
+  });
+  it("skips the interval for a single pair", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 1))).toBe(
+      "B led A by 0.8 points of excess return across 1 paired market. One pair cannot estimate uncertainty. Does not establish a live edge.",
+    );
+  });
+  it("names both variants on an exact tie", () => {
+    expect(comparisonReading(suite(0, [-0.5, 0.5]))).toBe(
+      "A and B tied on excess return across 2 paired markets. 95% resampled range (B minus A): −0.5 to 0.5. Does not establish a live edge.",
+    );
+  });
+  it("prefixes a partial result while the suite is still running", () => {
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 2, "running"))).toBe(
+      "So far: B led A by 0.8 points of excess return across 2 paired markets. 95% resampled range (B minus A): −0.3 to 1.9. Does not establish a live edge.",
+    );
+  });
+  it("is null with no comparison or no pairs", () => {
     expect(comparisonReading({ ...suite(0, [0, 0]), comparison: undefined })).toBeNull();
+    expect(comparisonReading(suite(0.8, [-0.3, 1.9], 0))).toBeNull();
   });
 });
 

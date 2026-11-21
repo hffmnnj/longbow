@@ -89,18 +89,23 @@ void main() {
       expect(find.text('ETF five-day-low branch filter pilot'), findsOneWidget);
       expect(find.text('PAPER MONEY'), findsOneWidget);
       expect(find.text('Done'), findsOneWidget);
-      // The reading comes from comparisonReading: A edged B by 0.0 points and the
-      // interval touches zero, so it is not conclusive.
+      // The reading comes from comparisonReading: the fixture gap rounds to
+      // 0.0 at one decimal, so it reads as less than 0.1 points.
       expect(
         find.textContaining(
-          'A current OR rule beat B RSI-only filter by 0.0 points',
+          'A current OR rule led B RSI-only filter by less than 0.1 points',
         ),
         findsOneWidget,
       );
-      expect(find.textContaining('not conclusive'), findsOneWidget);
+      expect(find.textContaining('across 3 paired markets'), findsOneWidget);
+      expect(
+        find.textContaining('Does not establish a live edge'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('conclusive'), findsNothing);
       expect(
         find.text('Excess return over the benchmark, paired across 3 markets.'),
-        findsOneWidget,
+        findsNothing,
       );
 
       expect(find.text('VARIANT SUMMARY'), findsOneWidget);
@@ -121,32 +126,37 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a conclusive comparison is marked in the lab color and reads as conclusive',
-    (tester) async {
-      final suite = _suite(
-        comparison: {
-          'metric': 'excessReturnPct',
-          'meanDiff': 1.2,
-          'ci95': [0.4, 2.0],
-          'pairs': 5,
-        },
-      );
-      await _open(tester, suite);
+  testWidgets('a lead reads plainly with no conclusive marking', (
+    tester,
+  ) async {
+    final suite = _suite(
+      comparison: {
+        'metric': 'excessReturnPct',
+        'meanDiff': 1.2,
+        'ci95': [0.4, 2.0],
+        'pairs': 5,
+      },
+    );
+    await _open(tester, suite);
 
-      expect(
-        find.textContaining(
-          'B RSI-only filter beat A current OR rule by 1.2 points',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('95% interval 0.4 to 2.0; conclusive'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('not conclusive'), findsNothing);
-    },
-  );
+    expect(
+      find.textContaining(
+        'B RSI-only filter led A current OR rule by 1.2 points',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        '95% resampled range (B RSI-only filter minus A current OR rule): 0.4 to 2.0',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Does not establish a live edge'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('conclusive'), findsNothing);
+  });
 
   testWidgets('tapping a market opens that member run', (tester) async {
     await _open(tester, fixtureSuites().first);
