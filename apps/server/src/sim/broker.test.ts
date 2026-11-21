@@ -106,6 +106,27 @@ test("a resting protective stop sells when the path falls through it", async () 
   assert.equal(sells[0]!.price, 94.5);
   assert.equal((await broker.snapshot()).positions.length, 0);
 });
+test("a realistically modeled protective stop does not pay its entire stop-limit buffer", async () => {
+  const bars: Bar[] = [
+    { date: "2026-07-06", open: 100, low: 99.9, high: 100.5, close: 100, volume: 100_000_000 },
+    { date: "2026-07-07", open: 100, low: 97, high: 100.5, close: 98, volume: 100_000_000 },
+  ];
+  const { broker, at } = barsFixture(bars, "2026-07-06");
+  await broker.placeOrder({ ...intent, limitPrice: 101 });
+  await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 99.5, limitPrice: 99, timeInForce: "gtc" });
+  assert.equal(broker.orders()[1]?.triggered, false);
+
+  at("2026-07-07", 16);
+  await broker.advance();
+  const sells = broker.fills().filter((fill) => fill.side === "sell");
+  assert.equal(sells.length, 1);
+  const fill = sells[0]!;
+  assert.ok(Math.abs((fill.mid ?? NaN) - 99.5) < 1e-9);
+  // Prior $10B ADV gives a 1 bp half-spread, widened to at most 1.5 bp
+  // near the open. No volatility term with one prior close.
+  assert.ok(fill.price >= 99.5 * (1 - 0.00015) && fill.price <= 99.5 * (1 - 0.0001), `unexpected fill ${fill.price}`);
+  assert.equal((await broker.snapshot()).positions.length, 0);
+});
 test("a sell is refused while a resting stop holds the shares", async () => {
   const { broker } = fixture();
   await broker.placeOrder(intent);
@@ -144,7 +165,7 @@ test("a gap below a sell stop triggers at the open while a stop_limit above the 
   const { broker, at } = barsFixture(bars, "2026-07-06");
   await broker.placeOrder({ ...intent, limitPrice: 200 });
   assert.equal(broker.fills().length, 1);
-  await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 96, timeInForce: "gtc" });
+  await broker.placeOrder({ ...intent, side: "sell", orderType: "stop_limit", stopPrice: 95, limitPrice: 94.5, timeInForce: "gtc" });
   assert.equal(broker.orders()[1]!.triggered, false);
   at("2026-07-07", 9, 31);
   await broker.advance();
