@@ -192,15 +192,19 @@ export function createSimService(deps: SimServiceDeps): SimService {
     if (!blindish) {
       const startDate = run.config.startDate;
       if (startDate === undefined) throw new Error("Simulation start date is missing");
+      const lookback = new Date(`${startDate}T12:00:00Z`);
+      lookback.setUTCFullYear(lookback.getUTCFullYear() - 6);
+      // One tape provides both execution and up to five years of visible history,
+      // plus indicator warmup. Nasdaq transport still needs a current end date.
+      const from = lookback.toISOString().slice(0, 10);
       const history = new Map<string, Promise<Bar[]>>();
       bars = (symbol: string): Promise<Bar[]> => {
         let promise = history.get(symbol);
         if (promise === undefined) {
-          // Give the paper broker room for 20 prior returns (21 closes),
-          // including weekends and exchange holidays, before the first scored quote.
-          const from = new Date(Date.parse(`${startDate}T12:00:00Z`) - 45 * 86_400_000).toISOString().slice(0, 10);
-          // Fetch through today for Nasdaq compatibility, but retain the historical path privately.
-          promise = fetchBars(symbol, from, todayStr); history.set(symbol, promise);
+          promise = fetchBars(symbol, from, todayStr).then((source) => source
+            .filter((bar) => bar.date >= from && bar.date < completedBefore)
+            .sort((a, b) => a.date.localeCompare(b.date)));
+          history.set(symbol, promise);
         }
         return promise;
       };
@@ -217,8 +221,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
         return spy.filter((b) => b.date < date || (b.date === date && now >= sessionClose(date))).at(-1)?.date
           ?? (() => { throw new Error("No prior trading day available"); })();
       };
-      const historicalMarket = new MarketStore({ dataDir: runDir, log: deps.log, clock: { now: () => Date.now() }, asOf });
-      market = createPointInTimeMarketData(historicalMarket, asOf);
+      market = createPointInTimeMarketData({
+        history: async (symbol) => ({ symbol, bars: await bars(symbol), source: "historical-replay", asOf: 0 }),
+      }, asOf);
       symbols = universe;
       now = etInstant(startDate, 9);
     } else {

@@ -335,12 +335,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
   // absent. The cutoff is read per call because the simulated date advances.
   const pit = createPointInTimeMarketData(market, () => asOf?.() ?? etDate(clock.now()));
 
-  /**
-   * Indicator input for pricesOnly markets: the full transformed series from
-   * the injected market (warmup included), with the range window counted back
-   * from the simulated date. Never touches the Nasdaq-backed store.
-   */
-  async function scenarioExtended(symbol: string, range: HistoryRange): Promise<ExtendedHistory> {
+  /** Replay indicators use the same injected tape as the other price tools, never a second fetch. */
+  async function replayExtended(symbol: string, range: HistoryRange): Promise<ExtendedHistory> {
     const full = (await pit.history(symbol, "5y")).bars;
     const want = isCryptoSymbol(symbol) ? CRYPTO_VOL_WINDOW[range] : VOL_WINDOW[range];
     const window = full.length > want ? full.slice(full.length - want) : full;
@@ -422,8 +418,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     async execute(args) {
       try {
         const range = rangeOr(args.range as RangeArg, "1y");
-        const { window, full } = deps.pricesOnly === true
-          ? await scenarioExtended(args.symbol, range)
+        const { window, full } = asOf !== undefined || deps.pricesOnly === true
+          ? await replayExtended(args.symbol, range)
           : await store.extended(args.symbol, range);
         const last = window[window.length - 1] ?? full[full.length - 1];
         if (!last) return fail(`No price history found for ${args.symbol} (${range}).`);

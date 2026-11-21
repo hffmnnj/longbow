@@ -399,12 +399,14 @@ describe("market_tools_point_in_time", () => {
   });
 
   it("indicators_end_on_asof_and_prefix_text", async () => {
-    const { ext } = setup(() => ASOF);
+    const calls: string[] = [];
+    const { ext } = setup(() => ASOF, { calls });
     const result = await callTool(ext, "market_indicators", { symbol: "SPY", range: "1y" });
     assert.equal(result.isError, undefined);
     const structured = result.structuredOutput as unknown as { date: string; close: number };
     assert.equal(structured.date, ASOF);
-    assert.equal(structured.close, 100);
+    assert.equal(structured.close, 100 + ASOF_INDEX * 0.05, "use the injected tape, not the provider's separate $100 bar");
+    assert.deepEqual(calls, [], "replay indicators must not open a second price feed");
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
   });
 
@@ -421,7 +423,7 @@ describe("market_tools_point_in_time", () => {
       async history(symbol: string) { return { symbol, bars: series.get(symbol) ?? [], source: "fixture", asOf: 0 }; },
     };
     const ext = createMarketExtension({ market, dataDir, log: silent, clock: fixedClock(0),
-      asOf: () => ASOF, pricesOnly: true, fetchImpl: fakeFetchImpl([]) });
+      asOf: () => ASOF, fetchImpl: fakeFetchImpl([]) });
     for (const [symbol, expected] of [["RISE", 10], ["FALL", -10], ["FLAT", 0], ["SHORT", null]] as const) {
       const result = await callTool(ext, "market_indicators", { symbol });
       assert.equal(result.isError, undefined, symbol);

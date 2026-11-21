@@ -327,8 +327,7 @@ test("historical admission requires earnings coverage unless explicitly omitted 
       if (!omitBlackout) assert.match(failures?.[0]?.detail ?? "", /point-in-time earnings schedule unavailable/);
       assert.equal(result.fills.length, omitBlackout ? 1 : 0);
     }
-    assert.ok(lookups.length > 0, "volume was not exercised");
-    assert.ok(lookups.every((url) => new URL(url).pathname.endsWith("/historical")), lookups.join("\n"));
+    assert.deepEqual(lookups, [], "the injected tape supplies historical liquidity without a second feed");
   } finally {
     await sim.close();
     cleanReplayCoverageFixture(dataDir, sim);
@@ -401,18 +400,23 @@ function regularSessionDates(from: string, to: string): string[] {
   return dates;
 }
 
-test("historical execution warmup quotes from the full 20-session average dollar volume", async () => {
+test("historical execution, visible indicators and gate use one completed price tape", async (t) => {
+  const unexpectedFetches: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: URL | Request | string) => {
+    unexpectedFetches.push(String(input));
+    throw new Error("historical fixture must use only its injected price tape");
+  });
   const dataDir = mkdtempSync("/tmp/sim-execution-warmup-");
   const tradeDate = "2026-09-01";
   const sessions = regularSessionDates("2026-07-01", "2026-10-30");
   const tradeIndex = sessions.indexOf(tradeDate);
   assert.ok(tradeIndex >= 20, "the fixture needs 20 regular sessions before the trade date");
-  const fetchedSymbols = new Set<string>();
+  const fetchCounts = new Map<string, number>();
   // Flat $100 bars: the latest 10 prior sessions trade 1M shares, the 10 before
   // them 4M, so the 20-session average dollar volume is $250M (5 bp half-spread)
   // while a window truncated to the latest 10 sees only $100M (15 bp).
   const barsFor = (symbol: string, from: string, to: string): Bar[] => {
-    fetchedSymbols.add(symbol);
+    fetchCounts.set(symbol, (fetchCounts.get(symbol) ?? 0) + 1);
     assert.ok(symbol === "SPY" || symbol === "AAPL", `unexpected history request for ${symbol}`);
     return sessions.filter((date) => date >= from && date <= to).map((date) => {
       const prior = tradeIndex - sessions.indexOf(date);
@@ -427,7 +431,14 @@ test("historical execution warmup quotes from the full 20-session average dollar
     fetchBars: async (symbol, from, to) => barsFor(symbol, from, to),
     buildExtensions: ({ broker }) => { paper = broker; return []; },
     driver: async (run, ctx) => {
+      assert.ok(paper !== undefined);
+      const visible = await ctx.market.history("AAPL", "5y");
+      assert.ok(visible.bars.length >= 30);
+      assert.ok(visible.bars.every((bar) => bar.date <= ctx.asOf()));
+      assert.deepEqual(visible.bars, (await ctx.bars("AAPL")).filter((bar) => bar.date <= ctx.asOf()));
       if (ctx.kind !== "intraday" || run.progress.cycle !== 1) return;
+      assert.equal(visible.bars.at(-1)?.date, "2026-08-31");
+      assert.equal(await ctx.market.avgDollarVolume("AAPL", 20), 250_000_000);
       for (const symbol of ["SPY", ...ctx.symbols]) {
         const quote = await paper!.quote(symbol);
         quotes.push({ symbol, at: quote.at, last: quote.last, ask: quote.ask });
@@ -440,7 +451,8 @@ test("historical execution warmup quotes from the full 20-session average dollar
     const done = await waitForDone(sim, run.id);
     assert.equal(done.status, "done", done.error ?? "execution warmup replay did not finish");
     assert.deepEqual(done.equity.map((point) => point.date), [tradeDate]);
-    assert.deepEqual([...fetchedSymbols].sort(), ["AAPL", "SPY"], "every symbol must source history from the deterministic fixture");
+    assert.deepEqual([...fetchCounts].sort(), [["AAPL", 1], ["SPY", 2]], "SPY preflight is separate, then symbols are loaded once per run");
+    assert.deepEqual(unexpectedFetches, []);
     assert.deepEqual(quotes.map((quote) => quote.symbol), ["SPY", "AAPL"]);
     for (const quote of quotes) {
       assert.equal(quote.at, etInstant(tradeDate, 10, 15));
