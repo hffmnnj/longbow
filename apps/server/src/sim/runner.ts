@@ -53,6 +53,8 @@ export interface SimDriverContext {
   benchmark: string;
 }
 
+type SimCycleResult = Awaited<ReturnType<TradingAgent["runCycleAndWait"]>>;
+
 export interface SimServiceDeps {
   config: Config;
   log: Logger;
@@ -67,7 +69,7 @@ export interface SimServiceDeps {
   /** Test seam: source bars without Nasdaq (defaults to the replay market). */
   fetchBars?: (symbol: string, from: string, to: string) => Promise<Bar[]>;
   /** Test seam: replaces the TradingAgent cycle run (which needs model credentials). */
-  driver?: (run: SimRun, ctx: SimDriverContext) => Promise<void>;
+  driver?: (run: SimRun, ctx: SimDriverContext) => Promise<SimCycleResult | void>;
   /** Test seam: real-symbol sectors without SEC lookups. */
   sectorSource?: SectorDirectory;
   /** Shared System One client: the same entry review and jev_* tools the live agent has, on simulated state. */
@@ -282,12 +284,12 @@ export function createSimService(deps: SimServiceDeps): SimService {
           } });
         agents.set(run.id, agent);
       }
-      const stepCycle = deps.driver !== undefined
-        ? async (kind: CycleKind) => { await deps.driver!(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark }); }
-        : async (kind: CycleKind) => {
-            const result = await agent!.runCycleAndWait(kind, 8 * 60_000);
-            if (result !== "done") deps.log.warn("simulation cycle did not answer", { id: run.id, date: run.currentDate, result });
-          };
+      const stepCycle = async (kind: CycleKind): Promise<SimCycleResult> => {
+        if (deps.driver !== undefined) {
+          return await deps.driver(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark }) ?? "done";
+        }
+        return agent!.runCycleAndWait(kind, 8 * 60_000);
+      };
       const times: [number, number, CycleKind][] = [
         ...(run.config.cyclesPerDay >= 3 ? [[9, 0, "pre_open"] as [number, number, CycleKind]] : []),
         [10, 15, "intraday"], ...(run.config.cyclesPerDay === 4 ? [[12, 30, "intraday"] as [number, number, CycleKind]] : []), [15, 30, "intraday"],
@@ -302,8 +304,12 @@ export function createSimService(deps: SimServiceDeps): SimService {
           await broker.advance();
           run.progress.cycle = j + 1;
           save(run);
-          await stepCycle(kind);
+          const result = await stepCycle(kind);
+          // Save diagnostics at the failed clock tick, not after the agent closes.
           await snapshot();
+          if (run.status === "running" && result !== "done") {
+            throw new Error(`Simulation ${kind} on ${date} did not complete: ${result}`);
+          }
         }
         if (run.status !== "running") break;
         now = etInstant(date, 16);
@@ -314,7 +320,10 @@ export function createSimService(deps: SimServiceDeps): SimService {
       }
       if (run.status === "running") {
         now = etInstant(simDays.at(-1)!, 16, 10);
-        await stepCycle("post_close");
+        const result = await stepCycle("post_close");
+        if (run.status === "running" && result !== "done") {
+          deps.log.warn("simulation post-close analysis did not answer", { id: run.id, date: run.currentDate, result });
+        }
         if (run.status === "running") run.status = "done";
       }
       await snapshot();

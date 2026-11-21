@@ -109,6 +109,38 @@ async function waitForDone(sim: { get(id: string): SimRun | undefined }, id: str
   }
 }
 
+test("a missing scored cycle stops replay before the close, but analysis is best effort", async () => {
+  for (const outcome of ["timeout", "unanswered", "post-close-timeout"] as const) {
+    const dataDir = mkdtempSync("/tmp/sim-cycle-outcome-");
+    const cycles: string[] = [];
+    const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+      calendar: createNyseCalendar(),
+      fetchBars: async (s, f, t) => fixtureBars(s, f, t),
+      driver: async (_run, ctx) => {
+        cycles.push(ctx.kind);
+        return outcome === "post-close-timeout" ? (ctx.kind === "post_close" ? "timeout" : undefined) : outcome;
+      } });
+    try {
+      const run = await sim.start({ startDate: "2026-09-01", days: 1, startingCash: 1200, cyclesPerDay: 2 }, "user");
+      const result = await waitForDone(sim, run.id);
+      if (outcome === "post-close-timeout") {
+        assert.equal(result.status, "done");
+        assert.deepEqual(cycles, ["intraday", "intraday", "post_close"]);
+        assert.deepEqual(result.equity.map((point) => point.date), ["2026-09-01"]);
+      } else {
+        assert.equal(result.status, "failed");
+        assert.match(result.error ?? "", new RegExp(`intraday.*2026-09-01.*${outcome}`));
+        assert.deepEqual(cycles, ["intraday"]);
+        assert.deepEqual(result.equity, []);
+        assert.ok(result.metrics, "partial diagnostics must remain available");
+      }
+    } finally {
+      await sim.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("resolves scenario config and records seed, suite, variant, and aliases", async () => {
   const dataDir = mkdtempSync("/tmp/sim-scenario-test-");
   const sim = createSimService({ config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
