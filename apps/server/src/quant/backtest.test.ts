@@ -140,6 +140,63 @@ describe("pooled_stats", () => {
   });
 });
 
+describe("large open-gap warning", () => {
+  it("flags a 50% gap without changing the trade outcome and keeps the small-sample caveat", () => {
+    const flat = new Array(20).fill(100);
+    const gapped = mkBars([...flat, 102, 100, 50], {
+      opens: [...new Array(20).fill(100), 100, 101, 50],
+      highs: [...new Array(20).fill(100.5), 102.5, 101.5, 50.5],
+      lows: [...new Array(20).fill(99.5), 101.5, 99.5, 49.5],
+    });
+    const control = mkBars([...flat, 102, 101, 101, 101]);
+    const result = runBacktest(
+      new Map([
+        ["AAA", gapped],
+        ["BBB", control],
+      ]),
+      { entry: "breakout_20d", exit: EXIT, years: 3, costBps: 0 },
+    );
+    const warning = result.pooled.warning ?? "";
+    // The small-sample caveat survives the appended data-quality note.
+    assert.ok(warning.includes("suggestive"), warning);
+    assert.ok(warning.includes("at least 35%"), warning);
+    assert.ok(warning.includes("AAA 2024-01-23 -50%"), warning);
+    assert.ok(warning.includes("corporate actions"), warning);
+    assert.ok(warning.includes("independently verified"), warning);
+    // The normal control has no gap, so it is not named.
+    assert.ok(!warning.includes("BBB"), warning);
+    // The raw gap still drives the stop fill and the buy-and-hold return.
+    const aaa = result.symbols.find((s) => s.symbol === "AAA");
+    assert.ok(aaa);
+    const trade = aaa.lastTrades[0];
+    assert.ok(trade);
+    assert.equal(trade.exitReason, "stop");
+    assert.equal(trade.exitPrice, 50);
+    assert.ok(trade.pnlR < -20, `expected the raw gap loss, got ${trade.pnlR}R`);
+    assert.ok(aaa.buyHoldReturn !== undefined && Math.abs(aaa.buyHoldReturn + 0.5) < 1e-9);
+  });
+
+  it("caps examples at three, counts the rest, and ignores invalid prices", () => {
+    const flat = new Array(20).fill(100);
+    const upGap = (open: number) => mkBars([...flat, 150], { opens: [...flat, open] });
+    const result = runBacktest(
+      new Map([
+        ["A1", upGap(150)],
+        ["A2", upGap(150)],
+        ["A3", upGap(150)],
+        ["A4", upGap(150)],
+        ["BAD", upGap(0)],
+      ]),
+      { entry: "breakout_20d", exit: EXIT, years: 3, costBps: 0 },
+    );
+    const warning = result.pooled.warning ?? "";
+    assert.equal(warning.split("2024-01-21").length - 1, 3);
+    assert.ok(warning.includes("1 more omitted"), warning);
+    assert.ok(!warning.includes("A4"), warning);
+    assert.ok(!warning.includes("BAD"), warning);
+  });
+});
+
 describe("rsi2_mean_reversion", () => {
   it("enters_on_a_washout_and_exits_at_the_time_stop", () => {
     const closes = [...Array.from({ length: 30 }, (_, i) => 100 + i * 0.2), 100, 94, 95, 96];

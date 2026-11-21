@@ -333,7 +333,9 @@ export function createQuantExtension(deps: QuantDeps): Extension {
       "next open (no look-ahead); stops and targets fill at the open on gap-through bars; one position per " +
       "symbol; costs applied per side. Reports per-symbol and pooled trades, win rate, average R, expectancy, " +
       "profit factor, max drawdown in R, holding days, time invested, buy-and-hold, and the last five trades. " +
-      "Under 30 pooled trades the result is suggestive, not conclusive.",
+      "Under 30 pooled trades the result is suggestive, not conclusive. Prices are raw and unadjusted; " +
+      "open-to-prior-close moves of at least 35% are flagged in the pooled warning as possibly unadjusted " +
+      "corporate actions, but this heuristic cannot catch every such event.",
     parameters: Type.Object({
       symbols: Type.Array(symbolField("Uppercase ticker."), {
         description: "Up to 20 tickers to backtest.",
