@@ -35,7 +35,7 @@ export function comparisonReading(suite: SimSuite): string {
 
 export function createSimToolsExtension({ sim, suites }: { sim: SimService; suites?: SuiteService }): Extension {
   return defineExtension({ name: "simulations", tools: [
-    defineTool({ name: "sim_start", description: "Test a strategy with a full Muse agent and the real risk engine in an accelerated historical paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. A single historical run is a quick sanity check, but the model's memory of real events can contaminate it; use sim_suite_start for paired paper comparisons across blind scenarios and bootstrap markets.",
+    defineTool({ name: "sim_start", description: "Test a strategy with a full Muse agent and the order gate in an accelerated historical paper account. One run at a time; no real orders. Allow roughly 1–3 minutes per cycle. Historical earnings schedules are not point-in-time, and model memory can contaminate results. Use sim_suite_start for paired price-only comparisons across blind scenarios and bootstrap markets.",
       parameters: Type.Object({ days: Type.Integer({ minimum: 1, maximum: 20 }), startDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
         scenario: Type.Optional(Type.String()), mode: Type.Optional(ModeParam), seed: Type.Optional(Type.Integer({ minimum: 0, maximum: 2147483647 })),
         execution: Type.Optional(ExecutionParam), model: Type.Optional(ModelParam),

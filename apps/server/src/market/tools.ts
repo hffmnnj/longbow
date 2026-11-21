@@ -355,6 +355,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     return err(`${tag()}${text}`);
   }
 
+  const historicalEarningsUnavailable = "Point-in-time earnings schedules are unavailable in historical replay.";
+
   const priceHistory = defineTool({
     name: "market_price_history",
     description:
@@ -568,14 +570,15 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     name: "market_earnings",
     description:
       "Next scheduled earnings date for one ticker within the next 30 days (Nasdaq), " +
-      "with the report session and consensus EPS forecast when published.",
+      "with the report session and consensus EPS forecast when published. Unavailable in historical replay.",
     parameters: Type.Object({ symbol: symbolField("Uppercase ticker, e.g. AAPL.") }),
     structuredOutputSchema: earningsSchema,
     replay: "safe",
     outputLimits: { maxBytes: 2_000, maxLines: 10 },
     async execute(args) {
       try {
-        const anchor = asOf?.() ?? etDate(clock.now());
+        if (asOf !== undefined) return fail(historicalEarningsUnavailable);
+        const anchor = etDate(clock.now());
         let found: { date: string; time?: string; epsForecast?: string } | undefined;
         try {
           const single = await fetchEarningsDate(cache, args.symbol);
@@ -620,6 +623,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     name: "market_earnings_calendar",
     description:
       "All companies reporting earnings on one ET date (Nasdaq calendar), limited to the largest 50 by market cap. " +
+      "In historical replay, only archival reports from completed dates before the cutoff are available. " +
       "Use the structured output for the full list; the text names the top five.",
     parameters: Type.Object({
       date: Type.String({ description: "ET date YYYY-MM-DD.", pattern: DATE_PATTERN }),
@@ -629,12 +633,12 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
     outputLimits: { maxBytes: 8_000, maxLines: 30 },
     async execute(args) {
       try {
+        const cutoff = asOf?.();
+        if (asOf !== undefined && (cutoff === undefined || args.date >= cutoff)) {
+          return fail(historicalEarningsUnavailable);
+        }
         const rows = await fetchEarningsCalendar(cache, args.date);
         const sorted = [...rows].sort((a, b) => (b.marketCapNum ?? 0) - (a.marketCapNum ?? 0)).slice(0, 50);
-        // Reported actuals are only known after the fact: blank them on and
-        // after the simulated date (schedules themselves are public in advance).
-        const cutoff = asOf?.();
-        const hideActual = cutoff !== undefined && args.date >= cutoff;
         const structured = {
           date: args.date,
           rows: sorted.map((r) => ({
@@ -642,7 +646,7 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
             name: r.name,
             time: r.time,
             ...(r.epsForecast === undefined ? {} : { epsForecast: r.epsForecast }),
-            ...(r.actualEps === undefined || hideActual ? {} : { actualEps: r.actualEps }),
+            ...(r.actualEps === undefined ? {} : { actualEps: r.actualEps }),
             ...(r.marketCap === undefined ? {} : { marketCap: r.marketCap }),
           })),
         };
@@ -654,7 +658,8 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
           sorted.length === 0
             ? `${tag()}${args.date}: no earnings reports on the calendar.`
             : `${tag()}${args.date}: ${sorted.length} companies reporting; largest: ${top}.`;
-        return { output: [{ type: "text" as const, text }], structuredOutput: structured };
+        const qualified = cutoff === undefined ? text : `${text} Archival results, not an as-published schedule.`;
+        return { output: [{ type: "text" as const, text: qualified }], structuredOutput: structured };
       } catch (error) {
         return fail(`Earnings calendar failed for ${args.date}: ${shortError(error)}`);
       }

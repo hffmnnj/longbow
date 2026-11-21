@@ -81,9 +81,13 @@ function treasuryCsv(dates: string[]): string {
   return lines.join("\n");
 }
 
-function fakeFetchImpl(routes: { match: (url: string) => boolean; body: string }[]): typeof fetch {
+function fakeFetchImpl(
+  routes: { match: (url: string) => boolean; body: string }[],
+  calls?: string[],
+): typeof fetch {
   return (async (url: unknown) => {
     const u = String(url);
+    calls?.push(u);
     for (const r of routes) {
       if (r.match(u)) return new Response(r.body, { status: 200 });
     }
@@ -349,16 +353,19 @@ describe("MarketStore_point_in_time", () => {
 });
 
 describe("market_tools_point_in_time", () => {
-  function setup(asOf: (() => string | undefined) | undefined) {
+  function setup(
+    asOf: (() => string | undefined) | undefined,
+    options: { calls?: string[]; now?: number } = {},
+  ) {
     const dataDir = mkdtempSync(join(tmpdir(), "pit-tools-"));
-    const clock = fixedClock(Date.parse("2026-10-24T12:00:00Z"));
+    const clock = fixedClock(options.now ?? Date.parse("2026-10-24T12:00:00Z"));
     const ext = createMarketExtension({
       market: fakeMarket(dailyBars((i) => 100 + i * 0.05)),
       dataDir,
       log: silent,
       clock,
       ...(asOf === undefined ? {} : { asOf }),
-      fetchImpl: fakeFetchImpl(marketRoutes()),
+      fetchImpl: fakeFetchImpl(marketRoutes(), options.calls),
     });
     return { ext };
   }
@@ -421,26 +428,65 @@ describe("market_tools_point_in_time", () => {
     assert.equal(output.correlation.matrix[0]?.[1], 1);
   });
 
-  it("earnings_counts_days_from_asof", async () => {
-    const { ext } = setup(() => ASOF);
+  it("earnings_refuses_asof_replay_without_a_vendor_call", async () => {
+    const calls: string[] = [];
+    const { ext } = setup(() => ASOF, { calls });
     const result = await callTool(ext, "market_earnings", { symbol: "AAPL" });
-    assert.equal(result.isError, undefined);
-    const structured = result.structuredOutput as unknown as { nextDate: string; daysUntil: number };
-    assert.equal(structured.nextDate, "2025-04-20");
-    assert.equal(structured.daysUntil, 12);
+    assert.equal(result.isError, true);
+    assert.ok(textOf(result).includes("Point-in-time earnings schedules are unavailable"));
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
+    assert.equal(calls.length, 0);
   });
 
-  it("earnings_calendar_blanks_actuals_on_and_after_asof", async () => {
-    const { ext } = setup(() => ASOF);
-    const on = await callTool(ext, "market_earnings_calendar", { date: ASOF });
-    const onRows = (on.structuredOutput as unknown as { rows: Record<string, unknown>[] }).rows;
-    assert.equal(onRows.length, 1);
-    assert.ok(!("actualEps" in (onRows[0] as object)));
-    assert.ok(textOf(on).startsWith(`As of ${ASOF}: `));
-    const before = await callTool(ext, "market_earnings_calendar", { date: "2025-04-01" });
-    const beforeRows = (before.structuredOutput as unknown as { rows: Record<string, unknown>[] }).rows;
-    assert.equal(beforeRows[0]?.["actualEps"], "$0.35");
+  it("earnings_calendar_refuses_asof_and_future_dates_but_labels_archives", async () => {
+    const calls: string[] = [];
+    const { ext } = setup(() => ASOF, { calls });
+    for (const date of [ASOF, "2025-04-09"]) {
+      const result = await callTool(ext, "market_earnings_calendar", { date });
+      assert.equal(result.isError, true, date);
+      assert.ok(textOf(result).includes("Point-in-time earnings schedules are unavailable"), date);
+      assert.ok(textOf(result).startsWith(`As of ${ASOF}: `), date);
+    }
+    assert.equal(calls.length, 0);
+
+    const archive = await callTool(ext, "market_earnings_calendar", { date: "2025-04-01" });
+    assert.equal(archive.isError, undefined);
+    const rows = (archive.structuredOutput as unknown as { rows: Record<string, unknown>[] }).rows;
+    assert.equal(rows[0]?.["actualEps"], "$0.35");
+    assert.ok(textOf(archive).includes("Archival results, not an as-published schedule."));
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0]?.includes("calendar/earnings?date=2025-04-01"));
+  });
+
+  it("earnings_tools_do_not_query_current_data_when_simulation_cutoff_is_unavailable", async () => {
+    const calls: string[] = [];
+    const { ext } = setup(() => undefined, { calls });
+    const earnings = await callTool(ext, "market_earnings", { symbol: "AAPL" });
+    const calendar = await callTool(ext, "market_earnings_calendar", { date: "2025-04-07" });
+    assert.equal(earnings.isError, true);
+    assert.equal(calendar.isError, true);
+    assert.equal(calls.length, 0);
+  });
+
+  it("earnings_without_asof_still_query_known_schedules", async () => {
+    const calls: string[] = [];
+    const { ext } = setup(undefined, { calls, now: Date.parse("2025-04-10T12:00:00Z") });
+    const single = await callTool(ext, "market_earnings", { symbol: "AAPL" });
+    assert.equal(single.isError, undefined);
+    const structured = single.structuredOutput as unknown as { nextDate: string; daysUntil: number };
+    assert.equal(structured.nextDate, "2025-04-20");
+    assert.equal(structured.daysUntil, 10);
+    assert.ok(!textOf(single).startsWith("As of "));
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0]?.includes("/analyst/AAPL/earnings-date"));
+
+    const calendar = await callTool(ext, "market_earnings_calendar", { date: ASOF });
+    assert.equal(calendar.isError, undefined);
+    const rows = (calendar.structuredOutput as unknown as { rows: Record<string, unknown>[] }).rows;
+    assert.equal(rows[0]?.["actualEps"], "$0.35");
+    assert.ok(!textOf(calendar).includes("Archival results"));
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1]?.includes(`calendar/earnings?date=${ASOF}`));
   });
 
   it("economic_calendar_refuses_future_dates_and_blanks_actual_on_asof", async () => {
