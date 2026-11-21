@@ -179,13 +179,18 @@ function entrySignal(prefix: Bar[], entry: BacktestEntry): boolean {
   }
 }
 
-function maxDrawdownOf(equity: number[]): number | undefined {
-  if (equity.length < 2) return undefined;
-  let peak = equity[0] ?? 0;
+function closedDrawdownR(trades: readonly BacktestTrade[]): number | undefined {
+  if (trades.length === 0) return undefined;
+  const byDate = new Map<string, number>();
+  for (const trade of trades) byDate.set(trade.exitDate, (byDate.get(trade.exitDate) ?? 0) + trade.pnlR);
+  let cumulative = 0;
+  let peak = 0;
   let worst = 0;
-  for (const v of equity) {
-    if (v > peak) peak = v;
-    worst = Math.min(worst, v - peak);
+  // Daily bars do not establish an order for same-day closes across symbols.
+  for (const date of [...byDate.keys()].sort()) {
+    cumulative += byDate.get(date)!;
+    peak = Math.max(peak, cumulative);
+    worst = Math.min(worst, cumulative - peak);
   }
   return worst;
 }
@@ -195,12 +200,6 @@ function summarize(symbol: string, trades: BacktestTrade[], bars: Bar[], windowS
   const pnls = trades.map((t) => t.pnlR);
   const grossProfit = pnls.filter((p) => p > 0).reduce((a, b) => a + b, 0);
   const grossLoss = -pnls.filter((p) => p < 0).reduce((a, b) => a + b, 0);
-  const equity: number[] = [];
-  let cum = 0;
-  for (const p of pnls) {
-    cum += p;
-    equity.push(cum);
-  }
   const window = bars.slice(windowStart);
   const inMarket = new Set<string>();
   for (const t of trades) {
@@ -228,7 +227,7 @@ function summarize(symbol: string, trades: BacktestTrade[], bars: Bar[], windowS
           avgR: pnls.reduce((a, b) => a + b, 0) / pnls.length,
           expectancyR: pnls.reduce((a, b) => a + b, 0) / pnls.length,
           profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Number.POSITIVE_INFINITY : undefined,
-          maxDrawdownR: maxDrawdownOf(equity),
+          maxDrawdownR: closedDrawdownR(trades),
           avgHoldingDays: holding.reduce((a, b) => a + b, 0) / holding.length,
           timeInvestedPct: window.length === 0 ? undefined : (inMarket.size / window.length) * 100,
         }),
@@ -376,12 +375,6 @@ export function runBacktest(
   const pnls = pooledTrades.map((t) => t.pnlR);
   const grossProfit = pnls.filter((p) => p > 0).reduce((a, b) => a + b, 0);
   const grossLoss = -pnls.filter((p) => p < 0).reduce((a, b) => a + b, 0);
-  const equity: number[] = [];
-  let cum = 0;
-  for (const p of pnls) {
-    cum += p;
-    equity.push(cum);
-  }
   const holdings = pooledTrades.map((t) => t.holdingDays);
   const warnings: string[] = [];
   if (pooledTrades.length < 30) {
@@ -399,7 +392,7 @@ export function runBacktest(
           avgR: pnls.reduce((a, b) => a + b, 0) / pnls.length,
           expectancyR: pnls.reduce((a, b) => a + b, 0) / pnls.length,
           profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Number.POSITIVE_INFINITY : undefined,
-          maxDrawdownR: maxDrawdownOf(equity),
+          maxDrawdownR: closedDrawdownR(pooledTrades),
           avgHoldingDays: holdings.reduce((a, b) => a + b, 0) / holdings.length,
           timeInvestedPct: pooledBars === 0 ? undefined : (pooledInMarket / pooledBars) * 100,
         }),
