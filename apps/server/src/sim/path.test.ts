@@ -25,6 +25,19 @@ test("replay skips observed Juneteenth 2022 but rejects a missing next-session S
   assert.throws(() => assertReplayBenchmarkCoverage([start, "2022-06-22"], start, calendar),
     /Missing SPY bar for scheduled replay session 2022-06-21/);
 });
+test("replay rejects duplicate marks or bars on a known exchange closure", () => {
+  const calendar = createNyseCalendar();
+  const prior = "2026-07-02";
+  const closure = "2026-07-03";
+  const next = "2026-07-06";
+  assert.doesNotThrow(() => assertReplayBenchmarkCoverage([prior, next], prior, calendar));
+  assert.throws(() => assertReplayBenchmarkCoverage([prior, closure, next], prior, calendar),
+    /Unexpected SPY bar on a closed replay session 2026-07-03/);
+  assert.throws(() => assertReplayBenchmarkCoverage([prior, next, next], prior, calendar),
+    /Duplicate SPY bar for replay session 2026-07-06/);
+  assert.throws(() => assertReplayBenchmarkCoverage([prior, "2026-07-07"], prior, calendar),
+    /Missing SPY bar for scheduled replay session 2026-07-06/);
+});
 test("ET instant respects winter and summer offsets", () => {
   assert.equal(new Date(etInstant("2026-01-05", 10, 15)).toISOString(), "2026-01-05T15:15:00.000Z");
   assert.equal(new Date(etInstant("2026-07-02", 10, 15)).toISOString(), "2026-07-02T14:15:00.000Z");

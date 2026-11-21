@@ -34,19 +34,24 @@ export function tradingDays(bars: Bar[], startDate: string, days: number): Bar[]
   return bars.filter((bar) => bar.date >= startDate).sort((a, b) => a.date.localeCompare(b.date)).slice(0, days);
 }
 
-/** In covered years, don't replace a missing scored session with a later one. */
+/** In covered years, exactly one benchmark mark per scheduled scored session. */
 export function assertReplayBenchmarkCoverage(dates: string[], startDate: string, calendar: MarketCalendar): void {
   const lastDate = dates.at(-1);
   if (lastDate === undefined) return;
   const first = startDate < NYSE_HOLIDAY_COVERAGE.first ? NYSE_HOLIDAY_COVERAGE.first : startDate;
   const last = lastDate > NYSE_HOLIDAY_COVERAGE.last ? NYSE_HOLIDAY_COVERAGE.last : lastDate;
-  const observed = new Set(dates);
+  const observed = new Set<string>();
+  for (const date of dates) {
+    if (date < first || date > last) continue;
+    if (observed.has(date)) throw new Error(`Duplicate SPY bar for replay session ${date}`);
+    observed.add(date);
+  }
   const through = Date.parse(`${last}T12:00:00Z`);
   for (let at = Date.parse(`${first}T12:00:00Z`); at <= through; at += 86_400_000) {
     const date = new Date(at).toISOString().slice(0, 10);
-    if (!observed.has(date) && calendar.clock(at).tradingDay === date) {
-      throw new Error(`Missing SPY bar for scheduled replay session ${date}`);
-    }
+    const open = calendar.clock(at).tradingDay === date;
+    if (open && !observed.has(date)) throw new Error(`Missing SPY bar for scheduled replay session ${date}`);
+    if (!open && observed.has(date)) throw new Error(`Unexpected SPY bar on a closed replay session ${date}`);
   }
 }
 

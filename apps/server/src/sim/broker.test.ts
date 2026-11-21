@@ -130,6 +130,9 @@ test("sale cash cannot fund a same-day rebuy and settles on the next session", a
 });
 test("settled cash observes the historical cycle and clearing holidays, not just trading dates", async (t) => {
   const examples = [
+    { sale: "2018-12-03", blocked: ["2018-12-04"], due: "2018-12-05" }, // Exchanges closed, clearing open.
+    { sale: "2018-12-04", blocked: ["2018-12-05"], due: "2018-12-06" },
+    { sale: "2019-10-11", blocked: ["2019-10-14", "2019-10-15"], due: "2019-10-16" },
     { sale: "2024-05-24", blocked: ["2024-05-27", "2024-05-28"], due: "2024-05-29" },
     { sale: "2024-05-28", blocked: [], due: "2024-05-29" },
     { sale: "2025-01-08", blocked: [], due: "2025-01-09" }, // Exchanges closed, clearing open.

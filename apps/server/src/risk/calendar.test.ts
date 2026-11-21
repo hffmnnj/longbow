@@ -131,16 +131,52 @@ describe("nyse calendar", () => {
     assert.equal(calendar.clock(Date.UTC(2023, 10, 24, 18, 0, 0)).session, "post");
   });
 
-  it("still falls back to weekdays only before 2021", () => {
-    const observedIndependenceDay = calendar.clock(Date.UTC(2020, 6, 3, 15, 0, 0));
-    assert.equal(observedIndependenceDay.session, "regular");
-    assert.equal(observedIndependenceDay.isOpen, true);
-    assert.equal(observedIndependenceDay.tradingDay, "2020-07-03");
-    assert.equal(observedIndependenceDay.earlyClose, false);
-    assert.equal(calendar.tradingDaysBetween("2020-07-02", "2020-07-04"), 1);
+  it("still falls back to weekdays only before 2018", () => {
+    const thanksgiving = calendar.clock(Date.UTC(2017, 10, 23, 17, 0, 0));
+    assert.equal(thanksgiving.session, "regular");
+    assert.equal(thanksgiving.isOpen, true);
+    assert.equal(thanksgiving.tradingDay, "2017-11-23");
+    assert.equal(thanksgiving.earlyClose, false);
+    assert.equal(calendar.tradingDaysBetween("2017-11-22", "2017-11-24"), 1);
   });
 
-  it("counts the 2021 New Year closure at the coverage boundary", () => {
+  it("treats the 2018 day of mourning as a full closure", () => {
+    const noon = calendar.clock(Date.UTC(2018, 11, 5, 17, 0, 0));
+    assert.equal(noon.isOpen, false);
+    assert.equal(noon.session, "closed");
+    assert.equal(noon.tradingDay, "2018-12-06");
+    assert.equal(calendar.tradingDaysBetween("2018-12-04", "2018-12-06"), 0);
+  });
+
+  it("treats 2020-07-03 as the observed Independence Day closure", () => {
+    const noon = calendar.clock(Date.UTC(2020, 6, 3, 16, 0, 0));
+    assert.equal(noon.isOpen, false);
+    assert.equal(noon.session, "closed");
+    assert.equal(noon.tradingDay, "2020-07-06");
+  });
+
+  it("closes early at 13:00 ET on the 2018-2020 half days", () => {
+    const halfDays = ["2018-07-03", "2018-11-23", "2018-12-24", "2019-07-03",
+      "2019-11-29", "2019-12-24", "2020-11-27", "2020-12-24"];
+    for (const date of halfDays) {
+      // 16:30 UTC is 11:30-12:30 ET and 18:30 UTC is 13:30-14:30 ET, so both
+      // sit either side of the 13:00 close in EST and EDT.
+      const beforeClose = calendar.clock(Date.parse(`${date}T16:30:00Z`));
+      assert.equal(beforeClose.session, "regular", `${date} before close`);
+      assert.equal(beforeClose.earlyClose, true, `${date} flagged early`);
+      const afterClose = calendar.clock(Date.parse(`${date}T18:30:00Z`));
+      assert.equal(afterClose.session, "post", `${date} after close`);
+      assert.equal(afterClose.isOpen, false, `${date} closed`);
+    }
+  });
+
+  it("counts 2018-2020 sessions from the extended coverage", () => {
+    assert.equal(calendar.tradingDaysBetween("2017-12-31", "2019-01-01"), 251);
+    assert.equal(calendar.tradingDaysBetween("2018-12-31", "2020-01-01"), 252);
+    assert.equal(calendar.tradingDaysBetween("2019-12-31", "2021-01-01"), 253);
+  });
+
+  it("counts the 2021 New Year closure from 2020-12-31", () => {
     assert.equal(calendar.tradingDaysBetween("2020-12-31", "2021-01-04"), 0);
   });
 
