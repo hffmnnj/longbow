@@ -241,7 +241,7 @@ export function createMarketData(deps: MarketDataDeps): MarketData {
  * the last `days` bars on or before asOf. The base earnings lookup cannot
  * establish what was scheduled at that cutoff and is never called.
  */
-export function createPointInTimeMarketData(base: MarketData, asOf: () => string): MarketData {
+export function createPointInTimeMarketData(base: Pick<MarketData, "history">, asOf: () => string): MarketData {
   return {
     earningsCoverage: "historical_unavailable",
     history: async (symbol, range) => {
