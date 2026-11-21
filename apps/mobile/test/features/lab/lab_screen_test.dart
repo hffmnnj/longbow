@@ -66,6 +66,28 @@ void main() {
   );
 
   testWidgets(
+    'the suite list does not present a one-pair confidence interval',
+    (tester) async {
+      final suite = fixtureSuites().single.copyWith(
+        comparison: const SimComparison(
+          metric: 'excessReturnPct',
+          meanDiff: 0.9,
+          ci95: [0.9, 0.9],
+          pairs: 1,
+        ),
+      );
+      final h = await labHarness(tester, suites: [suite]);
+      await pumpScreen(tester, const LabScreen(), harness: h);
+      await settle(tester);
+      await tester.tap(find.text('Suites'));
+      await settle(tester);
+
+      expect(find.textContaining('excess, 1 paired market'), findsOneWidget);
+      expect(find.textContaining('95%'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'a running run shows progress and updates when an event arrives',
     (tester) async {
       final running = fixtureRun().copyWith(

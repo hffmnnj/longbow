@@ -209,8 +209,9 @@ class SuiteCard extends StatelessWidget {
               style: TextStyle(color: tone, fontWeight: FontWeight.w600),
             ),
             TextSpan(
-              text:
-                  ' \u00b7 excess, 95% ${cmp.ci95[0].toStringAsFixed(1)} to ${cmp.ci95[1].toStringAsFixed(1)}',
+              text: cmp.pairs == 1
+                  ? ' \u00b7 excess, 1 paired market'
+                  : ' \u00b7 excess, 95% ${cmp.ci95[0].toStringAsFixed(1)} to ${cmp.ci95[1].toStringAsFixed(1)}',
               style: TextStyle(color: c.mutedForeground),
             ),
           ],

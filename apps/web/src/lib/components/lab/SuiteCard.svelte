@@ -56,7 +56,13 @@
       {@const trailer = d === 0 ? "" : d > 0 ? suite.config.variants[0]?.label : suite.config.variants[1]?.label}
       <span class="num text-[12px]">
         <span class={cn("font-medium", tone)}>{leader}{trailer ? ` +${Math.abs(d).toFixed(1)}` : ""}{trailer ? ` vs ${trailer}` : ""}</span>
-        <span class="text-muted-foreground"> · excess, 95% {suite.comparison.ci95[0].toFixed(1)} to {suite.comparison.ci95[1].toFixed(1)}</span>
+        <span class="text-muted-foreground">
+          {#if suite.comparison.pairs === 1}
+            · excess, 1 paired market
+          {:else}
+            · excess, 95% {suite.comparison.ci95[0].toFixed(1)} to {suite.comparison.ci95[1].toFixed(1)}
+          {/if}
+        </span>
       </span>
     {/if}
   </button>
