@@ -454,6 +454,13 @@ List<MetricGroup> metricGroups(SimRun run) {
         sub: 'SPY ${n.benchmarkReturnPct.toStringAsFixed(1)}%',
       ),
     );
+    // Second, neutral yardstick: cash at the start, then market exposure
+    // matched to the prior close. Optional until the server sends it; older
+    // runs without the field show nothing. True 0 must still display.
+    final exposure = m?.priorCloseExposureBenchmarkReturnPct;
+    if (exposure != null && exposure.isFinite) {
+      risk.add(MetricRow(label: 'Exposure-matched market', pnl: exposure));
+    }
   }
   if (m?.alphaPct != null) risk.add(MetricRow(label: 'Alpha', pnl: m!.alphaPct));
   if (m?.beta != null) {

@@ -100,4 +100,28 @@ void main() {
     expect(scenarios.first.regime, SimRegime.shock);
     expect(scenarios.first.days, 35);
   });
+
+  test('sim_exposureBenchmarkMissingDefaultsToNull', () {
+    // Stored runs from before the exposure-matched yardstick omit the field.
+    final json =
+        jsonDecode(File('test/fixtures/sim_run.json').readAsStringSync())
+            as Map<String, dynamic>;
+    final run = SimRun.fromJson(json);
+
+    expect(run.metrics, isNotNull);
+    expect(run.metrics!.priorCloseExposureBenchmarkReturnPct, isNull);
+  });
+
+  test('sim_parsesExposureBenchmarkFromRunJson', () {
+    final json =
+        jsonDecode(File('test/fixtures/sim_run.json').readAsStringSync())
+            as Map<String, dynamic>;
+    final metrics = {
+      ...json['metrics'] as Map<String, dynamic>,
+      'priorCloseExposureBenchmarkReturnPct': 0.9,
+    };
+    final run = SimRun.fromJson({...json, 'metrics': metrics});
+
+    expect(run.metrics!.priorCloseExposureBenchmarkReturnPct, 0.9);
+  });
 }

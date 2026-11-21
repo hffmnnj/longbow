@@ -42,6 +42,8 @@ class _Group extends StatelessWidget {
   Widget build(BuildContext context) {
     final cells = group.rows.where((r) => r.bars == null).toList();
     final bars = group.rows.where((r) => r.bars != null).toList();
+    final showsExposureNote = group.title == 'Return and risk' &&
+        group.rows.any((r) => r.label == 'Exposure-matched market');
     return Panel(
       title: group.title,
       child: Column(
@@ -69,6 +71,13 @@ class _Group extends StatelessWidget {
           for (final r in bars) ...[
             if (cells.isNotEmpty) const SizedBox(height: LbSpace.gap),
             _BarsCell(row: r),
+          ],
+          if (showsExposureNote) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Cash at the start, then market exposure matched to the prior close. Not a measure of trade selection.',
+              style: LbText.muted(context, size: 12),
+            ),
           ],
         ],
       ),

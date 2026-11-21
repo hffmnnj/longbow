@@ -809,6 +809,8 @@ export interface SimFill {
 export interface SimMetrics {
   returnPct: number;
   benchmarkReturnPct: number;
+  /** Cash on day one, then benchmark price returns weighted by the account's prior-close exposure. No proxy trading costs. */
+  priorCloseExposureBenchmarkReturnPct?: number;
   maxDrawdownPct: number;
   /** Annualized from daily returns; absent under 5 days. */
   sharpe?: number;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { calculateMetrics } from "./metrics.ts";
-import type { OrderRecord, SimFill } from "@rh/shared";
+import type { OrderRecord, SimEquityPoint, SimFill } from "@rh/shared";
 
 test("metrics include starting capital in return and peak drawdown", () => {
   const equity = [110, 88, 105].map((value, i) => ({ date: `2026-07-0${i + 1}`, equity: value, cash: value / 2, benchmark: 100 + i * 2 }));
@@ -11,6 +11,32 @@ test("metrics include starting capital in return and peak drawdown", () => {
   assert.ok(Math.abs(metrics.benchmarkReturnPct - 4) < 1e-10);
   assert.equal(metrics.exposurePct, 50);
   assert.equal(metrics.sharpe, undefined);
+});
+
+test("market proxy applies each close's exposure only to the next return", () => {
+  const [first, second, third] = [
+    { date: "2026-07-01", equity: 100, cash: 25, benchmark: 80 },
+    { date: "2026-07-02", equity: 100, cash: 60, benchmark: 100 },
+    { date: "2026-07-06", equity: 100, cash: 0, benchmark: 90 },
+  ] as const;
+  const metrics = calculateMetrics(100, [first, second, third], [], []);
+  // Cash on the first session, then 75% × +25% and 40% × −10%.
+  assert.ok(Math.abs((metrics.priorCloseExposureBenchmarkReturnPct ?? NaN) - 14) < 1e-9);
+  assert.ok(Math.abs(metrics.benchmarkReturnPct - (-10)) < 1e-9, "the full-market return stays separate");
+  const points = [first, second, third];
+  assert.equal(calculateMetrics(100, points.map(p => ({ ...p, cash: p.equity })), [], [])
+    .priorCloseExposureBenchmarkReturnPct, 0, "all cash yields a valid zero");
+  assert.ok(Math.abs((calculateMetrics(100, points.map(p => ({ ...p, cash: 0 })), [], [])
+    .priorCloseExposureBenchmarkReturnPct ?? NaN) - 12.5) < 1e-9, "full exposure follows the benchmark after the first close");
+});
+
+test("market proxy is absent without two usable chronological marks", () => {
+  const first: SimEquityPoint = { date: "2026-07-01", equity: 100, cash: 50, benchmark: 100 };
+  const second = { ...first, date: "2026-07-02", benchmark: 110 };
+  for (const marks of [[], [first], [second, first], [first, first], [first, { ...second, benchmark: 0 }],
+    [first, { ...second, equity: -1 }], [first, { ...second, cash: NaN }], [first, { ...second, cash: 101 }]]) {
+    assert.equal(calculateMetrics(100, marks, [], []).priorCloseExposureBenchmarkReturnPct, undefined);
+  }
 });
 test("annualized Sharpe appears after five daily observations", () => {
   const equity = [102, 101, 104, 103, 108].map((value, i) => ({ date: String(i), equity: value, cash: value, benchmark: 100 }));

@@ -21,6 +21,29 @@ function dayDiff(from: string, to: string): number {
   return Math.max(0, Math.round(ms / 86_400_000));
 }
 
+/** Cash on the first session. A closing weight only affects the following session. */
+function priorCloseExposureBenchmark(equity: SimEquityPoint[]): number | undefined {
+  if (equity.length < 2) return undefined;
+  let growth = 1;
+  let previous: SimEquityPoint | undefined;
+  let previousWeight = 0;
+  for (const mark of equity) {
+    if (!Number.isFinite(mark.equity) || mark.equity <= 0 ||
+        !Number.isFinite(mark.benchmark) || mark.benchmark <= 0 || !Number.isFinite(mark.cash)) return undefined;
+    const weight = (mark.equity - mark.cash) / mark.equity;
+    // Tolerate floating-point residue, not leverage or negative exposure.
+    if (weight < -1e-6 || weight > 1 + 1e-6) return undefined;
+    if (previous !== undefined) {
+      if (mark.date <= previous.date) return undefined;
+      growth *= (1 - previousWeight) + previousWeight * (mark.benchmark / previous.benchmark);
+    }
+    previous = mark;
+    previousWeight = Math.min(1, Math.max(0, weight));
+  }
+  const pct = (growth - 1) * 100;
+  return Number.isFinite(pct) ? pct : undefined;
+}
+
 export function calculateMetrics(startingCash: number, equity: SimEquityPoint[], fills: SimFill[], orders: OrderRecord[]): SimMetrics {
   let peak = startingCash;
   let drawdown = 0;
@@ -77,9 +100,11 @@ export function calculateMetrics(startingCash: number, equity: SimEquityPoint[],
       if (!check.ok) riskBlocks[check.rule] = (riskBlocks[check.rule] ?? 0) + 1;
     }
   }
+  const matchedBenchmark = priorCloseExposureBenchmark(equity);
   const metrics: SimMetrics = {
     returnPct: ((last?.equity ?? startingCash) / startingCash - 1) * 100,
     benchmarkReturnPct: ((last?.benchmark ?? startingCash) / startingCash - 1) * 100,
+    ...(matchedBenchmark === undefined ? {} : { priorCloseExposureBenchmarkReturnPct: matchedBenchmark }),
     maxDrawdownPct: drawdown * 100,
     trades: fills.length,
     exposurePct: equity.length === 0 ? 0 : equity.reduce((sum, p) => sum + (p.equity - p.cash) / p.equity, 0) / equity.length * 100,

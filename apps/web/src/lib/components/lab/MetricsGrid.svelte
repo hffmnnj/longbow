@@ -42,6 +42,9 @@
             </div>
           {/each}
         </dl>
+        {#if g.title === "Return and risk" && g.rows.some((r) => r.label === "Exposure-matched market")}
+          <p class="text-muted-foreground pt-1.5 text-[11.5px] leading-relaxed">Cash at the start, then market exposure matched to the prior close. Not a measure of trade selection.</p>
+        {/if}
       </section>
     {/each}
   </div>
