@@ -3,6 +3,7 @@ import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-
 import type { Bar } from "@rh/shared";
 import type { Clock, Logger, MarketData } from "../ports.ts";
 import { atr, closes, periodReturn, realizedVol, rsi, sma } from "../market/indicators.ts";
+import { createNyseCalendar, earningsSessionsUntil } from "../risk/calendar.ts";
 import { candidateRubric, regimeRubric, textRubric, thesisRubric, type CandidateFeatures } from "./rubrics.ts";
 import { confidenceOf, triageCandidate, triageText, triageThesis } from "./policy.ts";
 import { returnBand, stopDistanceBand } from "./buckets.ts";
@@ -24,8 +25,8 @@ const SYMBOL_PATTERN = "^[A-Z.]{1,10}$";
 const symbolField = (description: string) =>
   Type.String({ description, pattern: SYMBOL_PATTERN, minLength: 1, maxLength: 10 });
 
-const DAY_MS = 86_400_000;
 const STATE_CHAR_CAP = 12_000;
+const earningsCalendar = createNyseCalendar();
 
 function err(text: string) {
   return { output: [{ type: "text" as const, text }], isError: true };
@@ -116,21 +117,14 @@ function avgOf(values: number[]): number | undefined {
   return values.reduce((a, v) => a + v, 0) / values.length;
 }
 
-/** Whole trading days (Mon-Fri) from today to an ET YYYY-MM-DD date; undefined when stale or malformed. */
+/** Match the gate's NYSE sessions from today in ET; ignore elapsed or malformed dates. */
 function tradingDaysAway(nowMs: number, etDate: string | undefined): number | undefined {
-  if (etDate === undefined) return undefined;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(etDate);
-  if (match === null) return undefined;
-  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  const now = new Date(nowMs);
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  if (Number.isNaN(target) || target < today) return undefined;
-  let count = 0;
-  for (let t = today + DAY_MS; t <= target; t += DAY_MS) {
-    const dow = new Date(t).getUTCDay();
-    if (dow !== 0 && dow !== 6) count += 1;
-  }
-  return count;
+  if (etDate === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(etDate)) return undefined;
+  const target = new Date(`${etDate}T12:00:00Z`);
+  if (!Number.isFinite(target.getTime()) || !target.toISOString().startsWith(`${etDate}T`)) return undefined;
+  const today = earningsCalendar.etDate(nowMs);
+  if (etDate < today) return undefined;
+  return earningsSessionsUntil(today, etDate, earningsCalendar.tradingDaysBetween);
 }
 
 const statusSchema = Type.Object({
