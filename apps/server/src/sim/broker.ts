@@ -6,6 +6,7 @@ import { equityFees } from "../fees.ts";
 import { fractionalExecution } from "../robinhood/mapping.ts";
 import { etInstant, pathPrice, pathSegment, realisticPrice, realisticSegment, sessionFraction } from "./path.ts";
 import { avgDollarVolumeBefore, halfSpreadBps, returnVolatilityBefore, slippageBps } from "./execution.ts";
+import { paperSettlementDate } from "./settlement.ts";
 
 export interface PaperOrder {
   id: string;
@@ -30,6 +31,8 @@ export interface PaperBrokerDeps {
   execution?: SimExecution;
   /** Seeds the intraday path; the same symbol and date always map to the same path. */
   seed?: number;
+  /** Blind/bootstrap dates are fictional weekdays, not historical clearing dates. */
+  fictionalDates?: boolean;
 }
 
 const LIQUID = new Set(["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "AVGO"]);
@@ -37,7 +40,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   const execution: SimExecution = deps.execution ?? "realistic";
   const seed = deps.seed ?? 1;
   let settled = deps.startingCash;
-  const proceeds: { date: string; amount: number }[] = [];
+  const proceeds: { settlesOn: string; amount: number }[] = [];
   const holdings = new Map<string, { quantity: number; cost: number; sector?: string }>();
   const orders: PaperOrder[] = [];
   const fills: SimFill[] = [];
@@ -53,7 +56,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   }
   function settle(day = date()): void {
     for (let i = proceeds.length - 1; i >= 0; i--) {
-      if (proceeds[i]!.date < day) { settled += proceeds[i]!.amount; proceeds.splice(i, 1); }
+      if (proceeds[i]!.settlesOn <= day) { settled += proceeds[i]!.amount; proceeds.splice(i, 1); }
     }
   }
   const reservedCash = (except?: string): number => orders.filter((o) => o.id !== except && o.status === "open" && o.intent.side === "buy")
@@ -76,7 +79,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const quantity = Math.max(0, held.quantity - intent.quantity);
       if (quantity < 1e-8) holdings.delete(intent.symbol);
       else holdings.set(intent.symbol, { ...held, quantity, cost: held.cost * quantity / held.quantity });
-      proceeds.push({ date: deps.calendar.etDate(at), amount: notional - fees });
+      proceeds.push({ settlesOn: paperSettlementDate(deps.calendar.etDate(at), deps.calendar, deps.fictionalDates ?? false),
+        amount: notional - fees });
     }
     order.status = "filled";
     fills.push({ at, date: deps.calendar.etDate(at), symbol: intent.symbol, side: intent.side, quantity: intent.quantity, price,

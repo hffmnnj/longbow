@@ -4,6 +4,7 @@ import type { Bar, OrderIntent, SimExecution } from "@rh/shared";
 import { createPaperBroker } from "./broker.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
 import { etInstant } from "./path.ts";
+import { paperSettlementDate } from "./settlement.ts";
 
 const intent: OrderIntent = { symbol: "SPY", side: "buy", quantity: 1, orderType: "limit", limitPrice: 101, timeInForce: "day", invalidationPrice: 90,
   timeStopDate: "2026-07-10", thesis: "A valid test thesis with enough detail.", probabilityWin: 0.6, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["test historical quote"] };
@@ -126,6 +127,50 @@ test("sale cash cannot fund a same-day rebuy and settles on the next session", a
   assert.equal((await broker.snapshot()).settledCash, 99.99);
   await broker.placeOrder({ ...intent, quantity: 0.5, limitPrice: 100.01 });
   assert.equal(broker.fills().length, 3);
+});
+test("settled cash observes the historical cycle and clearing holidays, not just trading dates", async (t) => {
+  const examples = [
+    { sale: "2024-05-24", blocked: ["2024-05-27", "2024-05-28"], due: "2024-05-29" },
+    { sale: "2024-05-28", blocked: [], due: "2024-05-29" },
+    { sale: "2025-01-08", blocked: [], due: "2025-01-09" }, // Exchanges closed, clearing open.
+    { sale: "2026-10-09", blocked: ["2026-10-10", "2026-10-12"], due: "2026-10-13" },
+    { sale: "2026-11-10", blocked: ["2026-11-11"], due: "2026-11-12" },
+    { sale: "2026-11-25", blocked: ["2026-11-26"], due: "2026-11-27" },
+  ];
+  for (const { sale, blocked, due } of examples) await t.test(`${sale} settles on ${due}`, async () => {
+    const cal = createNyseCalendar();
+    const dates = [sale, ...blocked, due].filter(date => cal.clock(etInstant(date, 12)).tradingDay === date);
+    const bars = dates.map(date => ({ date, open: 100, high: 100, low: 100, close: 100, volume: 10_000_000 }));
+    const { broker, at } = barsFixture(bars, sale, 100.01, 1, "ideal");
+    await broker.placeOrder({ ...intent, limitPrice: 100.01 });
+    await broker.placeOrder({ ...intent, side: "sell", limitPrice: 99 });
+    assert.equal((await broker.snapshot()).settledCash, 0);
+
+    for (const date of blocked) {
+      at(date, 10);
+      await broker.advance();
+      const account = await broker.snapshot();
+      assert.equal(account.cash, 99.99, "unsettled proceeds are still reflected in account value");
+      assert.equal(account.settledCash, 0, date);
+      if (cal.clock(etInstant(date, 10)).isOpen) {
+        await assert.rejects(broker.placeOrder({ ...intent, quantity: 0.5 }), /Insufficient settled cash/);
+      }
+    }
+    at(due, 10);
+    await broker.advance();
+    assert.equal((await broker.snapshot()).settledCash, 99.99);
+    if (cal.clock(etInstant(due, 10)).isOpen) {
+      await broker.placeOrder({ ...intent, quantity: 0.5 });
+      assert.equal(broker.fills().length, 3);
+    }
+  });
+});
+test("fictional dates use the next model weekday, with no named real-world holidays", () => {
+  const calendar = createNyseCalendar();
+  assert.equal(paperSettlementDate("2031-11-07", calendar, true), "2031-11-10");
+  assert.equal(paperSettlementDate("2031-11-10", calendar, true), "2031-11-11");
+  // Even if a fictional date coincides with a documented real closure, the scenario's weekdays still apply.
+  assert.equal(paperSettlementDate("2026-11-25", calendar, true), "2026-11-26");
 });
 test("regulatory fees on a sale over $500 come out of the settled proceeds", async () => {
   const { broker, at } = fixture(1200);

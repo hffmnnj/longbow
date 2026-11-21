@@ -255,7 +255,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       // The paper broker only knows stocks and ETFs.
       crypto: { ...settings.crypto, enabled: false } });
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
-      execution: run.config.execution, seed: run.seed });
+      execution: run.config.execution, seed: run.seed, fictionalDates: blindish });
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
       openBuyCommitments: () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent),
       ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
