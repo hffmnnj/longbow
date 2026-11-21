@@ -106,8 +106,9 @@ function historicalPrompt(strategy: string | undefined): string {
 function scenarioPrompt(scenario: ScenarioMarket, strategy: string | undefined): string {
   const dropped = scenario.dropped.length === 0
     ? ""
-    : ` Unavailable this run for missing history: ${scenario.dropped.join(", ")}.`;
+    : ` ${scenario.dropped.length} requested instruments are unavailable because their history was incomplete.`;
   return "This is a paper-account simulation on a fictional market. Tickers are aliases with disclosed sectors, dates are fictional weekdays, and prices are rescaled; treat MKT as the broad-market index. Macro, earnings, calendar, volatility, yield and SEC tools are unavailable. Trade only on what the market, quant and account tools show; never use remembered real-world events or prices." +
+    " The prices-only cycle job and any supplied simulation rule replace live research and discretionary strategy requirements only where they conflict. Keep account reconciliation, protection and the order gate in force. Use scenario evidence and do not add a discretionary filter that is not in the supplied rule." +
     ` Visible universe: ${scenario.universeText}.${dropped}\n` + (strategy ?? "");
 }
 
@@ -275,7 +276,9 @@ export function createSimService(deps: SimServiceDeps): SimService {
           cycleInput: async (kind, cycleId) => {
             const account = await broker.snapshot();
             store.markEquity(now, deps.calendar.etDate(now), account.equity);
-            return cycleInput({ kind, cycleId, market: deps.calendar.clock(now), settings: store.getSettings(), halts: await gate.halts(), account });
+            const settings = store.getSettings();
+            return cycleInput({ kind, cycleId, market: deps.calendar.clock(now), settings: blindish ? { ...settings, watchlist: symbols } : settings,
+              halts: await gate.halts(), account, ...(blindish ? { pricesOnlyReplay: true as const } : {}) });
           } });
         agents.set(run.id, agent);
       }

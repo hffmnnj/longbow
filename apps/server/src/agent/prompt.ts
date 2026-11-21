@@ -141,6 +141,8 @@ export interface CycleInput {
   account: AccountSnapshot | null;
   /** Set for live cycles; absent in simulations, which have no report tool. */
   isLastTradingDayOfWeek?: boolean;
+  /** Blind and bootstrap scenarios have only price and simulated account data. */
+  pricesOnlyReplay?: true;
 }
 
 const etDateTime = new Intl.DateTimeFormat("en-CA", {
@@ -282,6 +284,19 @@ function postCloseJob(isLastTradingDayOfWeek?: boolean): string {
   );
 }
 
+function pricesOnlyJob(kind: CycleKind, isOpen: boolean): string {
+  if (kind === "post_close") {
+    return "Job: Review paper fills and decisions against the configured simulation rule. Journal why signals, risk checks or execution produced the result. Do not trade or publish live reports.";
+  }
+  if (kind === "intraday" || (kind === "manual" && isOpen)) {
+    return "Job: Reconcile paper fills, existing protection and open orders using sim_orders and sim_quote. " +
+      "Use completed scenario data and apply the configured simulation rule when its conditions are met. " +
+      "Use get_risk_state and submit_order; keep every risk check and never fabricate an input. Journal the decision or concrete blocker.";
+  }
+  return "Job: Use MKT, scenario price history and existing paper positions to prepare the configured simulation rule for the regular session. " +
+    "Use only scenario tools; missing real-world inputs are not evidence for or against a signal. Plan using completed bars, journal, and do not submit orders in this planning cycle.";
+}
+
 /** User message for one scheduled cycle. All situational facts live here, never in the cached sections. */
 export function cycleInput(input: CycleInput): string {
   const { kind, cycleId, market, settings, halts, account } = input;
@@ -294,7 +309,9 @@ export function cycleInput(input: CycleInput): string {
     `Watchlist: ${settings.watchlist.length > 0 ? settings.watchlist.join(", ") : "(empty)"}.`,
     accountSummary(account),
     "",
-    jobFor(kind, market.isOpen, settings.cycleMinutesOpen, input.isLastTradingDayOfWeek),
+    input.pricesOnlyReplay === true
+      ? pricesOnlyJob(kind, market.isOpen)
+      : jobFor(kind, market.isOpen, settings.cycleMinutesOpen, input.isLastTradingDayOfWeek),
     "End the cycle with the one record_decision call.",
   ].join("\n");
 }
