@@ -812,32 +812,20 @@ export function createMarketExtension(deps: MarketExtensionDeps): Extension {
         const tickers = await fetchTickerMap(cache);
         const cik = tickers.get(args.symbol);
         if (cik === undefined) return fail(`Unknown ticker ${args.symbol}: no SEC CIK mapping.`);
-        const [info, facts] = await Promise.all([fetchCompanyInfo(cache, cik), fetchCompanyFacts(cache, cik)]);
         const cutoff = asOf?.();
-        // Filings after the simulated date do not exist yet; fact values are
-        // only known once filed, so keep the last 8 filed on or before it.
-        const filings = cutoff === undefined ? info.filings : info.filings.filter((f) => f.filedAt <= cutoff);
-        const scopedFacts =
-          cutoff === undefined
-            ? facts
-            : Object.fromEntries(
-                Object.entries(facts).map(([group, points]) => [
-                  group,
-                  points.filter((p) => p.filed <= cutoff).slice(-8),
-                ]),
-              );
+        const [info, facts] = await Promise.all([fetchCompanyInfo(cache, cik, cutoff), fetchCompanyFacts(cache, cik, cutoff)]);
         const structured = {
           cik,
           name: info.name,
           sic: info.sic,
           sicDescription: info.sicDescription,
-          recentFilings: filings.map((f) => ({ ...f })),
-          facts: Object.fromEntries(Object.entries(scopedFacts).map(([group, points]) => [group, points.map((p) => ({ ...p }))])),
+          recentFilings: info.filings.map((f) => ({ ...f })),
+          facts: Object.fromEntries(Object.entries(facts).map(([group, points]) => [group, points.map((point) => ({ ...point }))])),
         };
-        const groups = Object.keys(scopedFacts);
+        const groups = Object.keys(facts);
         const text =
           `${tag()}${info.name} (${args.symbol}, CIK ${Number(cik)}, SIC ${info.sic} ${info.sicDescription}), ` +
-          `${filings.length} recent filings` +
+          `${info.filings.length} recent filings` +
           (groups.length === 0 ? ", no XBRL facts found." : `, facts: ${groups.join(", ")}.`);
         return { output: [{ type: "text" as const, text }], structuredOutput: structured };
       } catch (error) {

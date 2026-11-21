@@ -96,7 +96,7 @@ interface SecRecent {
   primaryDocument?: unknown;
 }
 
-export function parseSubmissions(cik: string, payload: unknown): SecCompanyInfo {
+export function parseSubmissions(cik: string, payload: unknown, limit = 15): SecCompanyInfo {
   if (typeof payload !== "object" || payload === null) {
     throw new MarketError("bad_response", "sec submissions returned an unexpected shape");
   }
@@ -113,12 +113,12 @@ export function parseSubmissions(cik: string, payload: unknown): SecCompanyInfo 
   const filings: SecFiling[] = [];
   if (recent && Array.isArray(recent["form"])) {
     const count = recent["form"].length;
-    for (let i = 0; i < count && filings.length < 15; i++) {
+    const filedAtArr = Array.isArray(recent["filingDate"]) ? (recent["filingDate"] as unknown[]) : [];
+    const accArr = Array.isArray(recent["accessionNumber"]) ? (recent["accessionNumber"] as unknown[]) : [];
+    const repArr = Array.isArray(recent["reportDate"]) ? (recent["reportDate"] as unknown[]) : [];
+    const docArr = Array.isArray(recent["primaryDocument"]) ? (recent["primaryDocument"] as unknown[]) : [];
+    for (let i = 0; i < count && filings.length < limit; i++) {
       const form = recent["form"][i];
-      const filedAtArr = Array.isArray(recent["filingDate"]) ? (recent["filingDate"] as unknown[]) : [];
-      const accArr = Array.isArray(recent["accessionNumber"]) ? (recent["accessionNumber"] as unknown[]) : [];
-      const repArr = Array.isArray(recent["reportDate"]) ? (recent["reportDate"] as unknown[]) : [];
-      const docArr = Array.isArray(recent["primaryDocument"]) ? (recent["primaryDocument"] as unknown[]) : [];
       if (typeof form !== "string" || typeof filedAtArr[i] !== "string" || typeof accArr[i] !== "string") continue;
       const reportDate = repArr[i];
       filings.push({
@@ -137,8 +137,8 @@ export function parseSubmissions(cik: string, payload: unknown): SecCompanyInfo 
   return { cik, name, sic, sicDescription, filings };
 }
 
-export async function fetchCompanyInfo(cache: MarketCache, cik: string): Promise<SecCompanyInfo> {
-  return cache.getOrFetch(`sec-sub-${cik}`, TTL.secCompanyMs, async () => {
+export async function fetchCompanyInfo(cache: MarketCache, cik: string, asOf?: string): Promise<SecCompanyInfo> {
+  const info = await cache.getOrFetch(`sec-sub-${asOf === undefined ? "" : "history-"}${cik}`, TTL.secCompanyMs, async () => {
     await secThrottle();
     const text = await cache.fetchText(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers: SEC_HEADERS });
     let payload: unknown;
@@ -147,8 +147,10 @@ export async function fetchCompanyInfo(cache: MarketCache, cik: string): Promise
     } catch {
       throw new MarketError("bad_response", "sec submissions returned invalid JSON");
     }
-    return parseSubmissions(cik, payload);
+    return parseSubmissions(cik, payload, asOf === undefined ? 15 : Infinity);
   });
+  if (asOf === undefined) return info;
+  return { ...info, filings: info.filings.filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f.filedAt) && f.filedAt <= asOf).slice(0, 15) };
 }
 
 interface XbrlPoint {
@@ -160,8 +162,8 @@ interface XbrlPoint {
   filed?: unknown;
 }
 
-/** Pick the last 8 reported points (oldest first) for the first matching tag. */
-export function pickFactPoints(factsRoot: unknown, tags: string[]): SecFactPoint[] {
+/** Pick up to eight reported points (oldest first) for the first eligible tag. */
+export function pickFactPoints(factsRoot: unknown, tags: string[], asOf?: string): SecFactPoint[] {
   if (typeof factsRoot !== "object" || factsRoot === null) return [];
   const gaap = (factsRoot as { facts?: { "us-gaap"?: Record<string, unknown> } }).facts?.["us-gaap"];
   if (typeof gaap !== "object" || gaap === null) return [];
@@ -177,13 +179,14 @@ export function pickFactPoints(factsRoot: unknown, tags: string[]): SecFactPoint
     for (const p of points) {
       if (typeof p.end !== "string" || typeof p.val !== "number" || !Number.isFinite(p.val)) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(p.end)) continue;
-      const filed = typeof p.filed === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.filed) ? p.filed : p.end;
+      const filed = typeof p.filed === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.filed) ? p.filed : undefined;
+      if (asOf !== undefined && (filed === undefined || filed > asOf || p.end > asOf)) continue;
       clean.push({
         period: typeof p.fp === "string" && typeof p.fy === "number" ? `${p.fp} ${p.fy}` : p.end,
         end: p.end,
         value: p.val,
         form: typeof p.form === "string" ? p.form : "",
-        filed,
+        filed: filed ?? p.end,
       });
     }
     if (clean.length === 0) continue;
@@ -200,23 +203,27 @@ function firstUnitArray(units: Record<string, XbrlPoint[]>): XbrlPoint[] {
   return [];
 }
 
-export async function fetchCompanyFacts(cache: MarketCache, cik: string): Promise<SecFacts> {
-  return cache.getOrFetch(`sec-facts-${cik}`, TTL.secCompanyMs, async () => {
+export async function fetchCompanyFacts(cache: MarketCache, cik: string, asOf?: string): Promise<SecFacts> {
+  async function request(): Promise<unknown> {
     await secThrottle();
     const text = await cache.fetchText(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
       headers: SEC_HEADERS,
     });
-    let payload: unknown;
     try {
-      payload = JSON.parse(text);
+      return JSON.parse(text) as unknown;
     } catch {
       throw new MarketError("bad_response", "sec company facts returned invalid JSON");
     }
+  }
+  function select(payload: unknown): SecFacts {
     const out: SecFacts = {};
     for (const [group, tags] of Object.entries(FACT_TAGS)) {
-      const points = pickFactPoints(payload, tags);
+      const points = pickFactPoints(payload, tags, asOf);
       if (points.length > 0) out[group] = points;
     }
     return out;
-  });
+  }
+  if (asOf === undefined) return cache.getOrFetch(`sec-facts-${cik}`, TTL.secCompanyMs, async () => select(await request()));
+  // Cache the date-independent source once per CIK, not a new snapshot for each replay day.
+  return select(await cache.getOrFetch(`sec-facts-history-${cik}`, TTL.secCompanyMs, request));
 }

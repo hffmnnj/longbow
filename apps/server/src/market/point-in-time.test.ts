@@ -502,11 +502,84 @@ describe("market_tools_point_in_time", () => {
     assert.ok(structured.recentFilings.length === 2);
     assert.ok(structured.recentFilings.every((f) => f.filedAt <= ASOF));
     const revenue = structured.facts["revenue"] ?? [];
-    assert.equal(revenue.length, 7);
+    assert.equal(revenue.length, 8);
     assert.ok(revenue.every((p) => p.filed <= ASOF));
     assert.ok(revenue.every((p) => typeof p.filed === "string"));
     assert.ok(!revenue.some((p) => p.end === "2025-03-31"));
     assert.ok(textOf(result).startsWith(`As of ${ASOF}: `));
+  });
+
+  it("sec_company_selects_prior_filed_facts_and_filings_from_full_history", async () => {
+    const HIST_ASOF = "2024-08-01";
+    const ends = [
+      "2021-12-31", "2022-03-31", "2022-06-30", "2022-09-30", "2022-12-31",
+      "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31",
+      "2024-06-30", "2024-09-30", "2024-12-31", "2025-03-31", "2025-06-30",
+      "2025-09-30", "2025-12-31", "2026-03-31",
+    ];
+    // Ten points were filed before the historical date, so the newest eight
+    // eligible points include values outside the source's last eight. The
+    // point at index 10 has only a period end and must not be treated as filed.
+    const factPoints = ends.map((end, i) => {
+      const point = { end, val: 1000 + i, form: "10-Q", fy: 2024, fp: "Q1" };
+      return i === 10 ? point : { ...point, filed: isoPlus(end, 35) };
+    });
+    const filingDates = [
+      "2025-02-01", "2025-01-15", "2025-01-02", "2024-12-15", "2024-12-01",
+      "2024-11-15", "2024-11-01", "2024-10-15", "2024-10-01", "2024-09-15",
+      "2024-09-01", "2024-08-20", "2024-08-15", "2024-08-05", "2024-08-02", "2024-05-05",
+    ];
+    const ext = createMarketExtension({
+      market: fakeMarket([]),
+      dataDir: mkdtempSync(join(tmpdir(), "pit-sec-history-")),
+      log: silent,
+      clock: fixedClock(Date.parse("2026-10-24T12:00:00Z")),
+      asOf: () => HIST_ASOF,
+      fetchImpl: fakeFetchImpl([
+        {
+          match: (u) => u.includes("company_tickers"),
+          body: JSON.stringify({ 0: { cik_str: 320193, ticker: "AAPL" } }),
+        },
+        {
+          match: (u) => u.includes("/submissions/CIK"),
+          body: JSON.stringify({
+            name: "Apple Inc.",
+            sic: "3571",
+            sicDescription: "Electronic Computers",
+            filings: {
+              recent: {
+                form: filingDates.map(() => "10-Q"),
+                filingDate: filingDates,
+                accessionNumber: filingDates.map((_, i) => `0000320193-24-${String(i).padStart(6, "0")}`),
+                primaryDocument: filingDates.map((_, i) => `aapl-${i}.htm`),
+                reportDate: filingDates.map(() => ""),
+              },
+            },
+          }),
+        },
+        {
+          match: (u) => u.includes("companyfacts/CIK"),
+          body: JSON.stringify({ facts: { "us-gaap": { Revenues: { units: { USD: factPoints } } } } }),
+        },
+      ]),
+    });
+    const result = await callTool(ext, "sec_company", { symbol: "AAPL" });
+    assert.equal(result.isError, undefined);
+    assert.ok(textOf(result).startsWith(`As of ${HIST_ASOF}: `));
+    const structured = result.structuredOutput as unknown as {
+      recentFilings: { filedAt: string }[];
+      facts: Record<string, { end: string; value: number; filed?: string }[]>;
+    };
+    // The eligible submission would fall outside a cap applied before the cutoff.
+    assert.deepEqual(structured.recentFilings.map((f) => f.filedAt), ["2024-05-05"]);
+    const revenue = structured.facts["revenue"] ?? [];
+    assert.deepEqual(revenue.map((p) => p.value), [1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009]);
+    assert.deepEqual(revenue.map((p) => p.end), [
+      "2022-06-30", "2022-09-30", "2022-12-31", "2023-03-31",
+      "2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31",
+    ]);
+    assert.ok(revenue.every((p) => typeof p.filed === "string" && p.filed <= HIST_ASOF));
+    assert.ok(!revenue.some((p) => p.end === "2024-06-30" || p.value === 1010));
   });
 
   it("live_calls_have_no_prefix_and_full_bars_without_asof", async () => {
