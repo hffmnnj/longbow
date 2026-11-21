@@ -51,6 +51,7 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
     }
     final i = order.intent;
     final pending = order.status == OrderStatus.pendingApproval;
+    final quoteLabel = fractionalQuoteLabel(i);
     final c = context.lb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -72,9 +73,15 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
           const SizedBox(height: 8),
           KeyValueList(
             rows: [
-              KeyValueRow('Size', value: '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}'),
-              KeyValueRow('Notional', value: usd(notional(i))),
-              KeyValueRow('Order type', value: i.orderType == OrderType.stopLimit ? 'Stop limit' : 'Limit', mono: false),
+              if (quoteLabel == null)
+                KeyValueRow('Size', value: '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}')
+              else ...[
+                KeyValueRow('Size', value: '${qtyFor(i.symbol, i.quantity)} ${qtyUnit(i.symbol)}'),
+                KeyValueRow(quoteLabel, value: usd(i.limitPrice)),
+              ],
+              KeyValueRow(quoteLabel == null ? 'Notional' : 'Intent notional', value: usd(notional(i))),
+              if (quoteLabel == null)
+                KeyValueRow('Order type', value: i.orderType == OrderType.stopLimit ? 'Stop limit' : 'Limit', mono: false),
               if (i.stopPrice != null && i.stopPrice! > 0) KeyValueRow('Stop', value: usd(i.stopPrice!)),
               KeyValueRow('Time in force', value: i.timeInForce == TimeInForce.gtc ? 'Good till cancelled' : 'Day', mono: false),
               KeyValueRow('Invalidation', value: usd(i.invalidationPrice)),

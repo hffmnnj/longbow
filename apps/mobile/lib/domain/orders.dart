@@ -1,8 +1,21 @@
 // Dart port of `apps/web/src/lib/orders.ts`. Pure Dart: no Flutter imports.
+import 'package:longbow/core/format.dart';
 import 'package:longbow/models/models.dart';
 
 /// Notional value of an order intent: quantity times limit price.
 double notional(OrderIntent i) => i.quantity * i.limitPrice;
+
+/// A fractional equity limit price is only a pre-placement quote check.
+String? fractionalQuoteLabel(OrderIntent i) {
+  if (i.orderType != OrderType.limit || isCryptoSymbol(i.symbol) ||
+      i.quantity.truncateToDouble() == i.quantity) {
+    return null;
+  }
+  return i.side == OrderSide.buy ? 'Buy quote ceiling' : 'Sell quote floor';
+}
+
+const fractionalQuoteDisclosure =
+    'If the quote passes, this is sent as a market order. The fill price can differ.';
 
 /// Expected value in % of notional after estimated round-trip costs.
 double expectedValuePct(OrderIntent i) {

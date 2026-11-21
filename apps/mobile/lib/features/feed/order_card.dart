@@ -76,6 +76,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
     final pending = order.status == OrderStatus.pendingApproval;
     final isOwner = order.ownerMessageId != null;
     final ownerPending = isOwner && pending;
+    final quoteLabel = fractionalQuoteLabel(i);
     final busy = ref.watch(harnessProvider.select((s) => s.busy['order:${order.id}'] ?? false));
     final killSwitch = ref.watch(harnessProvider.select((s) => s.feed.status?.settings.killSwitch ?? false));
     final compact = widget.compact;
@@ -100,7 +101,12 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                       SideBadge(i.side.name),
                       TickerLink(i.symbol, style: LbText.number(context, size: 15, weight: FontWeight.w600)),
                       if (isOwner) const StatusChip('Owner order', tone: StatusTone.live, showIcon: false),
-                      Text('${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}', style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground)),
+                      Text(
+                        quoteLabel == null
+                            ? '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}'
+                            : '${qtyFor(i.symbol, i.quantity)} ${qtyUnit(i.symbol)} · $quoteLabel ${usd(i.limitPrice)}',
+                        style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground),
+                      ),
                       if (i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0)
                         Text('stop ${usd(i.stopPrice!)}', style: LbText.number(context, size: 12, weight: FontWeight.w400, color: c.mutedForeground)),
                     ],
@@ -127,6 +133,9 @@ class _OrderCardState extends ConsumerState<OrderCard> {
             if (ownerPending) ...[
               const SizedBox(height: 10),
               _OwnerOrderDetails(order: order),
+            ] else if (pending && quoteLabel != null) ...[
+              const SizedBox(height: 8),
+              Text(fractionalQuoteDisclosure, style: LbText.muted(context, size: 12.5)),
             ],
             const SizedBox(height: 10),
             Text(
@@ -142,7 +151,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
               ),
             if (pending && widget.showChart && !compact) ...[
               const SizedBox(height: 8),
-              OrderMiniChart(symbol: i.symbol, limit: i.limitPrice, invalidation: i.invalidationPrice),
+              OrderMiniChart(symbol: i.symbol, limit: i.limitPrice, invalidation: i.invalidationPrice, limitLabel: quoteLabel ?? 'limit'),
             ],
             const SizedBox(height: 10),
             if (compact)
@@ -223,6 +232,8 @@ class _OwnerOrderDetails extends StatelessWidget {
     final i = order.intent;
     final side = i.side == OrderSide.buy ? 'Buy' : 'Sell';
     final type = i.orderType == OrderType.stopLimit ? 'Stop limit' : 'Limit';
+    final quoteLabel = fractionalQuoteLabel(i);
+    final price = quoteLabel == null ? '$type @ ${priceExact(i.limitPrice)}' : '$quoteLabel ${priceExact(i.limitPrice)}';
     final stop = i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0
         ? ' · Stop ${priceExact(i.stopPrice!)}'
         : '';
@@ -238,9 +249,14 @@ class _OwnerOrderDetails extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '$side ${qtyExact(i.quantity)} ${qtyUnit(i.symbol)} of ${i.symbol} · $type @ ${priceExact(i.limitPrice)}$stop · Expires at today\'s close',
+              '$side ${qtyExact(i.quantity)} ${qtyUnit(i.symbol)} of ${i.symbol} · $price$stop · Expires at today\'s close',
               style: LbText.number(context, size: 12.5, weight: FontWeight.w400),
             ),
+            if (quoteLabel != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(fractionalQuoteDisclosure, style: LbText.muted(context, size: 12.5)),
+              ),
             if (i.ownerInstruction != null && i.ownerInstruction!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -329,11 +345,12 @@ class _RejectReasonFormState extends State<RejectReasonForm> {
 /// Three-month close path with the limit and invalidation levels, loaded on
 /// demand through the harness store (the web MiniChart).
 class OrderMiniChart extends ConsumerStatefulWidget {
-  const OrderMiniChart({super.key, required this.symbol, required this.limit, required this.invalidation});
+  const OrderMiniChart({super.key, required this.symbol, required this.limit, required this.invalidation, this.limitLabel = 'limit'});
 
   final String symbol;
   final double limit;
   final double invalidation;
+  final String limitLabel;
 
   @override
   ConsumerState<OrderMiniChart> createState() => _OrderMiniChartState();
@@ -368,10 +385,10 @@ class _OrderMiniChartState extends ConsumerState<OrderMiniChart> {
         valueFormatter: usd,
         name: widget.symbol,
         referenceLines: [
-          ChartReferenceLine(value: widget.limit, label: 'limit', tone: ChartTone.primary),
+          ChartReferenceLine(value: widget.limit, label: widget.limitLabel, tone: ChartTone.primary),
           ChartReferenceLine(value: widget.invalidation, label: 'invalidation', tone: ChartTone.loss),
         ],
-        semanticsLabel: '${widget.symbol} three month price with limit ${usd(widget.limit)} and invalidation ${usd(widget.invalidation)}',
+        semanticsLabel: '${widget.symbol} three month price with ${widget.limitLabel.toLowerCase()} ${usd(widget.limit)} and invalidation ${usd(widget.invalidation)}',
       ),
     );
   }

@@ -5,9 +5,9 @@
   import RiskChecks from "./RiskChecks.svelte";
   import SideBadge from "./SideBadge.svelte";
   import Ticker from "./Ticker.svelte";
-  import { etStamp, qtyFor, usd } from "$lib/format";
+  import { etStamp, qtyFor, qtyUnit, usd } from "$lib/format";
   import { clock } from "$lib/clock.svelte";
-  import { STATUS_LABEL } from "$lib/orders";
+  import { fractionalQuoteLabel, STATUS_LABEL } from "$lib/orders";
   import { useScope } from "$lib/scope";
   import { cn } from "$lib/utils.js";
 
@@ -35,6 +35,7 @@
 {:else}
   <ul class="divide-border divide-y">
     {#each scope.feed.orders as o (o.id)}
+      {@const quoteLabel = fractionalQuoteLabel(o.intent)}
       <li>
         <Collapsible.Root>
           <Collapsible.Trigger class="hover:bg-muted/50 flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors">
@@ -42,7 +43,7 @@
             <span class="min-w-0 flex-1">
               <span class="num flex flex-wrap items-baseline gap-x-2">
                 <Ticker symbol={o.intent.symbol} />
-                <span class="text-muted-foreground text-[12.5px]">{qtyFor(o.intent.symbol, o.intent.quantity)} @ {usd(o.intent.limitPrice)}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qtyFor(o.intent.symbol, o.filledQuantity)} of {qtyFor(o.intent.symbol, o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}{/if}</span>
+                <span class="text-muted-foreground text-[12.5px]">{qtyFor(o.intent.symbol, o.intent.quantity)}{#if quoteLabel} {qtyUnit(o.intent.symbol)} · {quoteLabel} {usd(o.intent.limitPrice)}{:else} @ {usd(o.intent.limitPrice)}{/if}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qtyFor(o.intent.symbol, o.filledQuantity)} of {qtyFor(o.intent.symbol, o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}{/if}</span>
               </span>
               <span class="num text-muted-foreground text-[11.5px]">{etStamp(o.createdAt, clock.now)}</span>
             </span>

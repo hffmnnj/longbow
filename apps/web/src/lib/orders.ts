@@ -1,6 +1,12 @@
-import type { OrderIntent, OrderRecord, OrderStatus, RiskCheck } from "@rh/shared";
+import { isCryptoSymbol, type OrderIntent, type OrderRecord, type OrderStatus, type RiskCheck } from "@rh/shared";
 
 export const notional = (i: OrderIntent): number => i.quantity * i.limitPrice;
+
+/** Fractional equity limit intents use the price only for a pre-placement quote check. */
+export function fractionalQuoteLabel(i: OrderIntent): string | undefined {
+  if (i.orderType !== "limit" || isCryptoSymbol(i.symbol) || Number.isInteger(i.quantity)) return undefined;
+  return i.side === "buy" ? "Buy quote ceiling" : "Sell quote floor";
+}
 
 /** Expected value in % of notional after estimated round-trip costs. */
 export function expectedValuePct(i: OrderIntent): number {
