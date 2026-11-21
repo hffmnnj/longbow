@@ -91,6 +91,22 @@ function fakeMarket(empty: readonly string[] = []): MarketData {
   };
 }
 
+function earningsMarket(
+  earnings: string | undefined,
+  calls: { earnings: number },
+  coverage?: "historical_unavailable" | "price_only",
+): MarketData {
+  return {
+    ...(coverage === undefined ? {} : { earningsCoverage: coverage }),
+    history: async (symbol) => ({ symbol, bars: bars(300, 100, 0.25), source: "fake", asOf: 0 }),
+    nextEarnings: async () => {
+      calls.earnings += 1;
+      return earnings;
+    },
+    avgDollarVolume: async () => 50_000_000,
+  };
+}
+
 function deps(over: Partial<SystemOneToolsDeps> = {}): SystemOneToolsDeps {
   const log = { info: () => {}, warn: () => {}, error: () => {}, child: () => log };
   return {
@@ -241,6 +257,52 @@ describe("system one extension", () => {
       for (const symbol of ["AAAX", "AAAY", "AAAZ"]) assert.ok(!flat.includes(symbol), `state leaks ${symbol}`);
     }
     assert.match(textOf(result), /AAAX|AAAY|AAAZ/);
+  });
+
+  it("jev_candidates_marks_replay_earnings_unknown_without_asking_the_source", async () => {
+    for (const coverage of ["historical_unavailable", "price_only"] as const) {
+      const seen: Seen[] = [];
+      const calls = { earnings: 0 };
+      const ext = createSystemOneExtension(
+        deps({ client: fakeClient([], seen), market: earningsMarket("2026-11-05", calls, coverage) }),
+      );
+      const result = await tool(ext, "jev_candidates").execute({ symbols: ["AAAX", "AAAY"] }, API, CTX);
+      const structured = (
+        result as { structuredOutput: { available: boolean; rows: { buckets: Record<string, string> }[] } }
+      ).structuredOutput;
+      assert.equal(structured.available, true, coverage);
+      assert.equal(structured.rows.length, 2, coverage);
+      assert.ok(structured.rows.every((row) => row.buckets["earnings"] === "unknown"), coverage);
+      const states = seen
+        .filter((s) => s.label === "candidate")
+        .map((s) => s.state as { setup_context: { earnings: string } });
+      assert.equal(states.length, 2, coverage);
+      assert.ok(states.every((state) => state.setup_context.earnings === "unknown"), coverage);
+      assert.equal(calls.earnings, 0, coverage);
+    }
+  });
+
+  it("jev_candidates_bands_a_live_earnings_date_into_the_setup_context", async () => {
+    const seen: Seen[] = [];
+    const calls = { earnings: 0 };
+    const ext = createSystemOneExtension(
+      deps({
+        client: fakeClient([], seen),
+        market: earningsMarket("2026-11-05", calls),
+        clock: { now: () => Date.parse("2026-11-02T12:00:00Z") },
+      }),
+    );
+    const result = await tool(ext, "jev_candidates").execute({ symbols: ["AAAX"] }, API, CTX);
+    const structured = (
+      result as { structuredOutput: { available: boolean; rows: { buckets: Record<string, string> }[] } }
+    ).structuredOutput;
+    assert.equal(structured.available, true);
+    assert.equal(structured.rows[0]?.buckets["earnings"], "report within 3 trading days");
+    const state = seen.find((s) => s.label === "candidate")?.state as
+      | { setup_context: { earnings: string } }
+      | undefined;
+    assert.equal(state?.setup_context.earnings, "report within 3 trading days");
+    assert.equal(calls.earnings, 1);
   });
 
   it("jev_read_text_flags_injection_at_noul_0_point_5_and_above", async () => {

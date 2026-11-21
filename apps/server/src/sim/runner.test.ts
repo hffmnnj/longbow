@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import type { Bar, CycleKind, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
@@ -220,6 +220,54 @@ test("a fractional protective stop exits on the first simulated quote after a ga
   }
 });
 
+test("historical admission requires earnings coverage unless explicitly omitted for the paper run", async (t) => {
+  const dataDir = mkdtempSync("/tmp/sim-earnings-coverage-");
+  const date = "2026-09-01";
+  const bars = fixtureBars("AAPL", "2026-07-01", date).map((bar) => ({
+    ...bar, open: 100, high: 100, low: 100, close: 100, volume: 10_000_000,
+  }));
+  const lookups: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: URL | Request | string) => {
+    const url = String(input);
+    lookups.push(url);
+    return new URL(url).pathname.endsWith("/historical")
+      ? Response.json({ data: { tradesTable: { rows: bars } } })
+      : Response.json({ data: { rows: [] } });
+  });
+  const entry: OrderIntent = {
+    symbol: "AAPL", side: "buy", quantity: 0.5, orderType: "limit", limitPrice: 100.05, timeInForce: "day",
+    invalidationPrice: 95, timeStopDate: "2026-09-21", thesis: "Replay fixture for point-in-time earnings admission.",
+    probabilityWin: 0.7, expectedGainPct: 12, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["fixture quote"],
+  };
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills, calendar: createNyseCalendar(),
+    fetchBars: async () => bars,
+    driver: async (run, ctx) => {
+      if (ctx.kind === "intraday" && run.progress.cycle === 1) await ctx.submit(entry);
+    },
+  });
+  try {
+    for (const omitBlackout of [false, true]) {
+      const run = await sim.start({ startDate: date, days: 1, startingCash: 1200, cyclesPerDay: 2,
+        watchlist: ["AAPL"], execution: "realistic",
+        ...(omitBlackout ? { risk: { earningsBlackoutDays: 0 } } : {}) }, "user");
+      const result = await waitForDone(sim, run.id);
+      assert.equal(result.status, "done", result.error ?? "paper replay did not finish");
+      const [order] = sim.orders(run.id);
+      assert.ok(order);
+      const failures = order.verdict?.checks.filter((check) => !check.ok);
+      assert.deepEqual(failures?.map((check) => check.rule), omitBlackout ? [] : ["earnings_blackout"]);
+      if (!omitBlackout) assert.match(failures?.[0]?.detail ?? "", /point-in-time earnings schedule unavailable/);
+      assert.equal(result.fills.length, omitBlackout ? 1 : 0);
+    }
+    assert.ok(lookups.length > 0, "volume was not exercised");
+    assert.ok(lookups.every((url) => new URL(url).pathname.endsWith("/historical")), lookups.join("\n"));
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
 test("a historical early-close paper session stops cycles at the 13:00 close", async () => {
   const dataDir = mkdtempSync("/tmp/sim-early-close-");
   const date = "2026-12-24";
@@ -261,6 +309,13 @@ function cleanReplayCoverageFixture(dataDir: string, sim: ReturnType<typeof crea
     const readme = join(workspace, "README.md");
     if (existsSync(readme)) unlinkSync(readme);
     if (existsSync(workspace)) rmdirSync(workspace);
+    const cache = join(runDir, "cache");
+    const marketCache = join(cache, "market");
+    if (existsSync(marketCache)) {
+      for (const entry of readdirSync(marketCache)) unlinkSync(join(marketCache, entry));
+      rmdirSync(marketCache);
+      rmdirSync(cache);
+    }
     rmdirSync(runDir);
   }
   rmdirSync(root);

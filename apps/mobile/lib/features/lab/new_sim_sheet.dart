@@ -236,6 +236,9 @@ class _NewSimFormState extends ConsumerState<NewSimForm> {
         ),
         FormBlock(
           label: 'Environment',
+          note: _mode == SimMode.historical
+              ? "Historical can't verify the earnings schedule. If earnings blackout is on, new entries are blocked."
+              : 'Price-only replay: earnings blackout is not evaluated.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

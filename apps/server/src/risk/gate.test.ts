@@ -187,6 +187,7 @@ class FakeBroker implements Broker {
 class FakeMarketData implements MarketData {
   earningsValue: string | undefined = undefined;
   earningsError?: string;
+  earningsCalls = 0;
   volumeValue: number | undefined = 50_000_000;
   volumeError?: string;
 
@@ -194,6 +195,7 @@ class FakeMarketData implements MarketData {
     return { symbol, bars: [], source: "fake", asOf: NOW };
   }
   async nextEarnings(_symbol: string): Promise<string | undefined> {
+    this.earningsCalls += 1;
     if (this.earningsError !== undefined) throw new Error(this.earningsError);
     return this.earningsValue;
   }
@@ -853,6 +855,105 @@ describe("order gate", () => {
     assert.ok(halts.includes("kill_switch"));
     assert.equal(broker.snapshotCalls, 0);
     assert.equal(broker.quoteCalls, 0);
+  });
+});
+
+describe("replay earnings coverage", () => {
+  function replayMarket(
+    coverage: "historical_unavailable" | "price_only",
+    options: { volume: number; earnings?: string },
+  ) {
+    const calls = { earnings: 0, volume: 0 };
+    const market: MarketData = {
+      earningsCoverage: coverage,
+      history: async (symbol: string) => ({ symbol, bars: [], source: "fake", asOf: NOW }),
+      nextEarnings: async () => {
+        calls.earnings += 1;
+        return options.earnings;
+      },
+      avgDollarVolume: async () => {
+        calls.volume += 1;
+        return options.volume;
+      },
+    };
+    return { market, calls };
+  }
+
+  it("historical replay fails entries on earnings while liquidity still uses volume", async () => {
+    const { market, calls } = replayMarket("historical_unavailable", { volume: 50_000_000 });
+    const { gate, broker } = setup({ mode: "auto", market });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "rejected_risk");
+    assert.deepEqual(
+      order.verdict.checks.filter((c) => !c.ok).map((c) => c.rule),
+      ["earnings_blackout"],
+    );
+    const earnings = order.verdict.checks.find((c) => c.rule === "earnings_blackout");
+    assert.equal(earnings?.ok, false);
+    assert.match(earnings?.detail ?? "", /point-in-time earnings schedule unavailable/);
+    const liquidity = order.verdict.checks.find((c) => c.rule === "liquidity");
+    assert.equal(liquidity?.ok, true);
+    assert.match(liquidity?.detail ?? "", /20-session average dollar volume \$50000000 vs floor \$20000000/);
+    assert.equal(calls.earnings, 0);
+    assert.equal(calls.volume, 1);
+    assert.equal(broker.placeCalls, 0);
+  });
+
+  it("historical replay admits a liquid buy when the blackout is explicitly disabled", async () => {
+    const { market, calls } = replayMarket("historical_unavailable", { volume: 75_000_000 });
+    const { gate, broker, store } = setup({ mode: "auto", market });
+    store.settings = { ...store.settings, risk: { ...store.settings.risk, earningsBlackoutDays: 0 } };
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+    const earnings = order.verdict.checks.find((c) => c.rule === "earnings_blackout");
+    assert.equal(earnings?.ok, true);
+    assert.match(earnings?.detail ?? "", /earnings blackout is disabled \(0d\)/);
+    const liquidity = order.verdict.checks.find((c) => c.rule === "liquidity");
+    assert.equal(liquidity?.ok, true);
+    assert.match(liquidity?.detail ?? "", /20-session average dollar volume \$75000000 vs floor \$20000000/);
+    assert.equal(calls.earnings, 0);
+    assert.equal(calls.volume, 1);
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("price-only replay admits a buy without evaluating earnings or calling the source", async () => {
+    const { market, calls } = replayMarket("price_only", { volume: 60_000_000 });
+    const { gate, broker, store } = setup({ mode: "auto", market });
+    assert.ok(store.settings.risk.earningsBlackoutDays > 0);
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+    const earnings = order.verdict.checks.find((c) => c.rule === "earnings_blackout");
+    assert.equal(earnings?.ok, true);
+    assert.match(earnings?.detail ?? "", /price-only replay: earnings blackout not evaluated/);
+    assert.equal(calls.earnings, 0);
+    assert.equal(calls.volume, 1);
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("historical replay leaves exits unaffected and skips the market lookups", async () => {
+    const { market, calls } = replayMarket("historical_unavailable", { volume: 1_000_000 });
+    const { gate, broker } = setup({ mode: "auto", market });
+    const order = await gate.submit({ ...baseIntent(), side: "sell", quantity: 2, invalidationPrice: 160 });
+    assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+    assert.equal(order.verdict.isExit, true);
+    assert.equal(order.verdict.checks.find((c) => c.rule === "earnings_blackout")?.ok, true);
+    assert.equal(order.verdict.checks.find((c) => c.rule === "liquidity")?.ok, true);
+    assert.equal(calls.earnings, 0);
+    assert.equal(calls.volume, 0);
+    assert.equal(broker.placeCalls, 1);
+  });
+
+  it("live entries still call the earnings source and honor the blackout", async () => {
+    const market = new FakeMarketData();
+    market.earningsValue = "2026-11-05";
+    const { gate, broker } = setup({ mode: "auto", market });
+    const order = await gate.submit(baseIntent());
+    assert.equal(order.status, "rejected_risk");
+    const earnings = order.verdict.checks.find((c) => c.rule === "earnings_blackout");
+    assert.equal(earnings?.ok, false);
+    assert.match(earnings?.detail ?? "", /entry blocked: AAPL reports earnings on 2026-11-05/);
+    assert.equal(market.earningsCalls, 1);
+    assert.equal(broker.placeCalls, 0);
   });
 });
 

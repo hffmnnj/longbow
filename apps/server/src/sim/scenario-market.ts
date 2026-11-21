@@ -169,6 +169,7 @@ function createMarketData(
   asOf: () => string,
 ): MarketData {
   return {
+    earningsCoverage: "price_only",
     history: async (symbol, range) => {
       const cutoff = asOf();
       const scoped = (series.get(symbol) ?? []).filter((b) => b.date <= cutoff);

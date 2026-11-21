@@ -36,6 +36,8 @@ export interface RiskInput {
   lotOpenedEtDate?: string;
   /** Next scheduled earnings date (ET YYYY-MM-DD) within 30 days, when known. */
   nextEarningsDate?: string;
+  /** Explicit replay coverage; live checks leave this unset. */
+  earningsCoverage?: "historical_unavailable" | "price_only";
   /** Average daily dollar volume over the last 20 sessions, when known. */
   avgDollarVolume20?: number;
   /**
@@ -640,6 +642,10 @@ export function evaluate(input: RiskInput): RiskVerdict {
     push("earnings_blackout", true, "crypto has no earnings");
   } else if (risk.earningsBlackoutDays <= 0) {
     push("earnings_blackout", true, "earnings blackout is disabled (0d)");
+  } else if (input.earningsCoverage === "historical_unavailable") {
+    push("earnings_blackout", false, "historical entry blocked: point-in-time earnings schedule unavailable");
+  } else if (input.earningsCoverage === "price_only") {
+    push("earnings_blackout", true, "price-only replay: earnings blackout not evaluated");
   } else if (!marketDataAvailable) {
     push(
       "earnings_blackout",
