@@ -175,9 +175,9 @@ void main() {
       expect(find.text(report.headline), findsOneWidget);
       expect(find.text('DECISION GRADE'), findsOneWidget);
       expect(find.text('Sized well, no churn.'), findsOneWidget);
-      await _scrollTo(tester, find.text('DAY MOVE VERSUS SPY'));
+      await _scrollTo(tester, find.text('DAY MARK AND MARKET CONTEXT'));
       await tester.pump();
-      expect(find.text('DAY MOVE VERSUS SPY'), findsOneWidget);
+      expect(find.text('DAY MARK AND MARKET CONTEXT'), findsOneWidget);
       await _scrollTo(tester, find.text('CLOSED TRADES'));
       await tester.pump();
       expect(find.text('CLOSED TRADES'), findsOneWidget);

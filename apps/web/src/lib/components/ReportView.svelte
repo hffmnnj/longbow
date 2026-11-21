@@ -209,7 +209,7 @@
       {/if}
     {:else}
       <Panel
-        title={r.kind === "daily" ? "Day move versus SPY" : "Equity versus SPY"}
+        title={r.kind === "daily" ? "Day mark and market context" : "Weekly equity marks"}
         reading={reading}
         class="report-section"
       >
@@ -217,15 +217,15 @@
           {#if r.kind === "daily"}
             {#if f.pnlPct !== undefined && f.benchmarkPct !== undefined}
               <DitherColumns
-                labels={["Account", "SPY"]}
+                labels={["Account mark", "SPY close-to-close"]}
                 series={[
-                  { key: "account", label: "Account", tone: dayTone === "flat" ? "muted" : dayTone, values: [f.pnlPct, 0] },
-                  { key: "spy", label: "SPY, same day", tone: "muted", values: [0, f.benchmarkPct] },
+                  { key: "account", label: "Account mark", tone: dayTone === "flat" ? "muted" : dayTone, values: [f.pnlPct, 0] },
+                  { key: "spy", label: "SPY close-to-close", tone: "muted", values: [0, f.benchmarkPct] },
                 ]}
                 format={(v) => pctSigned(v)}
                 axisFormat={(v) => `${v}%`}
-                tooltipLabel={(i) => (i === 0 ? `Account ${pctSigned(f.pnlPct ?? 0)}` : `SPY ${pctSigned(f.benchmarkPct ?? 0)}`)}
-                ariaLabel={`Day move: account ${pctSigned(f.pnlPct)} against SPY ${pctSigned(f.benchmarkPct)}`}
+                tooltipLabel={(i) => (i === 0 ? `Account mark ${pctSigned(f.pnlPct ?? 0)}` : `SPY close-to-close ${pctSigned(f.benchmarkPct ?? 0)}`)}
+                ariaLabel={`Day mark: account mark ${pctSigned(f.pnlPct)}; SPY close-to-close ${pctSigned(f.benchmarkPct)}`}
                 class="h-44"
               />
             {:else}
@@ -235,15 +235,18 @@
             <DitherSeries
               kind="line"
               labels={f.equityCurve.map((p) => p.date)}
-              series={[{ key: "equity", label: "Account", tone: "primary", values: f.equityCurve.map((p) => p.equity) }]}
+              series={[{ key: "equity", label: "Account mark", tone: "primary", values: f.equityCurve.map((p) => p.equity) }]}
               format={usd}
               axisFormat={(v) => usd(Math.round(v)).replace(".00", "")}
               tickLabel={isoShort}
-              ariaLabel={`Account equity over the week. ${reading ?? ""}`}
+              ariaLabel={`Account marks over the week. ${reading ?? ""}`}
               class="h-56"
             />
           {:else}
             <Empty text="Equity marks are recorded once a day. This week has a single mark so far." />
+          {/if}
+          {#if f.pnlPct !== undefined && f.benchmarkPct !== undefined}
+            <p class="text-muted-foreground mt-2 text-[11.5px] leading-snug">Account marks and SPY closes use different time bases. This is not a cash-flow-adjusted comparison.</p>
           {/if}
         </div>
       </Panel>

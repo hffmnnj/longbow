@@ -67,14 +67,15 @@ describe("figureStrip", () => {
     expect(figs).toEqual([]);
   });
 
-  it("spells out the difference to SPY in both directions", () => {
+  it("shows SPY as a neutral close-to-close reference, never a comparison", () => {
     const beat = figureStrip(facts({ pnl: 100, pnlPct: 0.4, benchmarkPct: 0.1 }));
     expect(beat.find((f) => f.key === "pnl")?.sub).toBe("+0.40%");
-    expect(beat.find((f) => f.key === "spy")?.sub).toBe("beat SPY by 0.30%");
+    expect(beat.find((f) => f.key === "spy")?.sub).toBe("Close-to-close reference");
+    expect(beat.find((f) => f.key === "spy")?.value).toBe("+0.10%");
     const trailed = figureStrip(facts({ pnl: -50, pnlPct: -0.2, benchmarkPct: 0.1 }));
-    expect(trailed.find((f) => f.key === "spy")?.sub).toBe("trailed SPY by 0.30%");
-    const matched = figureStrip(facts({ pnl: 1, pnlPct: 0.1, benchmarkPct: 0.101 }));
-    expect(matched.find((f) => f.key === "spy")?.sub).toBe("matched SPY");
+    expect(trailed.find((f) => f.key === "spy")?.sub).toBe("Close-to-close reference");
+    const noAccount = figureStrip(facts({ benchmarkPct: 0.101 }));
+    expect(noAccount.find((f) => f.key === "spy")?.sub).toBe("Close-to-close reference");
   });
 
   it("keeps trades, win rate, R and heat when present", () => {
@@ -269,9 +270,9 @@ describe("groupReportsByWeek", () => {
 });
 
 describe("periodReading", () => {
-  it("reads the period move against SPY", () => {
+  it("states the account mark and the SPY reference separately", () => {
     expect(periodReading(facts({ pnlPct: 1, benchmarkPct: 0.6, periodStart: "2026-10-26" }))).toBe(
-      "Up 1.00% vs SPY's +0.60% since Oct 26",
+      "Up 1.00% since Oct 26; SPY close-to-close +0.60%",
     );
     expect(periodReading(facts({ pnlPct: -0.2, periodStart: "2026-10-26" }))).toBe("Down 0.20% since Oct 26");
     expect(periodReading(facts({}))).toBeUndefined();

@@ -64,20 +64,14 @@ export function figureStrip(f: ReportFacts): Figure[] {
     });
   }
   if (f.benchmarkPct !== undefined) {
-    const diff = (f.pnlPct ?? 0) - f.benchmarkPct;
     out.push({
       key: "spy",
-      // SPY's own move; the caption carries the comparison, so the figure stays neutral.
+      // The published SPY close-to-close value, shown as a neutral reference.
+      // Account marks and SPY closes use different time bases, so this never
+      // carries a beat/trail/matched comparison.
       label: "SPY",
       value: pctSigned(f.benchmarkPct),
-      sub:
-        f.pnlPct !== undefined
-          ? Math.abs(diff) < 0.005
-            ? "matched SPY"
-            : diff > 0
-              ? `beat SPY by ${pct(Math.abs(diff))}`
-              : `trailed SPY by ${pct(Math.abs(diff))}`
-          : "same period",
+      sub: "Close-to-close reference",
       tone: "flat",
     });
   }
@@ -238,14 +232,16 @@ export function groupReportsByWeek(reports: readonly ReportSummary[]): ReportWee
     });
 }
 
-/** One-line reading above the equity figure: "Up 1.00% vs SPY's +0.60% since Oct 26". */
+/** One-line reading above the equity figure. When both values exist it states
+ * each separately, since account marks and SPY closes use different time bases.
+ */
 export function periodReading(f: ReportFacts): string | undefined {
   if (f.pnlPct === undefined) return undefined;
   const dir = f.pnlPct >= 0 ? "Up" : "Down";
   const mine = pct(Math.abs(f.pnlPct));
   const since = `since ${isoShort(f.periodStart)}`;
   if (f.benchmarkPct === undefined) return `${dir} ${mine} ${since}`;
-  return `${dir} ${mine} vs SPY's ${pctSigned(f.benchmarkPct)} ${since}`;
+  return `${dir} ${mine} ${since}; SPY close-to-close ${pctSigned(f.benchmarkPct)}`;
 }
 
 /** Toast copy for a newly published report. */

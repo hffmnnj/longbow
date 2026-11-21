@@ -126,19 +126,20 @@ void main() {
       expect(figureStrip(_facts()), isEmpty);
     });
 
-    test('spells out the difference to SPY in both directions', () {
+    test('shows SPY as a neutral close-to-close reference, never a comparison', () {
       final beat =
           figureStrip(_facts(pnl: 100, pnlPct: 0.4, benchmarkPct: 0.1));
       expect(beat.firstWhere((f) => f.key == 'pnl').sub, '+0.40%');
-      expect(beat.firstWhere((f) => f.key == 'spy').sub, 'beat SPY by 0.30%');
+      expect(beat.firstWhere((f) => f.key == 'spy').sub,
+          'Close-to-close reference');
+      expect(beat.firstWhere((f) => f.key == 'spy').value, '+0.10%');
       final trailed =
           figureStrip(_facts(pnl: -50, pnlPct: -0.2, benchmarkPct: 0.1));
       expect(trailed.firstWhere((f) => f.key == 'spy').sub,
-          'trailed SPY by 0.30%');
-      final matched =
-          figureStrip(_facts(pnl: 1, pnlPct: 0.1, benchmarkPct: 0.101));
-      expect(
-          matched.firstWhere((f) => f.key == 'spy').sub, 'matched SPY');
+          'Close-to-close reference');
+      final noAccount = figureStrip(_facts(benchmarkPct: 0.101));
+      expect(noAccount.firstWhere((f) => f.key == 'spy').sub,
+          'Close-to-close reference');
     });
 
     test('keeps trades, win rate, R and heat when present', () {
@@ -393,11 +394,11 @@ void main() {
   });
 
   group('periodReading', () {
-    test('reads the period move against SPY', () {
+    test('states the account mark and the SPY reference separately', () {
       expect(
         periodReading(
             _facts(pnlPct: 1, benchmarkPct: 0.6, periodStart: '2026-10-26')),
-        'Up 1.00% vs SPY\'s +0.60% since Oct 26',
+        'Up 1.00% since Oct 26; SPY close-to-close +0.60%',
       );
       expect(
         periodReading(_facts(pnlPct: -0.2, periodStart: '2026-10-26')),

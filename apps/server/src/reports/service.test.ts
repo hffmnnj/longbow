@@ -136,6 +136,23 @@ describe("publishReport", () => {
     assert.match(text, /0 trades closed/);
   });
 
+  it("labels marked account change and a valid flat SPY close-to-close reference separately", async () => {
+    const d = deps(state());
+    d.market.history = async (symbol) => ({
+      symbol,
+      bars: ["2026-10-23", "2026-10-26"].map((date) =>
+        ({ date, open: 500, high: 501, low: 499, close: 500, volume: 1000 })),
+      source: "fake",
+      asOf: NOW,
+    });
+
+    const { report, text } = await publishReport(d, dailyNarrative);
+
+    assert.equal(report.facts.benchmarkPct, 0);
+    assert.match(text, /marked account change \+\$10\.00, \(\+1\.00%\)/);
+    assert.match(text, /SPY close-to-close reference \+0\.00%/);
+  });
+
   it("replaces_a_republished_period_instead_of_duplicating", async () => {
     const s = state();
     const d = deps(s);

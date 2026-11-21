@@ -52,7 +52,7 @@ export function createReportExtension(deps: ReportExtensionDeps): Extension {
   const publish_report = defineTool({
     name: "publish_report",
     description:
-      "Publish a daily, weekly, or trade report: after the close publish one trade report per trade closed today (grade the decision, not the outcome), then the daily report, plus the weekly report on the last trading day of the week. Every number is computed server-side; quote figures only from the returned facts.",
+      "Publish a daily, weekly, or trade report: after the close publish one trade report per trade closed today (grade the decision, not the outcome), then the daily report, plus the weekly report on the last trading day of the week. Every number is computed server-side; quote figures only from the returned facts. In daily and weekly reports, use SPY's close-to-close price move as context; the marked account change can use different times and is not adjusted for cash flows. Do not call the difference excess return or say the account beat or trailed SPY.",
     parameters: publishReportSchema,
     async execute(args: PublishReportArgs) {
       const parsed = ReportNarrativeSchema.safeParse(args);
