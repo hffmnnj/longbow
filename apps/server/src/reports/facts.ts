@@ -61,11 +61,13 @@ function newestTradingDayOnOrBefore(calendar: MarketCalendar, date: string): str
  */
 async function spyBenchmarkPct(deps: ReportFactsDeps, periodStart: string, periodEnd: string): Promise<number | undefined> {
   try {
-    const spy = await deps.market.history("SPY", "1y");
-    const byDate = new Map(spy.bars.map((b) => [b.date, b.close]));
     const startDay = newestTradingDayOnOrBefore(deps.calendar, etAddDays(periodStart, -1));
     const endDay = newestTradingDayOnOrBefore(deps.calendar, periodEnd);
     if (startDay === undefined || endDay === undefined) return undefined;
+    const endSession = deps.calendar.clock(Date.parse(`${endDay}T12:00:00Z`));
+    if (deps.clock.now() < endSession.nextClose) return undefined;
+    const spy = await deps.market.history("SPY", "1y", { requireCloseOn: endDay });
+    const byDate = new Map(spy.bars.map((b) => [b.date, b.close]));
     const start = byDate.get(startDay);
     const end = byDate.get(endDay);
     if (start === undefined || end === undefined) return undefined;

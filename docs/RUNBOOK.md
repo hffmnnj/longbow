@@ -69,6 +69,7 @@ background update check. Web Settings also shows the latest release and APK down
 ## Operate
 
 - Account balances and positions refresh every five minutes while Robinhood is connected, including outside equity hours for 24/7 crypto fills. `account.at` is the cached snapshot time; a newer fill record does not by itself prove that snapshot has caught up.
+- Daily and weekly reports use the exact preceding and period-end regular-session closes for the SPY price benchmark. The report refreshes separately from the intraday history cache after the NYSE close, including early closes. If Nasdaq has not published either close when the report runs, the comparison is omitted, not counted as flat. Previously published reports are not automatically rewritten. Account marks are not adjusted for deposits or withdrawals.
 - Logs: `journalctl --user -u robinhood-harness -f`
 - Stop everything now: the kill switch in the UI, or `systemctl --user stop robinhood-harness`.
 - Logs: `journalctl _SYSTEMD_USER_UNIT=robinhood-harness.service -f` (this host does not keep a user journal).

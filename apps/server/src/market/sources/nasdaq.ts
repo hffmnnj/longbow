@@ -110,9 +110,16 @@ export async function fetchNasdaqHistory(
   from: string,
   to: string,
   ttlMs: number,
+  requireCloseOn?: string,
 ): Promise<Bar[]> {
   const url = historyUrl(symbol, asset, from, to);
-  return cache.getOrFetch(`nasdaq-history-${asset}-${symbol}-${from}-${to}`, ttlMs, async () => {
+  const key = `nasdaq-history-${asset}-${symbol}-${from}-${to}`;
+  // Never promote an intraday cache hit to the closing benchmark, or keep a
+  // response that Nasdaq returned before publishing the requested close.
+  const closeKey = requireCloseOn === undefined ? key : `${key}-close-${requireCloseOn}`;
+  const containsClose = requireCloseOn === undefined ? undefined : (bars: Bar[]) =>
+    bars.some((bar) => bar.date === requireCloseOn && Number.isFinite(bar.close) && bar.close > 0);
+  return cache.getOrFetch(closeKey, ttlMs, async () => {
     const text = await cache.fetchText(url, { headers: NASDAQ_HEADERS });
     let payload: unknown;
     try {
@@ -121,7 +128,7 @@ export async function fetchNasdaqHistory(
       throw new MarketError("bad_response", `nasdaq history for ${symbol} returned invalid JSON`);
     }
     return parseNasdaqHistory(payload);
-  });
+  }, containsClose);
 }
 
 function cleanCell(value: unknown): string | undefined {

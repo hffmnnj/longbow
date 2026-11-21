@@ -143,7 +143,7 @@ export class MarketStore {
     return this.deps.asOf?.() ?? etDate(this.deps.clock.now());
   }
 
-  private async historyWithFallback(symbol: string, from: string, to: string, ttlMs: number): Promise<Bar[]> {
+  private async historyWithFallback(symbol: string, from: string, to: string, ttlMs: number, requireCloseOn?: string): Promise<Bar[]> {
     if (isCryptoSymbol(symbol)) {
       return fetchCoinbaseHistory(this.cache, symbol, from, to, ttlMs);
     }
@@ -151,9 +151,9 @@ export class MarketStore {
     const order: NasdaqAsset[] = preferred === "etf" ? ["etf", "stocks"] : ["stocks", "etf"];
     let last: Bar[] = [];
     for (const asset of order) {
-      const bars = await fetchNasdaqHistory(this.cache, symbol, asset, from, to, ttlMs);
+      const bars = await fetchNasdaqHistory(this.cache, symbol, asset, from, to, ttlMs, requireCloseOn);
       if (bars.length > 0) {
-        this.assetMemory.set(symbol, asset);
+        if (requireCloseOn === undefined) this.assetMemory.set(symbol, asset);
         return bars;
       }
       last = bars;
@@ -161,22 +161,22 @@ export class MarketStore {
     return last;
   }
 
-  async extended(symbol: string, range: HistoryRange): Promise<ExtendedHistory> {
+  async extended(symbol: string, range: HistoryRange, requireCloseOn?: string): Promise<ExtendedHistory> {
     const today = etDate(this.deps.clock.now());
     const cutoff = this.cutoff();
     const ttlMs = isRegularSession(this.deps.clock.now()) ? TTL.historyOpenMs : TTL.historyClosedMs;
     // Nasdaq only serves windows ending near today, so always fetch through
     // today and slice at the cutoff: a 1y window at an as-of two years ago
     // still returns about 250 bars.
-    const full = (await this.historyWithFallback(symbol, shiftMonths(cutoff, RANGE_MONTHS[range] + 9), today, ttlMs)).filter(
+    const full = (await this.historyWithFallback(symbol, shiftMonths(cutoff, RANGE_MONTHS[range] + 9), today, ttlMs, requireCloseOn)).filter(
       (b) => b.date <= cutoff,
     );
     const windowCut = shiftMonths(cutoff, RANGE_MONTHS[range]);
     return { window: full.filter((b) => b.date >= windowCut), full };
   }
 
-  async history(symbol: string, range: HistoryRange): Promise<PriceHistory> {
-    const { window } = await this.extended(symbol, range);
+  async history(symbol: string, range: HistoryRange, options?: { requireCloseOn: string }): Promise<PriceHistory> {
+    const { window } = await this.extended(symbol, range, options?.requireCloseOn);
     const cutoff = this.deps.asOf?.();
     return {
       symbol,
@@ -226,7 +226,7 @@ export class MarketStore {
 export function createMarketData(deps: MarketDataDeps): MarketData {
   const store = new MarketStore(deps);
   return {
-    history: (symbol, range) => store.history(symbol, range),
+    history: (symbol, range, options) => store.history(symbol, range, options),
     nextEarnings: (symbol) => store.nextEarnings(symbol),
     avgDollarVolume: (symbol, days) => store.avgDollarVolume(symbol, days),
   };

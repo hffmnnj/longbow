@@ -93,15 +93,16 @@ export class MarketCache {
 
   /**
    * Return the cached value for `key` when it is younger than `ttlMs`,
-   * otherwise run `fetchFn`, cache its result, and return it. Concurrent
-   * identical requests share one fetch.
+   * otherwise run `fetchFn` and return it. Results rejected by `cacheWhen`
+   * are not persisted. Concurrent requests with the same key share one fetch.
    */
-  async getOrFetch<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>): Promise<T> {
+  async getOrFetch<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>, cacheWhen?: (value: T) => boolean): Promise<T> {
     try {
       const raw = await readFile(join(this.dir(), keyToFile(key)), "utf8");
       const parsed = JSON.parse(raw) as { at?: unknown; value?: unknown };
       if (typeof parsed?.at === "number" && this.clock.now() - parsed.at < ttlMs && "value" in parsed) {
-        return parsed.value as T;
+        const value = parsed.value as T;
+        if (cacheWhen === undefined || cacheWhen(value)) return value;
       }
     } catch {
       // Cache miss, unreadable file, or bad JSON: fetch fresh below.
@@ -110,6 +111,7 @@ export class MarketCache {
     if (running !== undefined) return running as Promise<T>;
     const pending = (async (): Promise<T> => {
       const value = await fetchFn();
+      if (cacheWhen !== undefined && !cacheWhen(value)) return value;
       try {
         await mkdir(this.dir(), { recursive: true });
         await writeFile(join(this.dir(), keyToFile(key)), JSON.stringify({ at: this.clock.now(), value }));
