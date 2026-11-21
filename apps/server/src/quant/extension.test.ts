@@ -140,6 +140,25 @@ describe("quant extension", () => {
     assert.match(textOf(result), /VaR/);
   });
 
+  it("portfolio_risk does not model an unfunded buy as an addition to the current book", async () => {
+    const { getAccount } = deps();
+    const ext = createQuantExtension(deps({ getAccount: async () => ({
+      ...(await getAccount())!, buyingPower: 100, settledCash: 25,
+    }) }));
+    const tool = ext.tools?.find((t) => t.name === "portfolio_risk");
+    assert.ok(tool);
+    type Readout = { structuredOutput: { var95: unknown; note?: string; candidate?: { notional: number } } };
+    const baseline = (await tool.execute({}, API, CTX) as Readout).structuredOutput;
+    const insufficient = await tool.execute({ candidate: { symbol: "MSFT", notional: 26 } }, API, CTX);
+    const blocked = (insufficient as Readout).structuredOutput;
+    assert.equal(blocked.candidate, undefined);
+    assert.deepEqual(blocked.var95, baseline.var95);
+    assert.match(blocked.note ?? "", /\$26\.00.*\$25\.00/);
+    assert.match(textOf(insufficient), /no sale or borrowing assumed/i);
+    const funded = (await tool.execute({ candidate: { symbol: "MSFT", notional: 25 } }, API, CTX) as Readout).structuredOutput;
+    assert.equal(funded.candidate?.notional, 25);
+  });
+
   it("portfolio_risk_keeps_the_baseline_when_candidate_history_is_short", async () => {
     const market = fakeMarket();
     const history = market.history;
