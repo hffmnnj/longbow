@@ -21,7 +21,7 @@ export interface RiskToolsDeps {
   getAccount?: () => AccountSnapshot | null;
   currentCycleId: () => string | undefined;
   /** When a real option gate is not wired, keep this absent, including in ordinary paper simulations. */
-  optionTickets?: boolean;
+  optionTickets?: true | "close-only";
 }
 
 const submitOrderSchema = Type.Object({
@@ -113,6 +113,7 @@ const optionTicket = Type.Object({
   limitCents: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
 }, { additionalProperties: false, description: "One standard contract identity. Limit is integer cents per underlying share; always waits for owner approval." });
 const submitWithOptionSchema = Type.Object({ ...submitOrderSchema.properties, longOption: Type.Optional(optionTicket) });
+const closeTicket = Type.Object({ ...optionTicket.properties, side: Type.Literal("sell-to-close") }, { additionalProperties: false });
 type SubmitOrderArgs = Static<typeof submitWithOptionSchema>;
 
 const etClockFormat = new Intl.DateTimeFormat("en-US", {
@@ -147,10 +148,12 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       "and either rejects it, holds it for approval in approve mode, or submits it to the broker in auto mode. " +
       "In approve mode a human must approve the pending order before anything is placed. " +
       "Owner-instruction orders always require human approval, including in auto mode." +
-      (deps.optionTickets ? " A standard single-leg options ticket always requires owner approval; no spreads or short positions." : ""),
+      (deps.optionTickets === "close-only" ? " Options are sell-to-close only, for existing long contracts. Include the owner's verbatim request in ownerInstruction. The owner must still approve."
+        : deps.optionTickets ? " A standard single-leg options ticket always requires owner approval; no spreads or short positions." : ""),
     parameters: deps.optionTickets
       ? Type.Object({
         ...submitWithOptionSchema.properties,
+        ...(deps.optionTickets === "close-only" ? { longOption: Type.Optional(closeTicket) } : {}),
         symbol: Type.String({ ...submitOrderSchema.properties.symbol, description: "Underlying ticker for an options ticket; otherwise the existing equity symbol or crypto pair." }),
         quantity: Type.Number({ exclusiveMinimum: 0, description: "Shares or coins. With longOption, must equal its whole contract count." }),
         limitPrice: Type.Number({ exclusiveMinimum: 0, description: "USD per share. With longOption, must equal limitCents / 100; full premium is 100 shares per contract." }),
@@ -162,6 +165,9 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       const option = args.longOption === undefined ? undefined : LongOptionTicketSchema.safeParse(args.longOption);
       if (option && (!deps.optionTickets || !option.success)) {
         return { isError: true, output: [{ type: "text", text: "Option ticket unavailable or invalid; nothing was proposed." }] };
+      }
+      if (option?.success && deps.optionTickets === "close-only" && option.data.side !== "sell-to-close") {
+        return { isError: true, output: [{ type: "text", text: "Option opening orders are disabled. Nothing was proposed." }] };
       }
       const order = await gate.submit(
         {

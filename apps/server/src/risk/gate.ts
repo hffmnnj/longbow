@@ -51,6 +51,7 @@ export interface OrderGateDeps {
   entryReview?: (intent: OrderIntent, gate: SystemOneGate) => Promise<RiskCheck | undefined>;
   /** None until an option adapter can supply authoritative account, quote and lifecycle facts. */
   options?: {
+    closeOnly?: boolean;
     facts(ticket: LongOptionTicket, orders: OrderRecord[]): Promise<Omit<LongOptionRiskInputs, "market" | "settings"> & { accountPin: string }>;
     review(ticket: LongOptionTicket, accountPin: string): Promise<{
       noAlerts: boolean;
@@ -211,9 +212,24 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     }
     const adapter = deps.options;
     if (!adapter) return refused("options_adapter", "Option order execution is unavailable.");
+    if (adapter.closeOnly && !isExit) {
+      return refused("options_close_only", "Longbow can close existing long options but cannot open option positions.");
+    }
+    if (adapter.closeOnly) {
+      const now = clock.now();
+      const words = intent.ownerInstruction === undefined ? "" : normalizeInstruction(intent.ownerInstruction);
+      const ownerRequest = words.length >= 12 && deps.ownerMessagesSince?.(now - OWNER_MESSAGE_WINDOW_MS)
+        .some((message) => message.at >= now - OWNER_MESSAGE_WINDOW_MS && message.at <= now &&
+          normalizeInstruction(message.text).includes(words));
+      if (!ownerRequest) return refused("options_owner_request", "An options close requires a recent, quoted owner request.");
+    }
     const orders = store.ordersSince(0).filter((order) => order.id !== currentId);
     if (orders.some((o) => o.intent.longOption && o.status === "triggering")) {
       return refused("options_unreconciled", "Reconcile the outstanding option order before sending another.");
+    }
+    if (isExit && orders.some((o) => o.intent.longOption?.instrumentId === ticket.instrumentId &&
+        o.intent.longOption.side === "sell-to-close" && ["submitted", "partially_filled"].includes(o.status))) {
+      return refused("options_close_working", "A close for this contract is already working. Reconcile it before proposing another.");
     }
     try {
       const facts = await adapter.facts(ticket, orders);

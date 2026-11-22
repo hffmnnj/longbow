@@ -19,7 +19,8 @@ async function accountOptions(call: Call<"get_accounts">, signal?: AbortSignal) 
   return { accountId, entitlement } as const;
 }
 
-export async function getOptionReadiness(call: Call<(typeof optionReadinessTools)[number]>, signal?: AbortSignal) {
+export async function getOptionReadiness(call: Call<(typeof optionReadinessTools)[number]>, signal?: AbortSignal,
+  execution: "close-only" | "unavailable" = "unavailable") {
   const { accountId, entitlement } = await accountOptions(call, signal);
   signal?.throwIfAborted();
   const { setting } = await call("get_trade_approval_setting", { account_number: accountId }, signal);
@@ -27,13 +28,15 @@ export async function getOptionReadiness(call: Call<(typeof optionReadinessTools
   if (status.account_number !== accountId || typeof status.human_must_approve_trades !== "boolean") {
     throw new BrokerMappingError("Robinhood returned no matching trade approval setting");
   }
+  const eligible = entitlement === "level-2" || entitlement === "level-3";
   return {
     optionsEntitlement: entitlement,
     approvalRequiredAtRobinhood: status.human_must_approve_trades,
-    longbowExecution: "unavailable",
+    longbowExecution: eligible ? execution : "unavailable",
     nextStep: entitlement === "not-approved" ? "The owner can apply for options access on the dedicated MCP account in the Robinhood app." :
       entitlement === "unknown" ? "Robinhood did not return a recognized options level. Verify the options level in the app." :
-        "Longbow can preview orders but cannot send live options orders.",
+        execution === "close-only" ? "Longbow can propose a sell-to-close for an existing long option. The owner must approve it; no opening orders." :
+          "Longbow can preview orders but cannot send live options orders.",
   } as const;
 }
 

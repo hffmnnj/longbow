@@ -33,8 +33,8 @@ export interface RobinhoodBroker extends Broker {
   tradeHistory(): Promise<PnlTrade[]>;
   /** Open sell stop orders resting at Robinhood. Read-only. */
   openStopOrders(): Promise<OpenStopOrder[]>;
-  /** Private, schema-checked adapter for the shared order gate; never installed on the agent registry. */
-  optionOrderAdapter(store: Pick<Store, "equityMarks" | "getSettings">, feeReservePerContractCents: number): ReturnType<typeof createRobinhoodOptionAdapter>;
+  /** Private close-only adapter for the shared order gate; never installed on the agent registry. */
+  optionCloseAdapter(store: Pick<Store, "equityMarks" | "getSettings">): ReturnType<typeof createRobinhoodOptionAdapter>;
 }
 
 export function liveTradingLockedMessage(tool: string): string {
@@ -381,9 +381,11 @@ export function createRobinhoodBroker(deps: {
       if (isCryptoSymbol(intent.symbol)) return place(intent, {});
       return place(intent, await execution(intent, "place"));
     },
-    optionOrderAdapter(store, feeReservePerContractCents) {
-      return createRobinhoodOptionAdapter({
-        clock, calendar, store, feeReservePerContractCents,
+    optionCloseAdapter(store) {
+      const adapter = createRobinhoodOptionAdapter({
+        clock, calendar, store,
+        // Robinhood's current options regulatory and OCC clearing fee, per contract.
+        feeReservePerContractCents: 4,
         call: (name, args) => {
           if (!optionAdapterTools.every((needed) => tools.some((tool) => tool.name === needed))) {
             throw new BrokerMappingError("Robinhood did not advertise the full option order tool set");
@@ -391,10 +393,20 @@ export function createRobinhoodBroker(deps: {
           return mappedCall(name, args);
         },
       });
+      return {
+        ...adapter,
+        closeOnly: true,
+        review(ticket, accountPin) {
+          if (ticket.side !== "sell-to-close") throw new BrokerMappingError("Only reducing long-option orders are enabled");
+          return adapter.review(ticket, accountPin);
+        },
+      };
     },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     extension() {
-      return robinhoodExtension({ tools, status: () => broker.status(), call, marketClock: () => {
+      return robinhoodExtension({ tools, status: () => broker.status(), call,
+        optionExecution: deps.config.LIVE_TRADING && optionAdapterTools.every((name) => tools.some((tool) => tool.name === name)) ? "close-only" : "unavailable",
+        marketClock: () => {
         const now = clock.now();
         const session = calendar.clock(now);
         return { now, date: calendar.etDate(now), isOpen: session.isOpen, sessionOpen: session.nextOpen };

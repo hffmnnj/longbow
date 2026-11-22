@@ -194,19 +194,20 @@ function deps(overrides: Partial<AppDeps> = {}): AppDeps & {
 
 const CSRF = { "x-harness": "1" };
 
-it("sends the exact options ticket to a fixture broker only after the owner approves it", async () => {
+it("sends the exact reducing option close only after the owner approves it", async () => {
   const appDeps = deps();
   const calendar = createNyseCalendar();
   const id = "10000000-0000-0000-0000-000000000001";
   const chain = "20000000-0000-0000-0000-000000000002";
   const orderId = "30000000-0000-0000-0000-000000000003";
   const placed: Record<string, unknown>[] = [];
+  const ownerInstruction = "Sell to close two of my SPY puts at $1.75.";
   appDeps.store.patchSettings({ mode: "auto", risk: { maxSpreadBps: 100 } });
   const gate = createOrderGate({
     ...appDeps, calendar,
-    options: createRobinhoodOptionAdapter({
+    ownerMessagesSince: () => [{ id: "fixture-owner", at: NOW, text: ownerInstruction }],
+    options: { closeOnly: true, ...createRobinhoodOptionAdapter({
       calendar, clock, store: appDeps.store, feeReservePerContractCents: 15,
-      exerciseRiskControlled: async () => true,
       async call(name, args) {
         switch (name) {
           case "get_accounts": return { accounts: [{ agentic_allowed: true, account_number: "mcp-fixture", option_level: "option_level_2", unsettled_funds: "20.00" }] };
@@ -214,7 +215,7 @@ it("sends the exact options ticket to a fixture broker only after the owner appr
             type: "put", strike_price: "500.00", trade_value_multiplier: "100", state: "active", tradability: "tradable", underlying_type: "equity" }] };
           case "get_option_chains": return { chains: [{ id: chain, symbol: "SPY", trade_value_multiplier: "100", cash_component: null, underlying_instruments: [{ symbol: "" }], can_open_position: true }] };
           case "get_option_quotes": return { results: [{ quote: { instrument_id: id, bid_price: "1.74", ask_price: "1.75", bid_size: 2, ask_size: 2, updated_at: new Date(NOW - 1000).toISOString() } }] };
-          case "get_portfolio": return { total_value: "50000", cash: "1000", pending_deposits: "0", buying_power: { unleveraged_buying_power: "1000" } };
+          case "get_option_positions": return { positions: [{ option_id: id, type: "long", quantity: "2.0000", quantity_available_for_sells: "2.0000" }] };
           case "review_option_order": return { order_checks: [], customer_approval_required: false };
           case "place_option_order": {
             const claimed = appDeps.store.listOrders(1)[0];
@@ -225,15 +226,15 @@ it("sends the exact options ticket to a fixture broker only after the owner appr
           default: return assert.fail(`unexpected fixture call ${name}`);
         }
       },
-    }),
+    }) },
   });
   const app = createApp({ ...appDeps, gate });
-  const tool = createRiskExtension({ ...appDeps, gate, calendar, optionTickets: true, currentCycleId: () => undefined })
+  const tool = createRiskExtension({ ...appDeps, gate, calendar, optionTickets: "close-only", currentCycleId: () => undefined })
     .tools!.find((candidate) => candidate.name === "submit_order")!;
   const execute = tool.execute as (input: unknown, api: object, ctx: object) => Promise<{ details: { orderId: string; status: string } }>;
   const proposal = await execute({
-    ...orderRecord.intent, quantity: 2, limitPrice: 1.75,
-    longOption: { instrumentId: id, symbol: "SPY", strikeCents: 50_000, expiration: "2026-12-18", contractType: "put", side: "buy-to-open", contracts: 2, limitCents: 175 },
+    ...orderRecord.intent, side: "sell", quantity: 2, limitPrice: 1.75, ownerInstruction,
+    longOption: { instrumentId: id, symbol: "SPY", strikeCents: 50_000, expiration: "2026-12-18", contractType: "put", side: "sell-to-close", contracts: 2, limitCents: 175 },
   }, {}, {});
   assert.equal(proposal.details.status, "pending_approval");
   assert.equal(placed.length, 0);
@@ -249,10 +250,31 @@ it("sends the exact options ticket to a fixture broker only after the owner appr
   assert.equal(placed.length, 1);
   const { ref_id, ...args } = placed[0]!;
   assert.match(String(ref_id), /^[a-f0-9]{64}$/);
-  assert.deepEqual(args, { account_number: "mcp-fixture", legs: [{ option_id: id, side: "buy", position_effect: "open", ratio_quantity: 1 }],
+  assert.deepEqual(args, { account_number: "mcp-fixture", legs: [{ option_id: id, side: "sell", position_effect: "close", ratio_quantity: 1 }],
     type: "limit", quantity: "2", price: "1.75", time_in_force: "gfd", market_hours: "regular_hours" });
   await app.request(route, { method: "POST", headers: CSRF });
   assert.equal(placed.length, 1);
+});
+
+it("a live-style close-only adapter never authorizes opening an option", async () => {
+  const appDeps = deps();
+  const gate = createOrderGate({
+    ...appDeps,
+    options: {
+      closeOnly: true,
+      facts: async () => assert.fail("opening must fail before broker reads"),
+      review: async () => assert.fail("opening must not review"),
+      cancel: async () => assert.fail("opening must not cancel"),
+      reconcile: async () => assert.fail("opening must not reconcile"),
+    },
+  });
+  const proposed = await gate.submit({
+    ...orderRecord.intent, quantity: 2, limitPrice: 1.75,
+    longOption: { instrumentId: "10000000-0000-0000-0000-000000000001", symbol: "SPY",
+      expiration: "2026-12-18", strikeCents: 50_000, contractType: "put", contracts: 2, limitCents: 175, side: "buy-to-open" },
+  });
+  assert.equal(proposed.status, "rejected_risk");
+  assert.equal(proposed.verdict.checks[0]?.rule, "options_close_only");
 });
 
 it("logs failed mutations and unexpected errors without request bodies or query strings", async () => {

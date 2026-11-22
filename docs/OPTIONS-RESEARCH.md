@@ -1,9 +1,10 @@
 # Long options research playbook
 
-This document is research guidance, not an execution or entitlement path.
-Longbow cannot submit, approve, or exercise an option. The existing equity and
-crypto order controls are unchanged. No options edge has been established for
-this account.
+This document covers research and Longbow's close-only release. When live trading is
+enabled and Robinhood confirms eligibility, you can ask Longbow to propose a day
+limit to sell an existing long call or put. It always needs your approval in the
+app. Opening, exercise, and short options are not enabled. The existing equity
+and crypto order controls are unchanged. No options edge has been established.
 
 ## Read-only tools
 
@@ -17,8 +18,8 @@ this account.
   tradable instrument reports a reason instead.
 - `rh_options_readiness` reports options entitlement and Robinhood's manual
   approval setting for the dedicated MCP account without exposing the account
-  number. Its `longbowExecution` field is `unavailable`; entitlement is not
-  permission to trade.
+  number. Its `longbowExecution` field is `close-only` or `unavailable`. The
+  result does not confirm that a position is currently available to close.
 - `rh_preview_long_option` is a non-executing Robinhood preview of one exact
   standard, 100-multiplier equity call or put. It requires regular hours, an
   expiration after today, Level 2 or 3 approval, and a match on the instrument
@@ -28,7 +29,8 @@ this account.
 - `rh_get_option_instruments`, `rh_get_option_quotes` and `rh_get_option_chains`
   are read-only data. `rh_get_option_historicals` returns OHLC bars, not bid and
   ask, so it cannot supply an executable quote.
-- `submit_order` and the risk engine do not accept options.
+- `submit_order` accepts a sell-to-close ticket for a verified long contract when
+  the close-only path is enabled. It refuses opening and exercise.
 
 The preview also exposes a `sell-to-close` side for closing an existing long
 position. Longbow opens no option positions, so that side is not used for new
@@ -113,8 +115,7 @@ loss even when the underlying moves toward the strike.
 
 ## Preview is not execution
 
-`rh_options_readiness` may report that previews are possible while
-`longbowExecution` remains `unavailable`. `rh_preview_long_option` can confirm
+`rh_preview_long_option` can confirm
 the exact contract, Robinhood approval requirement and pre-trade alerts, but its
 result is still only a preview. It never submits an order, requests the owner's
 approval or reserves a contract. The existing equity and crypto order paths
@@ -138,8 +139,8 @@ proven options edge.
 ## Execution verification
 
 The options integration tests exercise `submit_order`, the existing approval
-route, the risk gate, and the Robinhood adapter using a fixture transport. They
-do not enable placement in the running service. A fresh approval is required
+route, the risk gate, and the Robinhood adapter using a fixture transport. No
+real order is used as a test. A fresh approval is required
 after a server restart or an account change; a previously dispatched ticket is
 never retried automatically. A broker order ID or an exact echoed client
 reference is required to reconcile a lost response. Matching the contract,
