@@ -58,6 +58,7 @@ export interface SimService {
 /** What a test driver sees at each simulated cycle (no model credentials needed). */
 export interface SimDriverContext {
   kind: CycleKind;
+  /** Completed daily bars through asOf, including pre-run warmup. */
   bars(symbol: string): Promise<Bar[]>;
   market: MarketData;
   asOf: () => string;
@@ -348,7 +349,11 @@ export function createSimService(deps: SimServiceDeps): SimService {
         if (deps.driver !== undefined) {
           const account = await broker.snapshot();
           store.markEquity(now, deps.calendar.etDate(now), account.equity);
-          return await deps.driver(run, { kind, bars, market, asOf, symbols: [...symbols], benchmark, submit: gate.submit }) ?? "done";
+          const driverBars = async (symbol: string): Promise<Bar[]> => {
+            const cutoff = asOf();
+            return (await bars(symbol)).filter((bar) => bar.date <= cutoff).map((bar) => ({ ...bar }));
+          };
+          return await deps.driver(run, { kind, bars: driverBars, market, asOf, symbols: [...symbols], benchmark, submit: gate.submit }) ?? "done";
         }
         return agent!.runCycleAndWait(kind, 8 * 60_000);
       };

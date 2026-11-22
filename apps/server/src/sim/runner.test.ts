@@ -564,8 +564,18 @@ test("historical execution, visible indicators and gate use one completed price 
       const visible = await ctx.market.history("AAPL", "5y");
       assert.ok(visible.bars.length >= 30);
       assert.ok(visible.bars.every((bar) => bar.date <= ctx.asOf()));
-      assert.deepEqual(visible.bars, (await ctx.bars("AAPL")).filter((bar) => bar.date <= ctx.asOf()));
+      const driverBars = await ctx.bars("AAPL");
+      assert.deepEqual(driverBars, visible.bars, "raw driver bars must match the point-in-time tape");
+      assert.equal(driverBars.at(-1)?.date, ctx.asOf(), "the driver tape ends on the completed session");
+      if (ctx.kind === "post_close") {
+        assert.equal(ctx.asOf(), tradeDate);
+        assert.ok(driverBars.some((bar) => bar.date === tradeDate), "post-close sees the final completed bar");
+        assert.ok(!driverBars.some((bar) => bar.date === "2026-09-02"), "post-close stops at the final simulated session");
+        return;
+      }
       if (ctx.kind !== "intraday" || run.progress.cycle !== 1) return;
+      assert.equal(ctx.asOf(), "2026-08-31");
+      assert.ok(!driverBars.some((bar) => bar.date === tradeDate), "the incomplete trade date stays invisible");
       assert.equal(visible.bars.at(-1)?.date, "2026-08-31");
       assert.equal(await ctx.market.avgDollarVolume("AAPL", 20), 250_000_000);
       for (const symbol of ["SPY", ...ctx.symbols]) {
@@ -591,6 +601,54 @@ test("historical execution, visible indicators and gate use one completed price 
     }
     assert.deepEqual(sim.orders(run.id), [], "measuring execution quotes must not submit an order");
     assert.deepEqual(done.fills, []);
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
+  }
+});
+
+test("historical driver bars stop at the last completed session and include the final close", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-driver-bars-");
+  const replay = ["2026-09-01", "2026-09-02"];
+  const sourceDates = regularSessionDates("2026-07-01", "2026-10-30");
+  const sourceTape: Bar[] = [];
+  const observations: { kind: CycleKind; asOf: string; last: string | undefined }[] = [];
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: futureSessionCalendar("2026-10-30"),
+    fetchBars: async (symbol, from, to) => {
+      const bars = sourceDates.filter((date) => date >= from && date <= to)
+        .map((date) => ({ date, open: 100, high: 100, low: 100, close: 100, volume: 1_000_000 }));
+      if (symbol === "AAPL") sourceTape.push(...bars);
+      return bars;
+    },
+    driver: async (run, ctx) => {
+      const cutoff = ctx.asOf();
+      const bars = await ctx.bars("AAPL");
+      observations.push({ kind: ctx.kind, asOf: cutoff, last: bars.at(-1)?.date });
+      assert.ok(bars.length > 0, "the driver must see completed history");
+      assert.ok(bars.every((bar) => bar.date <= cutoff), `driver saw a bar after asOf ${cutoff}`);
+      assert.equal(bars.at(-1)?.date, cutoff, "the driver tape ends on the completed session");
+      if (ctx.kind === "post_close") {
+        assert.equal(cutoff, replay.at(-1));
+        assert.ok(bars.some((bar) => bar.date === "2026-09-02"), "post-close sees the final completed bar");
+        assert.ok(!bars.some((bar) => bar.date === "2026-09-03"), "post-close stops before the next session");
+      } else {
+        assert.ok(!bars.some((bar) => bar.date === run.currentDate), `the incomplete ${run.currentDate} session leaked`);
+        assert.equal(cutoff, run.progress.day === 1 ? "2026-08-31" : "2026-09-01");
+      }
+    },
+  });
+  try {
+    const run = await sim.start({ startDate: replay[0], days: replay.length, startingCash: 1200, cyclesPerDay: 2,
+      watchlist: ["AAPL"] }, "user");
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error ?? "driver bar replay did not finish");
+    // The injected tape really does continue past the replay, so the cut is the driver seam's.
+    assert.ok(sourceTape.some((bar) => bar.date === "2026-09-03"));
+    assert.ok(sourceTape.some((bar) => bar.date === "2026-10-29"));
+    assert.deepEqual(observations.filter((entry) => entry.kind === "post_close"),
+      [{ kind: "post_close", asOf: "2026-09-02", last: "2026-09-02" }]);
   } finally {
     await sim.close();
     cleanReplayCoverageFixture(dataDir, sim);
@@ -839,14 +897,14 @@ test("suite bootstrap runs share one source cutoff when a queued run executes on
     },
     sectorSource: createStaticSectorDirectory({}),
     driver: async (run, ctx) => {
-      if (run.progress.day !== 1 || run.progress.cycle !== 1) return;
-      fullBenchmark.set(run.variant ?? run.id, await ctx.bars(ctx.benchmark));
-      if (run.variant === "A") {
+      if (run.progress.day === 1 && run.progress.cycle === 1 && run.variant === "A") {
         // The build already used Nov 19. Moving the manual clock here makes the
         // still-queued B execute on Nov 20 while sharing the suite snapshot.
         firstRunFetches = fetches.length;
         wallNow = etInstant("2026-11-20", 12);
       }
+      // The driver tape grows through the run; sample the full scored snapshot after the last close.
+      if (ctx.kind === "post_close") fullBenchmark.set(run.variant ?? run.id, await ctx.bars(ctx.benchmark));
     },
   });
   try {
