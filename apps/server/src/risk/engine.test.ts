@@ -52,6 +52,22 @@ it("filled and partially filled orders keep consuming entry and day-trade budget
   assert.equal(countDayTrades([buy, stop], TODAY, () => 0), 1);
 });
 
+it("shares and puts on the same ticker count as different instruments", () => {
+  const shares = submittedBuy("AAPL", NOW);
+  const close = submittedSell("AAPL", NOW);
+  const option = {
+    instrumentId: "10000000-0000-0000-0000-000000000001",
+    symbol: "AAPL", expiration: "2026-12-18", strikeCents: 15_000,
+    contractType: "put" as const, side: "sell-to-close" as const, contracts: 1, limitCents: 200,
+  };
+  const optionClose = { ...close, intent: { ...close.intent, longOption: option } };
+  assert.equal(countDayTrades([shares, optionClose], TODAY, () => 0), 0);
+  const optionOpen = { ...shares, intent: { ...shares.intent, longOption: { ...option, side: "buy-to-open" as const } } };
+  assert.equal(countDayTrades([optionOpen, close], TODAY, () => 0), 0);
+  assert.equal(countDayTrades([optionOpen, optionClose], TODAY, () => 0), 1);
+  assert.equal(countSubmittedBuysToday([shares, optionOpen], TODAY), 2);
+});
+
 /** A base input that passes every rule: change one thing per test. */
 function passingInput(): RiskInput {
   return {
