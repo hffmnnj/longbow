@@ -64,7 +64,7 @@ export function countsAsSubmitted(order: OrderRecord): boolean {
   return ["submitted", "partially_filled", "filled"].includes(order.status) || (order.filledQuantity ?? 0) > 0;
 }
 
-/** Submitted stock and ETF buys today in ET. Crypto has its own daily budget. */
+/** Submitted stock, ETF, and options buys today in ET. Crypto has its own daily budget. */
 export function countSubmittedBuysToday(recentOrders: OrderRecord[], todayEt: string): number {
   return recentOrders.filter(
     (o) => countsAsSubmitted(o) && o.intent.side === "buy" && !isCryptoSymbol(o.intent.symbol) && etDateOf(o.createdAt) === todayEt,
@@ -79,7 +79,7 @@ export function countSubmittedCryptoBuysToday(recentOrders: OrderRecord[], today
 }
 
 /**
- * Day trades (same-symbol buy and sell on the same ET day) in the last 5
+ * Day trades (same-instrument buy and sell on the same ET day) in the last 5
  * trading days including today, from submitted orders.
  */
 export function countDayTrades(
@@ -88,16 +88,17 @@ export function countDayTrades(
   tradingDaysBetween: (a: string, b: string) => number,
 ): number {
   const submitted = recentOrders.filter((o) => countsAsSubmitted(o) && !isCryptoSymbol(o.intent.symbol));
+  const instrumentKey = (o: OrderRecord) => o.intent.longOption?.instrumentId ?? o.intent.symbol;
   const buyDays = new Set(
     submitted
       .filter((o) => o.intent.side === "buy")
-      .map((o) => `${o.intent.symbol}@${etDateOf(o.createdAt)}`),
+      .map((o) => `${instrumentKey(o)}@${etDateOf(o.createdAt)}`),
   );
   let count = 0;
   // Resting stop orders are protection placed at entry, not same-day round trips.
   for (const sell of submitted.filter((o) => o.intent.side === "sell" && (o.intent.orderType !== "stop_limit" || (o.filledQuantity ?? 0) > 0))) {
     const day = etDateOf(sell.intent.orderType === "stop_limit" ? sell.updatedAt : sell.createdAt);
-    if (buyDays.has(`${sell.intent.symbol}@${day}`) && tradingDaysBetween(day, todayEt) <= 3) {
+    if (buyDays.has(`${instrumentKey(sell)}@${day}`) && tradingDaysBetween(day, todayEt) <= 3) {
       count++;
     }
   }
@@ -541,7 +542,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
       );
     } else {
       const original = submitted
-        .filter((o) => o.intent.side === "buy" && o.intent.symbol === intent.symbol)
+        .filter((o) => !o.intent.longOption && o.intent.side === "buy" && o.intent.symbol === intent.symbol)
         .sort((a, b) => a.createdAt - b.createdAt)[0];
       const stopExit =
         original !== undefined && quote.last > 0 && quote.last <= original.intent.invalidationPrice;
@@ -568,6 +569,7 @@ export function evaluate(input: RiskInput): RiskVerdict {
   // 18. day_trades: same-day round trips count against the 5-day max. Stop exits are not exempt.
   const boughtToday = submitted.some(
     (o) =>
+      !o.intent.longOption &&
       o.intent.side === "buy" &&
       o.intent.symbol === intent.symbol &&
       etDateOf(o.createdAt) === todayEt,

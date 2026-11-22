@@ -56,9 +56,15 @@ class _OrderCardState extends ConsumerState<OrderCard> {
   Future<void> _reject() async {
     final store = ref.read(harnessProvider.notifier);
     final i = widget.order.intent;
+    final t = i.longOption;
+    final label = t != null && isValidOptionIntent(i)
+        ? '${optionSideLabel(t)} ${t.contracts} ${i.symbol}'
+        : t != null
+            ? 'option order'
+            : '${i.side.name} ${i.symbol}';
     final reason = await showLbSheet<String>(
       context,
-      (_) => RejectReasonForm(label: '${i.side.name} ${i.symbol}'),
+      (_) => RejectReasonForm(label: label),
       title: 'Reject order',
     );
     if (reason == null || !mounted) return;
@@ -77,14 +83,24 @@ class _OrderCardState extends ConsumerState<OrderCard> {
     final isOwner = order.ownerMessageId != null;
     final ownerPending = isOwner && pending;
     final quoteLabel = fractionalQuoteLabel(i);
+    final isOption = isOptionIntent(i);
+    final ticket = i.longOption;
+    final validOption = isValidOptionIntent(i);
+    final problem = isOption ? optionProblem(i) : null;
+    final approveBlocked = problem != null;
     final busy = ref.watch(harnessProvider.select((s) => s.busy['order:${order.id}'] ?? false));
     final killSwitch = ref.watch(harnessProvider.select((s) => s.feed.status?.settings.killSwitch ?? false));
     final compact = widget.compact;
     final long = !compact && i.thesis.length > 110;
+    final semanticsLabel = isOption && ticket != null && validOption
+        ? '${optionSideLabel(ticket)} ${ticket.contracts} ${i.symbol} ${usd(optionStrike(ticket))} ${ticket.contractType.name}, ${orderStatusLabel(order)}'
+        : isOption
+            ? 'Option details need review, ${orderStatusLabel(order)}'
+            : '${i.side.name} ${i.symbol}, ${orderStatusLabel(order)}';
 
     return Semantics(
       container: true,
-      label: '${i.side.name} ${i.symbol}, ${statusLabel(order.status)}',
+      label: semanticsLabel,
       child: LbCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -99,15 +115,25 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       SideBadge(i.side.name),
+                      if (isOption && validOption)
+                        const StatusChip('Option', tone: StatusTone.live, showIcon: false)
+                      else if (isOption)
+                        const StatusChip('Option', tone: StatusTone.warn, showIcon: false),
                       TickerLink(i.symbol, style: LbText.number(context, size: 15, weight: FontWeight.w600)),
                       if (isOwner) const StatusChip('Owner order', tone: StatusTone.live, showIcon: false),
-                      Text(
-                        quoteLabel == null
-                            ? '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}'
-                            : '${qtyFor(i.symbol, i.quantity)} ${qtyUnit(i.symbol)} · $quoteLabel ${usd(i.limitPrice)}',
-                        style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground),
-                      ),
-                      if (i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0)
+                      if (isOption && ticket != null && validOption)
+                        Text(
+                          '${ticket.contracts} ${ticket.contracts == 1 ? 'contract' : 'contracts'} · ${usd(optionStrike(ticket))} ${optionTypeLabel(ticket).toLowerCase()} · Exp ${isoShort(ticket.expiration)}',
+                          style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground),
+                        )
+                      else if (!isOption)
+                        Text(
+                          quoteLabel == null
+                              ? '${qtyFor(i.symbol, i.quantity)} @ ${usd(i.limitPrice)}'
+                              : '${qtyFor(i.symbol, i.quantity)} ${qtyUnit(i.symbol)} · $quoteLabel ${usd(i.limitPrice)}',
+                          style: LbText.number(context, size: 13, weight: FontWeight.w400, color: c.mutedForeground),
+                        ),
+                      if (!isOption && i.orderType == OrderType.stopLimit && i.stopPrice != null && i.stopPrice! > 0)
                         Text('stop ${usd(i.stopPrice!)}', style: LbText.number(context, size: 12, weight: FontWeight.w400, color: c.mutedForeground)),
                     ],
                   ),
@@ -121,7 +147,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                StatusChip(statusLabel(order.status), tone: orderStatusTone(order.status)),
+                StatusChip(orderStatusLabel(order), tone: orderStatusTone(order.status)),
                 Text(etStamp(order.createdAt), style: LbText.number(context, size: 11.5, weight: FontWeight.w400, color: c.mutedForeground)),
                 if (compact)
                   TextButton(
@@ -130,7 +156,13 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                   ),
               ],
             ),
-            if (ownerPending) ...[
+            if (isOption && ticket != null && validOption) ...[
+              const SizedBox(height: 10),
+              _OptionTicketBox(order: order),
+            ] else if (isOption) ...[
+              const SizedBox(height: 10),
+              _OptionProblemBox(problem: problem),
+            ] else if (ownerPending) ...[
               const SizedBox(height: 10),
               _OwnerOrderDetails(order: order),
             ] else if (pending && quoteLabel != null) ...[
@@ -149,14 +181,45 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                 alignment: Alignment.centerLeft,
                 child: TextButton(onPressed: () => setState(() => _more = !_more), child: Text(_more ? 'Show less' : 'Show more')),
               ),
-            if (pending && widget.showChart && !compact) ...[
+            if (!isOption && pending && widget.showChart && !compact) ...[
               const SizedBox(height: 8),
               OrderMiniChart(symbol: i.symbol, limit: i.limitPrice, invalidation: i.invalidationPrice, limitLabel: quoteLabel ?? 'limit'),
             ],
             const SizedBox(height: 10),
             if (compact)
               _CompactFacts(order: order, ev: ev)
-            else
+            else if (isOption && ticket != null && validOption)
+              Wrap(
+                spacing: 20,
+                runSpacing: 10,
+                children: [
+                  Stat(label: 'Contracts', value: '${ticket.contracts}'),
+                  Stat(label: 'Limit / share', value: usd(optionLimitPerShare(ticket))),
+                  Stat(
+                    label: 'Total at limit',
+                    value: '${usd(optionTotal(ticket))} ${ticket.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'}',
+                    sub: 'before fees',
+                  ),
+                  Stat(label: 'Strike', value: '${usd(optionStrike(ticket))} ${optionTypeLabel(ticket).toLowerCase()}'),
+                  Stat(label: 'Expiration', value: optionExpiryLabel(ticket.expiration)),
+                  Stat(
+                    label: 'Expected value',
+                    value: pctSigned(ev),
+                    sub: 'win ${(i.probabilityWin * 100).round()}%',
+                    tone: ev < 0 ? Tone.loss : Tone.flat,
+                  ),
+                  Stat(label: 'Underlying invalidation', value: usd(i.invalidationPrice)),
+                  Stat(label: 'Time stop', value: i.timeStopDate),
+                  if (order.averageFillPrice != null)
+                    Stat(
+                      label: 'Filled',
+                      value:
+                          '${qtyFor(i.symbol, order.filledQuantity ?? 0)} of ${qtyFor(i.symbol, i.quantity)} @ ${usd(order.averageFillPrice!)}',
+                      sub: usd(optionFilledTotal(order.filledQuantity ?? 0, order.averageFillPrice!)),
+                    ),
+                ],
+              )
+            else if (!isOption)
               Wrap(
                 spacing: 20,
                 runSpacing: 10,
@@ -190,7 +253,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                   Expanded(
                     child: FilledButton(
                       style: FilledButton.styleFrom(minimumSize: const Size(0, kMinTarget)),
-                      onPressed: busy || killSwitch ? null : _approve,
+                      onPressed: busy || killSwitch || approveBlocked ? null : _approve,
                       child: Text(busy && _acting == _Acting.approve ? 'Approving\u2026' : 'Approve'),
                     ),
                   ),
@@ -204,6 +267,12 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                   ),
                 ],
               ),
+              if (problem != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('$problem Approval is blocked; rejecting is still available.',
+                      style: Theme.of(context).textTheme.bodySmall!.copyWith(color: c.loss)),
+                ),
               if (killSwitch)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -274,6 +343,101 @@ class _OwnerOrderDetails extends StatelessWidget {
   }
 }
 
+/// Exact terms of a standard 100-share long option: contract, side, limit
+/// per share and total debit or proceeds at the limit before fees. Always
+/// shown for valid options so the ticket never reads as shares.
+class _OptionTicketBox extends StatelessWidget {
+  const _OptionTicketBox({required this.order});
+
+  final OrderRecord order;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.lb;
+    final i = order.intent;
+    final t = i.longOption!;
+    final side = optionSideLabel(t);
+    final contracts = '${t.contracts} ${t.contracts == 1 ? 'contract' : 'contracts'}';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(c.primary.withValues(alpha: 0.08), c.card),
+        border: Border.all(color: c.primary.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(LbRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionLabel('Long option · 100-share'),
+            const SizedBox(height: 4),
+            Text(
+              '$side $contracts of ${t.symbol} · ${usd(optionStrike(t))} ${t.contractType.name} · Exp ${optionExpiryLabel(t.expiration)}',
+              style: LbText.number(context, size: 12.5, weight: FontWeight.w400),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Limit ${usd(optionLimitPerShare(t))} per share · Total ${usd(optionTotal(t))} ${t.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'} before fees · Order expires at today\'s close',
+              style: LbText.number(context, size: 12.5, weight: FontWeight.w400),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'If exercised, this can create ${t.symbol} stock. A fill is not guaranteed at the limit.',
+                style: LbText.muted(context, size: 12.5),
+              ),
+            ),
+            if (i.ownerInstruction != null && i.ownerInstruction!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'From your message: “${i.ownerInstruction}”',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: LbText.muted(context, size: 12.5),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Malformed or mismatched option details: never a share ticket, never an
+/// actionable approval.
+class _OptionProblemBox extends StatelessWidget {
+  const _OptionProblemBox({required this.problem});
+
+  final String? problem;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.lb;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(c.loss.withValues(alpha: 0.08), c.card),
+        border: Border.all(color: c.loss.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(LbRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Option details need review.', style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 12.5, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(
+              '${problem ?? 'Contract details are incomplete or malformed.'} Do not approve from this ticket.',
+              style: LbText.muted(context, size: 12.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Sheet body that asks for an optional reason before rejecting an order.
 /// Pops the trimmed reason (possibly empty) on confirm, null on cancel.
 class RejectReasonForm extends StatefulWidget {
@@ -296,7 +460,6 @@ class _RejectReasonFormState extends State<RejectReasonForm> {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.lb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -328,8 +491,8 @@ class _RejectReasonFormState extends State<RejectReasonForm> {
               child: FilledButton(
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(0, kMinTarget),
-                  backgroundColor: c.destructive,
-                  foregroundColor: c.primaryForeground,
+                  backgroundColor: context.lb.destructive,
+                  foregroundColor: context.lb.primaryForeground,
                 ),
                 onPressed: () => Navigator.of(context).pop(_reason.text.trim()),
                 child: const Text('Confirm reject'),
@@ -342,7 +505,7 @@ class _RejectReasonFormState extends State<RejectReasonForm> {
   }
 }
 
-/// Three-month close path with the limit and invalidation levels, loaded on
+/// Three-month close path with the limit and invalidation lines, loaded on
 /// demand through the harness store (the web MiniChart).
 class OrderMiniChart extends ConsumerStatefulWidget {
   const OrderMiniChart({super.key, required this.symbol, required this.limit, required this.invalidation, this.limitLabel = 'limit'});
@@ -405,11 +568,33 @@ class _CompactFacts extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.lb;
     final i = order.intent;
+    final t = i.longOption;
     final label = LbText.muted(context, size: 12.5);
     TextSpan pair(String name, String value, {Color? color}) => TextSpan(children: [
           TextSpan(text: '$name ', style: label),
           TextSpan(text: value, style: LbText.number(context, size: 12.5, color: color)),
         ]);
+    if (t != null && isValidOptionIntent(i)) {
+      return Text.rich(
+        TextSpan(children: [
+          pair('Contracts', '${t.contracts}'),
+          const TextSpan(text: '   '),
+          pair('Total', '${usd(optionTotal(t))} ${t.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'}'),
+          const TextSpan(text: '\n'),
+          pair('Limit', '${usd(optionLimitPerShare(t))}/sh'),
+          const TextSpan(text: '   '),
+          pair('Exp', isoShort(t.expiration)),
+          if (order.averageFillPrice != null) ...[
+            const TextSpan(text: '   '),
+            pair('Filled',
+                '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}/sh'),
+          ],
+        ]),
+      );
+    }
+    if (t != null) {
+      return Text('Option details need review.', style: LbText.muted(context, size: 12.5));
+    }
     return Text.rich(
       TextSpan(children: [
         pair('Invalidation', usd(i.invalidationPrice)),

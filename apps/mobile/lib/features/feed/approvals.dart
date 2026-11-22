@@ -166,9 +166,19 @@ class _RecentRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final i = order.intent;
     final c = context.lb;
+    final ticket = i.longOption;
+    final validOption = isValidOptionIntent(i);
+    final summary = ticket != null && validOption
+        ? 'Option · ${ticket.contracts} ${ticket.contracts == 1 ? 'contract' : 'contracts'} · ${usd(optionStrike(ticket))} ${optionTypeLabel(ticket).toLowerCase()}'
+        : ticket != null
+            ? 'Option · details need review'
+            : qtyFor(i.symbol, i.quantity);
+    final semanticsLabel = ticket != null && validOption
+        ? '${optionSideLabel(ticket)} ${ticket.contracts} ${i.symbol}, ${orderStatusLabel(order)}. Open order'
+        : '${i.side.name} ${i.symbol}, ${orderStatusLabel(order)}. Open order';
     return Semantics(
       button: true,
-      label: '${i.side.name} ${i.symbol}, ${statusLabel(order.status)}. Open order',
+      label: semanticsLabel,
       excludeSemantics: true,
       onTap: () => AppNav.order(context, order.id),
       child: InkWell(
@@ -185,13 +195,13 @@ class _RecentRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    qtyFor(i.symbol, i.quantity),
+                    summary,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: LbText.number(context, size: 12.5, weight: FontWeight.w400, color: c.mutedForeground),
                   ),
                 ),
-                Flexible(child: StatusChip(statusLabel(order.status), tone: orderStatusTone(order.status), showIcon: false)),
+                Flexible(child: StatusChip(orderStatusLabel(order), tone: orderStatusTone(order.status), showIcon: false)),
               ],
             ),
           ),

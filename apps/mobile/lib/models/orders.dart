@@ -54,6 +54,97 @@ enum OrderStatus {
   failed,
 }
 
+// Unknown contract types read as call; response-only, the app never submits from this.
+enum OptionContractType {
+  @JsonValue('call')
+  call,
+  @JsonValue('put')
+  put,
+}
+
+// Unknown ticket sides read as buy-to-open; response-only, the app never submits from this.
+enum OptionTicketSide {
+  @JsonValue('buy-to-open')
+  buyToOpen,
+  @JsonValue('sell-to-close')
+  sellToClose,
+}
+
+/// Standard 100-share long option terms. Instrument ids are opaque contract
+/// ids, never account ids. limitCents is cents per share: one contract costs
+/// limitCents dollars at the limit (100 shares cancel the /100).
+@JsonSerializable(createToJson: false)
+class LongOptionTicket {
+  const LongOptionTicket({
+    required this.instrumentId,
+    required this.symbol,
+    required this.expiration,
+    required this.strikeCents,
+    required this.contractType,
+    required this.side,
+    required this.contracts,
+    required this.limitCents,
+  });
+
+  factory LongOptionTicket.fromJson(Map<String, dynamic> json) =>
+      _$LongOptionTicketFromJson(json);
+
+  final String instrumentId;
+  final String symbol;
+
+  /// Contract expiration, YYYY-MM-DD.
+  final String expiration;
+
+  /// Strike in cents per share.
+  final int strikeCents;
+  @JsonKey(unknownEnumValue: OptionContractType.call)
+  final OptionContractType contractType;
+  @JsonKey(unknownEnumValue: OptionTicketSide.buyToOpen)
+  final OptionTicketSide side;
+
+  /// Whole contracts, 1..100.
+  final int contracts;
+
+  /// Limit in cents per share.
+  final int limitCents;
+}
+
+/// Sentinel for a present-but-unparseable longOption: keeps [isOptionIntent]
+/// true while failing validation, so malformed details never render as a
+/// stock ticket with an actionable approval.
+const _invalidLongOption = LongOptionTicket(
+  instrumentId: '',
+  symbol: '',
+  expiration: '',
+  strikeCents: 0,
+  contractType: OptionContractType.call,
+  side: OptionTicketSide.buyToOpen,
+  contracts: 0,
+  limitCents: 0,
+);
+
+/// Lenient option reader: absent stays absent so existing records parse;
+/// present-but-malformed stays present as an invalid ticket instead of
+/// throwing the whole order list or coercing unknown enums into a valid
+/// looking ticket.
+LongOptionTicket? _longOptionFromJson(Object? json) {
+  if (json == null) return null;
+  if (json is! Map<String, dynamic>) return _invalidLongOption;
+  // Strict on the two enums: generated code would coerce an unknown string
+  // into a default and hide the mismatch.
+  if (json['contractType'] != 'call' && json['contractType'] != 'put') {
+    return _invalidLongOption;
+  }
+  if (json['side'] != 'buy-to-open' && json['side'] != 'sell-to-close') {
+    return _invalidLongOption;
+  }
+  try {
+    return LongOptionTicket.fromJson(json);
+  } catch (_) {
+    return _invalidLongOption;
+  }
+}
+
 @JsonSerializable(createToJson: false)
 class OrderIntent {
   const OrderIntent({
@@ -74,6 +165,7 @@ class OrderIntent {
     this.sector,
     this.ownerInstruction,
     required this.evidence,
+    this.longOption,
   });
 
   factory OrderIntent.fromJson(Map<String, dynamic> json) =>
@@ -116,6 +208,13 @@ class OrderIntent {
 
   /// Citations to tool outputs: tool name plus what it showed and when.
   final List<String> evidence;
+
+  /// Exact long-option terms when this order is an option. Absent for
+  /// equity and crypto orders; older records without it still parse.
+  /// Present-but-malformed details decode to an invalid ticket (never null)
+  /// so the UI shows an option error instead of a stock ticket.
+  @JsonKey(fromJson: _longOptionFromJson)
+  final LongOptionTicket? longOption;
 }
 
 @JsonSerializable(createToJson: false)

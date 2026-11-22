@@ -66,6 +66,150 @@ void main() {
     expect(ruleName('max_position'), 'Max position');
   });
 
+  test('orders_optionTotalPricesFullPremium_twoContractsAt175Is350', () {
+    const ticket = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'AAPL',
+      expiration: '2026-12-18',
+      strikeCents: 15000,
+      contractType: OptionContractType.put,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 2,
+      limitCents: 175,
+    );
+    const intent = OrderIntent(
+      symbol: 'AAPL',
+      side: OrderSide.buy,
+      quantity: 2,
+      orderType: OrderType.limit,
+      limitPrice: 1.75,
+      timeInForce: TimeInForce.day,
+      invalidationPrice: 140,
+      timeStopDate: '2026-12-02',
+      thesis: 't',
+      probabilityWin: 0.6,
+      expectedGainPct: 10,
+      expectedLossPct: 5,
+      estimatedCostPct: 0.5,
+      evidence: ['e'],
+      longOption: ticket,
+    );
+
+    // Regression: quantity * limitPrice is $3.50; the premium is $350.
+    expect(isOptionIntent(intent), isTrue);
+    expect(isValidLongOptionTicket(ticket), isTrue);
+    expect(isValidOptionIntent(intent), isTrue);
+    expect(optionProblem(intent), isNull);
+    expect(optionLimitPerShare(ticket), closeTo(1.75, 1e-9));
+    expect(optionStrike(ticket), closeTo(150, 1e-9));
+    expect(optionSideLabel(ticket), 'Buy to open');
+    expect(optionTypeLabel(ticket), 'Put');
+    expect(optionTotal(ticket), closeTo(350, 1e-9));
+    expect(notional(intent), closeTo(350, 1e-9));
+    expect(optionFilledTotal(2, 1.75), closeTo(350, 1e-9));
+    expect(fractionalQuoteLabel(intent), isNull);
+  });
+
+  test('orders_mismatchedOrMalformedOptionStaysAnOptionAndBlocksApproval', () {
+    const good = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'AAPL',
+      expiration: '2026-12-18',
+      strikeCents: 15000,
+      contractType: OptionContractType.put,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 2,
+      limitCents: 175,
+    );
+    OrderRecord optionWith({double quantity = 2, LongOptionTicket? ticket}) {
+      return OrderRecord(
+        id: 'opt',
+        createdAt: 1,
+        updatedAt: 1,
+        intent: OrderIntent(
+          symbol: 'AAPL',
+          side: OrderSide.buy,
+          quantity: quantity,
+          orderType: OrderType.limit,
+          limitPrice: 1.75,
+          timeInForce: TimeInForce.day,
+          invalidationPrice: 140,
+          timeStopDate: '2026-12-02',
+          thesis: 't',
+          probabilityWin: 0.6,
+          expectedGainPct: 10,
+          expectedLossPct: 5,
+          estimatedCostPct: 0.5,
+          evidence: const ['e'],
+          longOption: ticket ?? good,
+        ),
+        verdict: const RiskVerdict(approved: true, isExit: false, checks: []),
+        status: OrderStatus.pendingApproval,
+      );
+    }
+
+    final mismatched = optionWith(quantity: 1);
+    expect(isOptionIntent(mismatched.intent), isTrue);
+    expect(isValidOptionIntent(mismatched.intent), isFalse);
+    expect(optionProblem(mismatched.intent), contains('Contracts must equal'));
+
+    const malformed = LongOptionTicket(
+      instrumentId: 'not-a-uuid',
+      symbol: 'AAPL',
+      expiration: '2026-02-30',
+      strikeCents: 0,
+      contractType: OptionContractType.put,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 2,
+      limitCents: 175,
+    );
+    final bad = optionWith(ticket: malformed);
+    expect(isOptionIntent(bad.intent), isTrue);
+    expect(isValidOptionIntent(bad.intent), isFalse);
+    expect(optionProblem(bad.intent), contains('incomplete or malformed'));
+    expect(isValidLongOptionTicket(malformed), isFalse);
+  });
+
+  test('orders_optionTriggeringIsSubmissionUncertainNotAHeldStop', () {
+    OrderRecord optionAt(OrderStatus status) => OrderRecord(
+          id: 'opt',
+          createdAt: 1,
+          updatedAt: 1,
+          intent: const OrderIntent(
+            symbol: 'AAPL',
+            side: OrderSide.buy,
+            quantity: 1,
+            orderType: OrderType.limit,
+            limitPrice: 1.75,
+            timeInForce: TimeInForce.day,
+            invalidationPrice: 140,
+            timeStopDate: '2026-12-02',
+            thesis: 't',
+            probabilityWin: 0.6,
+            expectedGainPct: 10,
+            expectedLossPct: 5,
+            estimatedCostPct: 0.5,
+            evidence: ['e'],
+            longOption: LongOptionTicket(
+              instrumentId: '10000000-0000-0000-0000-000000000001',
+              symbol: 'AAPL',
+              expiration: '2026-12-18',
+              strikeCents: 15000,
+              contractType: OptionContractType.put,
+              side: OptionTicketSide.buyToOpen,
+              contracts: 1,
+              limitCents: 175,
+            ),
+          ),
+          verdict: const RiskVerdict(approved: true, isExit: false, checks: []),
+          status: status,
+        );
+
+    expect(orderStatusLabel(optionAt(OrderStatus.triggering)), 'Submission uncertain');
+    expect(orderStatusLabel(optionAt(OrderStatus.held)), 'Held');
+    expect(orderStatusLabel(_order('s', OrderStatus.triggering)), 'Stop firing');
+  });
+
   test('orders_statusLabelCoversEveryStatus', () {
     expect(statusLabels, {
       OrderStatus.pendingApproval: 'Awaiting approval',

@@ -42,6 +42,7 @@ export function robinhoodExtension(options: {
   tools: Tool[]; status(): BrokerStatus;
   call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult>;
   marketClock?: () => OptionResearchClock;
+  optionExecution?: "close-only" | "unavailable";
 }): Extension {
   const marketClock = options.marketClock;
   const has = (names: readonly string[]) => names.every((name) => options.tools.some((tool) => tool.name === name));
@@ -68,7 +69,7 @@ export function robinhoodExtension(options: {
         parameters: Type.Object({}), replay: "safe",
         async execute(_args, _api, context) {
           try {
-            return { output: [{ type: "text", text: JSON.stringify(await getOptionReadiness(read, context.abortSignal)) }] };
+            return { output: [{ type: "text", text: JSON.stringify(await getOptionReadiness(read, context.abortSignal, options.optionExecution)) }] };
           } catch {
             return { isError: true, output: [{ type: "text", text: "Could not verify options eligibility and trade approvals for the dedicated Robinhood MCP account." }] };
           }

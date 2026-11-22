@@ -1,6 +1,7 @@
 import type {
   HaltReason,
   JournalEntry,
+  LongOptionTicket,
   OrderRecord,
   PushPayload,
   ReportSummary,
@@ -35,6 +36,34 @@ function formatQty(quantity: number): string {
   return Number.isInteger(quantity) ? String(quantity) : String(Number(quantity.toFixed(4)));
 }
 
+function optionSideLabel(ticket: LongOptionTicket): string {
+  return ticket.side === "buy-to-open" ? "buy to open" : "sell to close";
+}
+
+function optionStrike(cents: number): string {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+function optionContracts(ticket: LongOptionTicket): string {
+  return ticket.contracts === 1 ? "1 contract" : `${ticket.contracts} contracts`;
+}
+
+/** Ticker, type, strike and expiry: the exact contract the owner is deciding on. */
+function optionContract(ticket: LongOptionTicket): string {
+  return `${ticket.symbol} $${optionStrike(ticket.strikeCents)} ${ticket.contractType} exp ${ticket.expiration}`;
+}
+
+/**
+ * Contract terms with the total at the limit before fees. `limitCents` is cents
+ * per share and one contract is 100 shares, so contracts × limitCents is the
+ * dollar total: 2 contracts at $1.75 is $350, never $3.50.
+ */
+function optionTerms(ticket: LongOptionTicket): string {
+  const total = ticket.contracts * ticket.limitCents;
+  return `${optionSideLabel(ticket)} ${optionContracts(ticket)} ${optionContract(ticket)} · limit $${(ticket.limitCents / 100).toFixed(2)}/share · $${total.toFixed(2)} total before fees`;
+}
+
 function firstSentence(text: string): string {
   const sentence = (text.match(/^.*?[.!?](\s|$)/s)?.[0] ?? text).trim();
   return sentence.length > 280 ? `${sentence.slice(0, 277)}…` : sentence;
@@ -45,10 +74,10 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Watches the bus and pushes what matters in an automatic system: fills and
- * failures, trading halts, agent/broker disconnects, report publications,
- * and finished simulations. Simulation live events carry `simRunId` and are
- * ignored; only the terminal `sim` run event notifies.
+ * Watches the bus and pushes what matters in an automatic system: owner
+ * approvals, submissions and failures, trading halts, agent/broker disconnects,
+ * report publications, and finished simulations. Simulation live events carry
+ * `simRunId` and are ignored; only the terminal `sim` run event notifies.
  *
  * Sending never throws into the bus: failures are logged and dropped.
  */
@@ -91,11 +120,25 @@ export function startNotifier(deps: NotifierDeps): () => void {
   }
 
   function onOrder(order: OrderRecord): void {
+    const ticket = order.intent.longOption;
     const ownerPending = order.status === "pending_approval" && order.ownerMessageId !== undefined;
-    if (!ownerPending && order.status !== "submitted" && order.status !== "failed") return;
+    /** Option tickets await explicit approval even when no owner chat message routed them. */
+    const optionPending = order.status === "pending_approval" && ticket !== undefined;
+    /** An uncertain option send keeps its durable `triggering` claim and only carries an error. */
+    const optionUncertain = order.status === "triggering" && ticket !== undefined && order.error !== undefined;
+    if (!ownerPending && !optionPending && !optionUncertain && order.status !== "submitted" && order.status !== "failed") return;
     const key = `${order.id}:${order.status}`;
     if (seenOrders.has(key)) return;
     seenOrders.add(key);
+    if (order.status === "pending_approval" && ticket !== undefined) {
+      deliver({
+        title: "Option order awaiting approval",
+        body: `${optionTerms(ticket)}.`,
+        url: `/?order=${order.id}`,
+        tag: `order-${order.id}-approval`,
+      });
+      return;
+    }
     if (ownerPending) {
       const { side, quantity, symbol, limitPrice, orderType, stopPrice } = order.intent;
       deliver({
@@ -106,7 +149,30 @@ export function startNotifier(deps: NotifierDeps): () => void {
       });
       return;
     }
+    if (order.status === "triggering") {
+      // The error proves a placement attempt may have reached Robinhood; the
+      // errorless transitional claim is not news.
+      if (ticket !== undefined && order.error !== undefined) {
+        deliver({
+          title: "Option submission uncertain",
+          body: `${optionContract(ticket)} · ${optionSideLabel(ticket)} ${optionContracts(ticket)}: ${order.error.slice(0, 160)}`,
+          url: `/?order=${order.id}`,
+          tag: `order-${order.id}-uncertain`,
+        });
+      }
+      return;
+    }
     if (order.status === "submitted") {
+      if (ticket !== undefined) {
+        deliver({
+          title: "Option order submitted",
+          body: `${optionTerms(ticket)}. Submitted to the broker; not filled.`,
+          url: `/?order=${order.id}`,
+          // Distinct from the approval notice so an approved ticket pages twice.
+          tag: `order-${order.id}`,
+        });
+        return;
+      }
       const { side, symbol, quantity, limitPrice, thesis } = order.intent;
       const notional = quantity * limitPrice;
       deliver({

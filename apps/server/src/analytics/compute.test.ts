@@ -44,6 +44,17 @@ function intent(symbol: string, side: "buy" | "sell", quantity: number): OrderRe
 }
 
 describe("pairHarnessTrades", () => {
+  it("does not treat an option fill as shares of its underlying", () => {
+    const option = { ...intent("AAPL", "buy", 1), limitPrice: 1.75, longOption: {
+      instrumentId: "10000000-0000-0000-0000-000000000001", symbol: "AAPL", contractType: "put" as const,
+      strikeCents: 15_000, expiration: "2026-12-18", side: "buy-to-open" as const, contracts: 1, limitCents: 175,
+    } };
+    assert.deepEqual(pairHarnessTrades([
+      order({ intent: option, filledQuantity: 1, averageFillPrice: 1.75, updatedAt: 1000 }),
+      order({ intent: intent("AAPL", "sell", 1), filledQuantity: 1, averageFillPrice: 155, updatedAt: 2000 }),
+    ]), []);
+  });
+
   it("pairs sells against earlier buys FIFO with partial fills", () => {
     const orders = [
       order({ intent: intent("AAPL", "buy", 10), filledQuantity: 10, averageFillPrice: 100, createdAt: 1000, updatedAt: 1000 }),

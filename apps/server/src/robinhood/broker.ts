@@ -2,12 +2,13 @@ import { McpClient, McpHttpError, StreamableHttpTransport, type Tool, type CallT
 import type { Extension, Registry } from "@earendil-works/pi-durable";
 import type { BrokerStatus, OrderIntent, OrderRecord, Quote } from "@rh/shared";
 import { isCryptoSymbol } from "@rh/shared";
-import type { Broker, Config, Logger, Clock } from "../ports.ts";
+import type { Broker, Config, Logger, Clock, Store } from "../ports.ts";
 import { RobinhoodOAuth, MCP_URL, type Authorize } from "./oauth.ts";
 import { TokenStore, privateWrite } from "./token-store.ts";
 import { robinhoodCallAllowed, robinhoodExtension } from "./tools.ts";
 import { BrokerMappingError, PlacementQuoteUnavailableError, cryptoOrderMapping, findTool, orderMapping, orderRef, parseCryptoOrder, parseOpenStopOrders, parseOrder, parsePnlTrades, record, fetchSnapshot, fetchQuotes, fractionalExecution, responseObject, tradingAccount, validateArguments, validateReview, type ExecutionOptions, type OpenStopOrder, type PnlTrade } from "./mapping.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
+import { createRobinhoodOptionAdapter, optionAdapterTools } from "./option-adapter.ts";
 
 export type { OpenStopOrder, PnlTrade };
 
@@ -17,6 +18,7 @@ const diagnosticOperations = new Set([
   "review_equity_order", "place_equity_order", "cancel_equity_order", "preview_crypto_order",
   "place_crypto_order", "cancel_crypto_order", "search", "run_scan", "preview_scan",
   "get_trade_approval_setting", "get_option_instruments", "get_option_chains", "review_option_order",
+  "get_option_quotes", "get_option_positions", "get_option_orders", "place_option_order", "cancel_option_order",
 ]);
 const diagnosticOperation = (name: string): string => diagnosticOperations.has(name) ? name : "unknown";
 
@@ -31,6 +33,8 @@ export interface RobinhoodBroker extends Broker {
   tradeHistory(): Promise<PnlTrade[]>;
   /** Open sell stop orders resting at Robinhood. Read-only. */
   openStopOrders(): Promise<OpenStopOrder[]>;
+  /** Private close-only adapter for the shared order gate; never installed on the agent registry. */
+  optionCloseAdapter(store: Pick<Store, "equityMarks" | "getSettings">): ReturnType<typeof createRobinhoodOptionAdapter>;
 }
 
 export function liveTradingLockedMessage(tool: string): string {
@@ -350,6 +354,7 @@ export function createRobinhoodBroker(deps: {
       return parseOrder(order);
     },
     async executeStop(intent, refId) {
+      if (intent.longOption) throw new BrokerMappingError("Options cannot use an equity stop");
       if (isCryptoSymbol(intent.symbol)) throw new BrokerMappingError("executeStop does not support crypto symbols; crypto trades 24/7 without held stops");
       if (!calendar.clock(clock.now()).isOpen) throw new BrokerMappingError("Stop execution requires regular hours");
       await identifyAccount();
@@ -358,6 +363,7 @@ export function createRobinhoodBroker(deps: {
       return place(intent, { market: true, refId });
     },
     async reviewOrder(intent: OrderIntent) {
+      if (intent.longOption) throw new BrokerMappingError("Use the contract-specific option review");
       await identifyAccount();
       if (isCryptoSymbol(intent.symbol)) {
         const mapping = cryptoOrderMapping(tools, "review", intent, rhsAccountId);
@@ -371,12 +377,36 @@ export function createRobinhoodBroker(deps: {
       return validateReview(responseObject(result));
     },
     async placeOrder(intent: OrderIntent) {
+      if (intent.longOption) throw new BrokerMappingError("Use the contract-specific option order gate");
       if (isCryptoSymbol(intent.symbol)) return place(intent, {});
       return place(intent, await execution(intent, "place"));
     },
+    optionCloseAdapter(store) {
+      const adapter = createRobinhoodOptionAdapter({
+        clock, calendar, store,
+        // Robinhood's current options regulatory and OCC clearing fee, per contract.
+        feeReservePerContractCents: 4,
+        call: (name, args) => {
+          if (!optionAdapterTools.every((needed) => tools.some((tool) => tool.name === needed))) {
+            throw new BrokerMappingError("Robinhood did not advertise the full option order tool set");
+          }
+          return mappedCall(name, args);
+        },
+      });
+      return {
+        ...adapter,
+        closeOnly: true,
+        review(ticket, accountPin) {
+          if (ticket.side !== "sell-to-close") throw new BrokerMappingError("Only reducing long-option orders are enabled");
+          return adapter.review(ticket, accountPin);
+        },
+      };
+    },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     extension() {
-      return robinhoodExtension({ tools, status: () => broker.status(), call, marketClock: () => {
+      return robinhoodExtension({ tools, status: () => broker.status(), call,
+        optionExecution: deps.config.LIVE_TRADING && optionAdapterTools.every((name) => tools.some((tool) => tool.name === name)) ? "close-only" : "unavailable",
+        marketClock: () => {
         const now = clock.now();
         const session = calendar.clock(now);
         return { now, date: calendar.etDate(now), isOpen: session.isOpen, sessionOpen: session.nextOpen };

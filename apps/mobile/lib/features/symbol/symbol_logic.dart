@@ -87,7 +87,8 @@ List<IndicatorCell> indicatorCells(SymbolIndicators ind, double? price) {
 }
 
 /// Buy and sell markers for executed orders, placed on the last bar dated on
-/// or before the fill day. Fills before the first bar are skipped.
+/// or before the fill day. Fills before the first bar are skipped. Option
+/// fills name whole contracts at the per-share fill price.
 List<ChartMarker> fillMarkers(List<Bar> bars, List<OrderRecord> orders, {LbZone? zone}) {
   if (bars.isEmpty) return const [];
   final out = <ChartMarker>[];
@@ -101,6 +102,18 @@ List<ChartMarker> fillMarkers(List<Bar> bars, List<OrderRecord> orders, {LbZone?
     }
     if (idx < 0) continue;
     final side = o.intent.side;
+    final ticket = o.intent.longOption;
+    if (ticket != null && isValidOptionIntent(o.intent)) {
+      final q = o.filledQuantity ?? o.intent.quantity;
+      final price = o.averageFillPrice ?? o.intent.limitPrice;
+      final open = side == OrderSide.buy ? 'Bought to open' : 'Sold to close';
+      out.add(ChartMarker(
+        index: idx,
+        kind: side == OrderSide.buy ? ChartMarkerKind.buy : ChartMarkerKind.sell,
+        label: '$open ${qtyFor(o.intent.symbol, q)} ${q == 1 ? 'contract' : 'contracts'} at ${usd(price)}/sh',
+      ));
+      continue;
+    }
     final q = o.filledQuantity ?? o.intent.quantity;
     final price = o.averageFillPrice ?? o.intent.limitPrice;
     out.add(ChartMarker(
@@ -112,5 +125,12 @@ List<ChartMarker> fillMarkers(List<Bar> bars, List<OrderRecord> orders, {LbZone?
   return out;
 }
 
-String orderLine(OrderRecord o) =>
-    '${qtyFor(o.intent.symbol, o.intent.quantity)} @ ${usd(o.intent.limitPrice)} \u00b7 ${usd(notional(o.intent))}';
+String orderLine(OrderRecord o) {
+  final ticket = o.intent.longOption;
+  if (ticket != null) {
+    if (!isValidOptionIntent(o.intent)) return 'Option · details need review';
+    final side = ticket.side == OptionTicketSide.buyToOpen ? 'Buy to open' : 'Sell to close';
+    return '$side ${qtyFor(o.intent.symbol, o.intent.quantity)} ${ticket.contracts == 1 ? 'contract' : 'contracts'} @ ${usd(optionLimitPerShare(ticket))}/sh \u00b7 ${usd(optionTotal(ticket))}';
+  }
+  return '${qtyFor(o.intent.symbol, o.intent.quantity)} @ ${usd(o.intent.limitPrice)} \u00b7 ${usd(notional(o.intent))}';
+}

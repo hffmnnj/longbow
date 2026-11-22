@@ -65,6 +65,31 @@ function orderRecord(overrides?: Partial<OrderRecord>): OrderRecord {
   };
 }
 
+function optionOrderRecord(overrides?: Partial<OrderRecord>): OrderRecord {
+  const ticket = {
+    instrumentId: "11111111-1111-1111-1111-111111111111",
+    symbol: "AAPL",
+    expiration: "2026-12-19",
+    strikeCents: 25_000,
+    contractType: "call" as const,
+    side: "buy-to-open" as const,
+    contracts: 2,
+    limitCents: 175,
+  };
+  return orderRecord({
+    status: "pending_approval",
+    intent: {
+      ...orderRecord().intent,
+      symbol: ticket.symbol,
+      side: "buy",
+      quantity: ticket.contracts,
+      limitPrice: ticket.limitCents / 100,
+      longOption: ticket,
+    },
+    ...overrides,
+  });
+}
+
 function statusResponse(
   halts: StatusResponse["halts"] = [],
   agentState: StatusResponse["agent"]["state"] = "idle",
@@ -146,6 +171,56 @@ describe("push notifier", () => {
     await flush();
     assert.equal(push.payloads.length, 2);
     assert.equal(push.payloads[1]?.tag, "order-o1");
+  });
+
+  it("pages option tickets awaiting approval, marks submissions unfilled, and only flags uncertain sends that carry an error", async () => {
+    const pending = optionOrderRecord();
+    bus.publish({ type: "order", order: pending, simRunId: "sim1" });
+    bus.publish({ type: "order", order: pending });
+    bus.publish({ type: "order", order: pending });
+    await flush();
+    assert.deepEqual(push.payloads, [
+      {
+        title: "Option order awaiting approval",
+        body: "buy to open 2 contracts AAPL $250 call exp 2026-12-19 · limit $1.75/share · $350.00 total before fees.",
+        url: "/?order=o1",
+        tag: "order-o1-approval",
+      },
+    ]);
+
+    const closing = optionOrderRecord({
+      id: "o2",
+      intent: { ...pending.intent, side: "sell", longOption: { ...pending.intent.longOption!, side: "sell-to-close" } },
+    });
+    bus.publish({ type: "order", order: closing });
+    await flush();
+    assert.equal(push.payloads.length, 2);
+    assert.equal(push.payloads[1]?.title, "Option order awaiting approval");
+    assert.match(push.payloads[1]?.body ?? "", /^sell to close 2 contracts AAPL \$250 call/);
+
+    // The errorless transitional claim is not news; an error means the send may have reached Robinhood.
+    bus.publish({ type: "order", order: { ...pending, status: "triggering" } });
+    await flush();
+    assert.equal(push.payloads.length, 2);
+    const uncertain = { ...pending, status: "triggering" as const, error: "Option submission is uncertain. Reconcile with Robinhood before any retry." };
+    bus.publish({ type: "order", order: uncertain });
+    bus.publish({ type: "order", order: uncertain });
+    await flush();
+    assert.equal(push.payloads.length, 3);
+    assert.equal(push.payloads[2]?.title, "Option submission uncertain");
+    assert.equal(push.payloads[2]?.tag, "order-o1-uncertain");
+    assert.match(push.payloads[2]?.body ?? "", /AAPL \$250 call exp 2026-12-19 · buy to open 2 contracts/);
+    assert.match(push.payloads[2]?.body ?? "", /Reconcile with Robinhood/);
+
+    bus.publish({ type: "order", order: { ...pending, status: "submitted", brokerOrderId: "b1" } });
+    await flush();
+    assert.equal(push.payloads.length, 4);
+    const submitted = push.payloads[3];
+    assert.ok(submitted);
+    assert.equal(submitted.title, "Option order submitted");
+    assert.equal(submitted.tag, "order-o1");
+    assert.match(submitted.body, /Submitted to the broker; not filled/);
+    assert.doesNotMatch(submitted.title, /Bought|Sold/);
   });
 
   it("sends once for a submitted order and again on failure", async () => {

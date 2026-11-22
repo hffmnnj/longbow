@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import type { AccountSnapshot } from "@rh/shared";
+import { LongOptionTicketSchema, type AccountSnapshot } from "@rh/shared";
 import { countDayTrades, countSubmittedBuysToday, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import { recordedEntryReviews } from "./review-dates.ts";
 import type { Broker, Clock, MarketCalendar, OrderGate, Store } from "../ports.ts";
@@ -20,6 +20,8 @@ export interface RiskToolsDeps {
   broker: Broker;
   getAccount?: () => AccountSnapshot | null;
   currentCycleId: () => string | undefined;
+  /** When a real option gate is not wired, keep this absent, including in ordinary paper simulations. */
+  optionTickets?: true | "close-only";
 }
 
 const submitOrderSchema = Type.Object({
@@ -100,7 +102,19 @@ const submitOrderSchema = Type.Object({
   }),
 });
 
-type SubmitOrderArgs = Static<typeof submitOrderSchema>;
+const optionTicket = Type.Object({
+  instrumentId: Type.String({ format: "uuid" }),
+  symbol: Type.String({ pattern: "^[A-Z][A-Z0-9.]{0,9}$" }),
+  expiration: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" }),
+  strikeCents: Type.Integer({ minimum: 1, maximum: 10_000_000 }),
+  contractType: Type.Union([Type.Literal("call"), Type.Literal("put")]),
+  side: Type.Union([Type.Literal("buy-to-open"), Type.Literal("sell-to-close")]),
+  contracts: Type.Integer({ minimum: 1, maximum: 100 }),
+  limitCents: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
+}, { additionalProperties: false, description: "One standard contract identity. Limit is integer cents per underlying share; always waits for owner approval." });
+const submitWithOptionSchema = Type.Object({ ...submitOrderSchema.properties, longOption: Type.Optional(optionTicket) });
+const closeTicket = Type.Object({ ...optionTicket.properties, side: Type.Literal("sell-to-close") }, { additionalProperties: false });
+type SubmitOrderArgs = Static<typeof submitWithOptionSchema>;
 
 const etClockFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -133,9 +147,28 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       "Propose an order to the deterministic risk gate. It validates the intent, checks every risk rule, " +
       "and either rejects it, holds it for approval in approve mode, or submits it to the broker in auto mode. " +
       "In approve mode a human must approve the pending order before anything is placed. " +
-      "Owner-instruction orders always require human approval, including in auto mode.",
-    parameters: submitOrderSchema,
+      "Owner-instruction orders always require human approval, including in auto mode." +
+      (deps.optionTickets === "close-only" ? " Options are sell-to-close only, for existing long contracts. Include the owner's verbatim request in ownerInstruction. The owner must still approve."
+        : deps.optionTickets ? " A standard single-leg options ticket always requires owner approval; no spreads or short positions." : ""),
+    parameters: deps.optionTickets
+      ? Type.Object({
+        ...submitWithOptionSchema.properties,
+        ...(deps.optionTickets === "close-only" ? { longOption: Type.Optional(closeTicket) } : {}),
+        symbol: Type.String({ ...submitOrderSchema.properties.symbol, description: "Underlying ticker for an options ticket; otherwise the existing equity symbol or crypto pair." }),
+        quantity: Type.Number({ exclusiveMinimum: 0, description: "Shares or coins. With longOption, must equal its whole contract count." }),
+        limitPrice: Type.Number({ exclusiveMinimum: 0, description: "USD per share. With longOption, must equal limitCents / 100; full premium is 100 shares per contract." }),
+      })
+      : submitOrderSchema,
     async execute(args: SubmitOrderArgs) {
+      // Refuse an unsupported ticket even if a caller bypassed tool-schema validation.
+      // Never strip the option and accidentally route the same ticker as shares.
+      const option = args.longOption === undefined ? undefined : LongOptionTicketSchema.safeParse(args.longOption);
+      if (option && (!deps.optionTickets || !option.success)) {
+        return { isError: true, output: [{ type: "text", text: "Option ticket unavailable or invalid; nothing was proposed." }] };
+      }
+      if (option?.success && deps.optionTickets === "close-only" && option.data.side !== "sell-to-close") {
+        return { isError: true, output: [{ type: "text", text: "Option opening orders are disabled. Nothing was proposed." }] };
+      }
       const order = await gate.submit(
         {
           symbol: args.symbol,
@@ -154,13 +187,15 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
           estimatedCostPct: args.estimatedCostPct,
           ...(args.sector === undefined ? {} : { sector: args.sector }),
           ...(args.ownerInstruction === undefined ? {} : { ownerInstruction: args.ownerInstruction }),
+          ...(option?.success ? { longOption: option.data } : {}),
           evidence: args.evidence,
         },
         currentCycleId(),
       );
       const lines = [
-        `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.side} ` +
-          `${order.intent.quantity} @ ${order.intent.limitPrice})`,
+        order.intent.longOption
+          ? `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.longOption.expiration} ${order.intent.longOption.strikeCents / 100} ${order.intent.longOption.contractType} ${order.intent.longOption.side} ${order.intent.longOption.contracts} contract(s) @ ${order.intent.limitPrice} USD/share)`
+          : `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.side} ${order.intent.quantity} @ ${order.intent.limitPrice})`,
       ];
       for (const check of order.verdict.checks.filter((c) => !c.ok)) {
         lines.push(`FAIL ${check.rule}: ${check.detail}`);

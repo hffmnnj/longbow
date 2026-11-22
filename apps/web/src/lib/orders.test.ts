@@ -8,7 +8,18 @@ import {
   fractionalQuoteLabel,
   isDoneOrderStatus,
   isOpenOrderStatus,
+  isOptionIntent,
+  isValidLongOptionTicket,
+  isValidOptionIntent,
   notional,
+  optionFilledTotal,
+  optionLimitPerShare,
+  optionProblem,
+  optionSideLabel,
+  optionStrike,
+  optionTotal,
+  optionTypeLabel,
+  orderStatusLabel,
   ruleName,
 } from "./orders.ts";
 
@@ -36,6 +47,61 @@ describe("order helpers", () => {
   });
   it("humanizes rule ids", () => {
     expect(ruleName("max_position")).toBe("Max position");
+  });
+});
+
+describe("long option tickets", () => {
+  const base = fixtureOrder("opt", "pending_approval").intent;
+  const ticket = {
+    instrumentId: "10000000-0000-0000-0000-000000000001",
+    symbol: "AAPL",
+    expiration: "2026-12-18",
+    strikeCents: 15_000,
+    contractType: "put" as const,
+    side: "buy-to-open" as const,
+    contracts: 2,
+    limitCents: 175,
+  };
+  const option = { ...base, symbol: "AAPL", side: "buy" as const, quantity: 2, limitPrice: 1.75, orderType: "limit" as const, timeInForce: "day" as const, stopPrice: undefined, longOption: ticket };
+
+  it("prices the full 100-share premium: 2 contracts at $1.75 is $350", () => {
+    expect(isOptionIntent(option)).toBe(true);
+    expect(isValidLongOptionTicket(ticket)).toBe(true);
+    expect(isValidOptionIntent(option)).toBe(true);
+    expect(optionProblem(option)).toBeUndefined();
+    expect(optionLimitPerShare(ticket)).toBeCloseTo(1.75, 6);
+    expect(optionStrike(ticket)).toBeCloseTo(150, 6);
+    expect(optionSideLabel(ticket)).toBe("Buy to open");
+    expect(optionTypeLabel(ticket)).toBe("Put");
+    // The regression this guards: quantity * limitPrice is $3.50.
+    expect(optionTotal(ticket)).toBe(350);
+    expect(notional(option)).toBe(350);
+    expect(optionFilledTotal(2, 1.75)).toBe(350);
+    expect(fractionalQuoteLabel(option)).toBeUndefined();
+  });
+
+  it("routes any longOption presence to the option UI and blocks mismatched tickets", () => {
+    const mismatched = { ...option, quantity: 1 };
+    expect(isOptionIntent(mismatched)).toBe(true);
+    expect(isValidOptionIntent(mismatched)).toBe(false);
+    expect(optionProblem(mismatched)).toMatch(/Contracts must equal/);
+    const malformed = { ...option, longOption: { ...ticket, limitCents: 0 } };
+    expect(isOptionIntent(malformed)).toBe(true);
+    expect(isValidOptionIntent(malformed)).toBe(false);
+    expect(optionProblem(malformed)).toMatch(/incomplete or malformed/);
+    // Stock math must not leak into the option path: the UI branches on
+    // isOptionIntent first and disables approval when optionProblem is set.
+    expect(isValidLongOptionTicket({ ...ticket, expiration: "2026-02-30" })).toBe(false);
+    expect(isValidLongOptionTicket({ ...ticket, contractType: "stock" })).toBe(false);
+  });
+
+  it("never calls an option submission a held stop", () => {
+    const triggering = { ...fixtureOrder("t", "triggering"), intent: option };
+    const held = { ...fixtureOrder("h", "held"), intent: option };
+    expect(orderStatusLabel(triggering)).toBe("Submission uncertain");
+    expect(orderStatusLabel(held)).toBe("Held");
+    const stockTriggering = fixtureOrder("s", "triggering");
+    expect(orderStatusLabel(stockTriggering)).toBe("Stop firing");
   });
 });
 
