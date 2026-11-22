@@ -272,7 +272,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       if (run.status !== "running") return;
       if (fingerprint !== undefined) atomic(join(runDir, "market-fingerprint.json"), fingerprint);
     }
-    const store = openStore(join(runDir, "app.sqlite"), clock);
+    const store = openStore(join(runDir, "app.sqlite"), clock, { reuseReplayReads: true });
     artifacts.set(run.id, { journal: () => store.listJournal(10000), orders: () => store.listOrders(10000) });
     store.patchSettings({ ...settings, mode: "auto", killSwitch: false, drawdownHalted: false,
       watchlist: run.config.watchlist ?? settings.watchlist, risk: { ...settings.risk, ...run.config.risk },

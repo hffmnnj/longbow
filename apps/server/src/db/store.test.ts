@@ -140,6 +140,40 @@ describe("store orders", () => {
     store.addOrder(order(300));
     assert.deepEqual(store.ordersSince(200).map((o) => o.createdAt), [200, 300]);
   });
+
+  it("replay reads see settings and orders written after warming", () => {
+    const store = openStore(dbPath(), clock, { reuseReplayReads: true });
+    store.addOrder(order(100));
+    const boundary = store.addOrder(order(200));
+
+    // Warm each reused statement before the writes it must later reflect.
+    assert.equal(store.getSettings().mode, DEFAULT_SETTINGS.mode);
+    assert.equal(store.getOrder("missing"), undefined);
+    assert.equal(store.getOrder(boundary.id)?.status, "pending_approval");
+    assert.deepEqual(store.ordersSince(200).map((o) => o.createdAt), [200]);
+    assert.deepEqual(store.ordersSince(300), []);
+
+    store.patchSettings({ mode: "off", killSwitch: true });
+    store.updateOrder(boundary.id, { status: "submitted", updatedAt: 250 });
+    const added = store.addOrder(order(300));
+
+    const settings = store.getSettings();
+    assert.equal(settings.mode, "off");
+    assert.equal(settings.killSwitch, true);
+    assert.equal(store.getOrder(boundary.id)?.status, "submitted");
+    assert.equal(store.getOrder(boundary.id)?.createdAt, 200);
+    assert.equal(store.getOrder(added.id)?.status, "pending_approval");
+    assert.equal(store.getOrder("missing"), undefined);
+    assert.deepEqual(
+      store.ordersSince(200).map((o) => ({ createdAt: o.createdAt, status: o.status })),
+      [
+        { createdAt: 200, status: "submitted" },
+        { createdAt: 300, status: "pending_approval" },
+      ],
+    );
+    assert.deepEqual(store.ordersSince(300).map((o) => o.createdAt), [300]);
+    assert.deepEqual(store.ordersSince(100).map((o) => o.createdAt), [100, 200, 300]);
+  });
 });
 
 describe("store equity marks", () => {
