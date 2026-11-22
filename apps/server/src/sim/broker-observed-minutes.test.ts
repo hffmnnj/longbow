@@ -21,7 +21,7 @@ type MinuteTape = { open: number; closes: readonly number[] };
 function dailyBars(day = DAY, prior = PRIOR): Bar[] {
   return [
     { date: prior, open: 99, low: 98, high: 100, close: 99, volume: 10_000_000 },
-    { date: day, open: 95, low: 80, high: 500, close: 95, volume: 10_000_000 },
+    { date: day, open: 96, low: 80, high: 500, close: 95, volume: 10_000_000 },
   ];
 }
 function fixture(observedMinutes: (symbol: string, day: string) => MinuteTape | undefined,
@@ -136,4 +136,12 @@ test("a selected tape with a missing minute fails instead of falling back, while
   mixed.at(DAY, 10);
   const qqq = await mixed.broker.quote("QQQ");
   assert.equal(qqq.last, realisticPrice(bars[1]!, "QQQ", 1, etInstant(DAY, 10), etInstant(DAY, 16)));
+});
+
+test("rejects recorded prices on a different split basis from the daily tape", async () => {
+  const { broker, at } = fixture(() => ramp(950, 951));
+  at(DAY, 9, 29);
+  assert.equal((await broker.quote("SPY")).last, 99, "the current session is not yet used");
+  at(DAY, 9, 30);
+  await assert.rejects(broker.quote("SPY"), /price basis/);
 });
