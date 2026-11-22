@@ -130,7 +130,7 @@ async function main(): Promise<void> {
     market,
     systemOne,
     skills,
-    calendar,
+    calendar: createNyseCalendar({ reuseRegularSession: true }),
     settings: () => store.getSettings(),
     credentialFile: credentialFilePath(config.DATA_DIR),
   });

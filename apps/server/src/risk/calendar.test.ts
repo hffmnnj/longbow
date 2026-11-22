@@ -190,4 +190,58 @@ describe("nyse calendar", () => {
     assert.equal(calendar.tradingDaysBetween("2026-11-02", "2026-11-03"), 0);
     assert.equal(calendar.tradingDaysBetween("2026-11-02", "2026-11-02"), 0);
   });
+
+  it("reuses regular-session bounds without changing clock or etDate output", () => {
+    const plain = createNyseCalendar();
+    const reused = createNyseCalendar({ reuseRegularSession: true });
+
+    const assertEquivalent = (label: string, iso: string) => {
+      const now = Date.parse(iso);
+      assert.deepEqual(reused.clock(now), plain.clock(now), `${label}: clock`);
+      assert.equal(reused.etDate(now), plain.etDate(now), `${label}: etDate`);
+    };
+
+    // Fail prerequisites before comparing, so a mistyped instant cannot leave
+    // the reuse path untested. These bounds are independent NYSE facts.
+    const marchSixWarm = plain.clock(Date.parse("2026-03-06T15:05:00Z"));
+    assert.equal(marchSixWarm.session, "regular", "warm-up must be a regular session");
+    assert.equal(marchSixWarm.nextClose, Date.UTC(2026, 2, 6, 21, 0, 0));
+    const halfDayWarm = plain.clock(Date.parse("2026-11-27T15:00:00Z"));
+    assert.equal(halfDayWarm.session, "regular", "half-day warm-up must be a regular session");
+    assert.equal(halfDayWarm.earlyClose, true);
+    assert.equal(halfDayWarm.nextClose, Date.UTC(2026, 10, 27, 18, 0, 0));
+
+    // March 6 2026 is EST and March 9 is the first EDT session after the
+    // spring-forward weekend, so walking this range exercises cached bounds
+    // across the offset change.
+    assertEquivalent("March 6 regular warm", "2026-03-06T15:05:00Z");
+    assertEquivalent("March 6 exact close", "2026-03-06T21:00:00Z");
+    assertEquivalent("March 6 late post", "2026-03-07T00:59:59Z");
+    assertEquivalent("March 7 20:00 ET boundary", "2026-03-07T01:00:00Z");
+    assertEquivalent("March 7 weekend", "2026-03-07T15:00:00Z");
+    assertEquivalent("March 8 spring-forward weekend", "2026-03-08T12:00:00Z");
+    assertEquivalent("March 9 pre-open", "2026-03-09T13:29:00Z");
+    assertEquivalent("March 9 exact open", "2026-03-09T13:30:00Z");
+    assertEquivalent("March 9 regular", "2026-03-09T15:05:00Z");
+    assertEquivalent("March 9 exact close", "2026-03-09T20:00:00Z");
+    assertEquivalent("March 10 20:00 ET boundary", "2026-03-10T00:00:00Z");
+
+    // Walking back through the cached session must not leak its bounds into
+    // post-market, pre-market, or the prior EST session.
+    assertEquivalent("March 9 reverse post", "2026-03-09T23:00:00Z");
+    assertEquivalent("March 9 reverse regular", "2026-03-09T15:05:00Z");
+    assertEquivalent("March 9 reverse open", "2026-03-09T13:30:00Z");
+    assertEquivalent("March 9 reverse pre-open", "2026-03-09T13:25:00Z");
+    assertEquivalent("March 6 reverse post", "2026-03-06T22:00:00Z");
+    assertEquivalent("March 6 reverse regular", "2026-03-06T20:59:00Z");
+    assertEquivalent("March 6 reverse open", "2026-03-06T14:30:00Z");
+    assertEquivalent("March 6 reverse pre-open", "2026-03-06T13:00:00Z");
+
+    // 2026-11-27 is the shortened day after Thanksgiving: a 13:00 ET close.
+    assertEquivalent("half-day regular warm", "2026-11-27T15:00:00Z");
+    assertEquivalent("half-day exact close", "2026-11-27T18:00:00Z");
+    assertEquivalent("half-day 20:00 ET boundary", "2026-11-28T01:00:00Z");
+    assertEquivalent("half-day weekend", "2026-11-28T15:00:00Z");
+    assertEquivalent("half-day next session", "2026-11-30T15:00:00Z");
+  });
 });
