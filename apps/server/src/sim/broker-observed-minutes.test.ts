@@ -160,6 +160,33 @@ test("a selected tape with a missing minute fails instead of falling back, while
   assert.equal(qqq.last, realisticPrice(bars[1]!, "QQQ", 1, etInstant(DAY, 10), etInstant(DAY, 16)));
 });
 
+test("a passive whole-share limit ignores the submission print and fills only on a later observed trade-through", async () => {
+  // closes[44] is the 10:15 print already visible when the order is submitted;
+  // closes[45] is the 10:16 close above the passive through level, and
+  // closes[46] is the 10:17 print that actually trades through it.
+  const closes = Array<number>(REGULAR_MINUTES).fill(100);
+  closes[45] = 101;
+  closes[46] = 99;
+  const { broker, at } = fixture((symbol, day) => symbol === "SPY" && day === DAY ? { open: 100, closes } : undefined);
+  at(DAY, 10, 15);
+  const quote = await broker.quote("SPY");
+  assert.equal(quote.last, 100, "the 10:15 print is already visible at submission");
+  assert.ok(quote.ask > 100.01, `expected a modeled ask above the passive limit, got ${quote.ask}`);
+  const placed = await broker.placeOrder({ ...intent, limitPrice: 100.01 });
+  assert.deepEqual(broker.fills(), [], "a limit below the modeled ask does not execute at submission");
+  at(DAY, 10, 16);
+  await broker.advance();
+  assert.deepEqual(broker.fills(), [], "the print already visible at submission cannot fill the passive order");
+  at(DAY, 10, 17);
+  await broker.advance();
+  const fill = broker.fills()[0]!;
+  assert.equal(fill.orderId, placed.brokerOrderId);
+  assert.equal(fill.at, etInstant(DAY, 10, 17), "the fill lands on the first new print through the limit");
+  assert.equal(fill.price, 100.01);
+  assert.equal(fill.mid, 99);
+  assert.equal((await broker.orderState(placed.brokerOrderId)).status, "filled");
+});
+
 test("rejects recorded prices on a different split basis from the daily tape", async () => {
   const { broker, at } = fixture((_, date) => date === DAY ? ramp(950, 951) : undefined);
   at(DAY, 9, 29);
