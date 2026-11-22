@@ -292,6 +292,12 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       for (const order of orders) {
         const attempt = delayed.get(order.id);
         if (order.status !== "open" || attempt?.at !== at) continue;
+        // For converted fractional market orders, the close is an expiry,
+        // not a shorter fill latency or a chance to trade the closing mark.
+        if (attempt.market && at >= session(day).nextClose) {
+          cancel(order.id);
+          continue;
+        }
         const { intent } = order;
         const history = await deps.bars(intent.symbol);
         const bar = history.find((b) => b.date === day);

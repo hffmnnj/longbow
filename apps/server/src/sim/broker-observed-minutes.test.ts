@@ -210,3 +210,99 @@ test("rejects a materially out-of-range minute even when the recorded open match
   at(DAY, 9, 31);
   assert.equal((await broker.quote("SPY")).last, 79, "small feed differences from the daily low stay valid");
 });
+
+type CloseSession = {
+  label: string;
+  day: string;
+  bars: Bar[];
+  /** Session minutes; the last one completes exactly at the close. */
+  minutes: number;
+  open: number;
+  firstClose: number;
+  closeHour: number;
+  /** Submit 90 seconds before the close so the one-minute latency lands 30 seconds before it. */
+  submitBeforeDue: readonly [number, number, number];
+  dueBeforeClose: readonly [number, number, number];
+  /** Submit exactly 60 seconds before the close: the attempt is due at the closing instant. */
+  submitOneMinuteBefore: readonly [number, number, number];
+  /** Submit 30 seconds before the close: the attempt would be due after it and is capped to the close. */
+  submitSecondsBefore: readonly [number, number, number];
+};
+
+test("a realistic fractional order fills at its pre-close latency yet cancels at the close, releasing its reservation", async () => {
+  const sessions: CloseSession[] = [
+    { label: "regular close", day: DAY, bars: dailyBars(), minutes: REGULAR_MINUTES, open: 100, firstClose: 101,
+      closeHour: 16, submitBeforeDue: [15, 58, 30], dueBeforeClose: [15, 59, 30],
+      submitOneMinuteBefore: [15, 59, 0], submitSecondsBefore: [15, 59, 30] },
+    { label: "early close", day: "2026-12-24", minutes: 210, open: 200, firstClose: 201,
+      bars: [
+        { date: "2026-12-23", open: 199, low: 198, high: 200, close: 199, volume: 10_000_000 },
+        { date: "2026-12-24", open: 195, low: 190, high: 500, close: 195, volume: 10_000_000 },
+      ],
+      closeHour: 13, submitBeforeDue: [12, 58, 30], dueBeforeClose: [12, 59, 30],
+      submitOneMinuteBefore: [12, 59, 0], submitSecondsBefore: [12, 59, 30] },
+  ];
+  for (const s of sessions) {
+    const tape: MinuteTape = { open: s.open, closes: Array.from({ length: s.minutes }, (_, minute) => s.firstClose + minute) };
+    const make = () => fixture((symbol, day) => symbol === "SPY" && day === s.day ? tape : undefined, { day: s.day, bars: s.bars });
+    const fractional: OrderIntent = { ...intent, quantity: 0.5, limitPrice: 500 };
+
+    // The intended one-minute latency is unchanged while it still resolves inside the session.
+    {
+      const { broker, at } = make();
+      at(s.day, ...s.submitBeforeDue);
+      const placed = await broker.placeOrder(fractional);
+      assert.deepEqual(broker.fills(), [], `${s.label}: a converted fractional commits only at its due time`);
+      const [dh, dm, ds] = s.dueBeforeClose;
+      at(s.day, dh, dm, ds - 1, 999);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: nothing fills before the full one-minute latency`);
+      at(s.day, dh, dm, ds);
+      await broker.advance();
+      const fill = broker.fills()[0]!;
+      assert.equal(fill.orderId, placed.brokerOrderId, `${s.label}: the pre-close attempt fills`);
+      assert.equal(fill.at, etInstant(s.day, dh, dm) + ds * 1_000, `${s.label}: it fills at its full latency`);
+      assert.equal(fill.mid, s.firstClose + s.minutes - 2, `${s.label}: it marks the last minute completed before the close`);
+      assert.ok(fill.price > fill.mid && fill.price <= 500, `${s.label}: unexpected fill price ${fill.price}`);
+      assert.deepEqual(await broker.orderState(placed.brokerOrderId),
+        { status: "filled", filledQuantity: 0.5, averageFillPrice: fill.price }, `${s.label}: the pre-close order is filled`);
+    }
+
+    // An attempt due exactly at the close must cancel there, GTC included, not trade the final print.
+    {
+      const { broker, at } = make();
+      at(s.day, ...s.submitOneMinuteBefore);
+      const placed = await broker.placeOrder({ ...fractional, timeInForce: "gtc" });
+      assert.equal((await broker.snapshot()).buyingPower, 950, `${s.label}: an open fractional buy reserves its notional`);
+      at(s.day, s.closeHour - 1, 59, 59, 999);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: nothing fills just before the close`);
+      assert.equal((await broker.orderState(placed.brokerOrderId)).status, "submitted", `${s.label}: the order is pending just before the close`);
+      at(s.day, s.closeHour);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: a converted market order never trades the final completed print at the close`);
+      assert.equal((await broker.orderState(placed.brokerOrderId)).status, "cancelled", `${s.label}: a GTC conversion still cancels at the close`);
+      assert.equal((await broker.snapshot()).buyingPower, 1200, `${s.label}: cancelling at the close releases the cash reservation`);
+      at(s.day, s.closeHour, 5);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: a later observation still shows no fill`);
+    }
+
+    // A submission seconds before the close would be due after it; the capped attempt cancels at the close.
+    {
+      const { broker, at } = make();
+      at(s.day, ...s.submitSecondsBefore);
+      const placed = await broker.placeOrder(fractional);
+      at(s.day, s.closeHour - 1, 59, 59, 999);
+      await broker.advance();
+      assert.equal((await broker.orderState(placed.brokerOrderId)).status, "submitted", `${s.label}: the capped attempt is pending just before the close`);
+      at(s.day, s.closeHour);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: an attempt capped to the close cancels instead of trading the final print`);
+      assert.equal((await broker.orderState(placed.brokerOrderId)).status, "cancelled", `${s.label}: the seconds-before order is cancelled at the close`);
+      at(s.day, s.closeHour, 5);
+      await broker.advance();
+      assert.deepEqual(broker.fills(), [], `${s.label}: no fill appears on a later observation`);
+    }
+  }
+});
