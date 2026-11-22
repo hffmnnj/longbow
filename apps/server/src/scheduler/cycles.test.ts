@@ -70,6 +70,33 @@ it("keeps a due post-close cycle armed when status is read before dispatch", (t)
   assert.ok(scheduler.next().at > now);
 });
 
+it("waits for the armed slot if the timer wakes before the wall clock is due", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const due = Date.parse("2026-11-21T20:00:00Z");
+  let now = due - 1_000;
+  const ran: { kind: string; at: number }[] = [];
+  const log = { info() {}, warn() {}, error() {}, child() { return log; } };
+  const scheduler = startScheduler({
+    agent: { async runCycle(kind) { ran.push({ kind, at: now }); } },
+    calendar: fakeCalendar(week),
+    store: { getSettings: () => ({ ...DEFAULT_SETTINGS, ...settings }) },
+    bus: { publish() {}, subscribe: () => () => {} },
+    clock: { now: () => now },
+    log,
+  });
+  t.after(() => scheduler.stop());
+
+  now = due - 1;
+  t.mock.timers.tick(1_000);
+  assert.deepEqual(ran, []);
+  assert.deepEqual(scheduler.next(), { at: due, kind: "overnight" });
+
+  now = due;
+  t.mock.timers.tick(1);
+  assert.deepEqual(ran, [{ kind: "overnight", at: due }]);
+  assert.deepEqual(scheduler.next(), { at: Date.parse("2026-11-22T00:00:00Z"), kind: "overnight" });
+});
+
 describe("nextCycle", () => {
   it("schedules pre-open before 09:00 on a trading day", () => {
     const at = nextCycle(etToMs("2026-10-26", 8 * 60), fakeCalendar(week), settings);

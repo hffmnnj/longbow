@@ -140,16 +140,27 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; next(): Cyc
     const point = computeNext();
     current = point;
     onNext?.(point);
-    const delay = Math.max(0, point.at - clock.now());
-    timer = setTimeout(() => {
-      if (stopped || gen !== generation) return;
-      // Re-arm before running so a slow cycle cannot shift the next one.
-      arm();
-      agent.runCycle(point.kind).catch((error: unknown) => {
-        log.warn("scheduled cycle failed", { kind: point.kind, error: error instanceof Error ? error.message : "unknown" });
-      });
-    }, delay);
-    timer.unref?.();
+
+    function wait(delay: number): void {
+      timer = setTimeout(() => {
+        if (stopped || gen !== generation) return;
+        const remaining = point.at - clock.now();
+        if (remaining > 0) {
+          // The timer elapsed before the wall clock reached the slot. Recomputing the
+          // schedule here would select the same slot again after an early dispatch.
+          wait(remaining);
+          return;
+        }
+        // Re-arm before running so a slow cycle cannot shift the next one.
+        arm();
+        agent.runCycle(point.kind).catch((error: unknown) => {
+          log.warn("scheduled cycle failed", { kind: point.kind, error: error instanceof Error ? error.message : "unknown" });
+        });
+      }, delay);
+      timer.unref?.();
+    }
+
+    wait(Math.max(0, point.at - clock.now()));
   }
 
   const offBus = bus.subscribe((event) => {
