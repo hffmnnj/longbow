@@ -37,6 +37,33 @@ The replay core validates the document. Malformed input, a missing or non-regula
 file over 8 MiB, or an unscorable replay exit nonzero with a concise
 `replay-long-puts: <message>` error on stderr.
 
+## Paired holdout
+
+Run `node apps/server/scripts/score-put-holdout.ts /path/to/holdout.json` to compare a
+put hedge with the same stock positions and unspent option cash, and with an all-cash
+reference with no interest. This is a non-compounding comparison across independent
+windows, not a strategy generator or a calculation of a live portfolio's return.
+
+The file contains a `windows` array in chronological order. Each entry has a unique
+`id`, `startDate`, `endDate`, `startingEquityCents`, `optionCashSleeveCents`,
+`feePerContractCents`, and `stock` with `startValueCents` and `endValueCents`. Include
+one `put` with the contract shape below and `quotes` and `orders` in the same format
+as the single-window replay. Supply `quoteProvenance` with `source`, `quoteDate`,
+and `kind` (`observed` or `fixture`). Window quotes and orders must belong to that
+contract. Quote provenance is supplied by the operator, not independently verified.
+
+Fix candidate-selection and exit rules before looking at the holdout, including dates
+with no qualifying trade. Use prior observations only to choose a contract, order
+time and limit, and a later observed quote to test that order. Keep the stock
+holdings and valuation times identical in both invested arms. Compare the net
+hedge difference after spreads and fees, not gross option proceeds. Include
+incomplete exits in the reported denominator: the scorer marks them unscorable,
+rather than assuming a liquidation or a zero return.
+
+Robinhood historical option candles are not a bid/ask tape. Do not substitute them
+for executable quotes. Use historical OPRA quotes with timestamps and displayed
+bid/ask size. A vendor sample or synthetic fixture tests the software only.
+
 ## Input
 
 The input is one JSON object with exactly this shape:
