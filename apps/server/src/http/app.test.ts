@@ -277,6 +277,217 @@ it("a live-style close-only adapter never authorizes opening an option", async (
   assert.equal(proposed.verdict.checks[0]?.rule, "options_close_only");
 });
 
+const XSP_INSTRUMENT = "10000000-0000-0000-0000-000000000011";
+const XSP_CHAIN = "20000000-0000-0000-0000-000000000012";
+const XSP_BROKER_ORDER = "30000000-0000-0000-0000-000000000013";
+const XSP_EXPIRY = "2026-11-20";
+const XSP_EXIT_REVIEW = "2026-11-19";
+
+const xspTicket = {
+  instrumentId: XSP_INSTRUMENT, symbol: "XSP", strikeCents: 68_000, expiration: XSP_EXPIRY,
+  contractType: "put" as const, side: "buy-to-open" as const, contracts: 1, limitCents: 175,
+};
+
+const xspIntent = {
+  ...orderRecord.intent, symbol: "XSP", side: "buy" as const, quantity: 1, limitPrice: 1.75,
+  invalidationPrice: 1.2, timeStopDate: XSP_EXIT_REVIEW,
+  thesis: "Cash-settled XSP put keeps premium risk fixed while the index holds its 50-day average.",
+  probabilityWin: 0.65, expectedGainPct: 20, expectedLossPct: 6, estimatedCostPct: 3,
+  evidence: ["fixture quote: XSP put bid 1.74 ask 1.75 with displayed size"],
+};
+
+const XSP_LEGS = [{ option_id: XSP_INSTRUMENT, side: "buy", position_effect: "open", ratio_quantity: 1 }];
+const XSP_REVIEW_ARGS = {
+  account_number: "mcp-fixture", legs: XSP_LEGS,
+  type: "limit", quantity: "1", price: "1.75", time_in_force: "gfd", market_hours: "regular_hours",
+  chain_symbol: "XSP", underlying_type: "index",
+};
+const XSP_PLACEMENT_ARGS = {
+  account_number: "mcp-fixture", legs: XSP_LEGS,
+  type: "limit", quantity: "1", price: "1.75", time_in_force: "gfd", market_hours: "regular_hours",
+};
+
+type XspBrokerFixture = {
+  mode?: "auto" | "approve" | "off";
+  quoteAgeMs?: number;
+  approvalRequired?: boolean;
+  alerts?: Record<string, unknown>[];
+  positions?: Record<string, unknown>[];
+  workingOrders?: Record<string, unknown>[];
+  onReview?: (store: Store) => void;
+};
+
+function xspFixture(fixture: XspBrokerFixture = {}) {
+  const appDeps = deps();
+  const calendar = createNyseCalendar();
+  appDeps.store.patchSettings({ mode: fixture.mode ?? "auto", risk: { maxSpreadBps: 100 } });
+  const placed: Record<string, unknown>[] = [];
+  const reviewed: Record<string, unknown>[] = [];
+  const brokerCalls: string[] = [];
+  const gate = createOrderGate({
+    ...appDeps,
+    calendar,
+    options: {
+      xspOpenOnly: true,
+      ...createRobinhoodOptionAdapter({
+        calendar, clock, store: appDeps.store, feeReservePerContractCents: 4, allowXspOpen: true,
+        async call(name, args) {
+          brokerCalls.push(name);
+          switch (name) {
+            case "get_accounts":
+              return { accounts: [{ agentic_allowed: true, account_number: "mcp-fixture", option_level: "option_level_2", unsettled_funds: "20.00" }] };
+            case "get_option_instruments":
+              return { instruments: [{ id: XSP_INSTRUMENT, chain_id: XSP_CHAIN, chain_symbol: "XSP", expiration_date: XSP_EXPIRY,
+                type: "put", strike_price: "680.00", trade_value_multiplier: "100", state: "active", tradability: "tradable", underlying_type: "index" }] };
+            case "get_option_chains":
+              return { chains: [{ id: XSP_CHAIN, symbol: "XSP", trade_value_multiplier: "100", cash_component: null,
+                settle_on_open: false, underlying_instruments: [], can_open_position: true }] };
+            case "get_option_quotes":
+              return { results: [{ quote: { instrument_id: XSP_INSTRUMENT, bid_price: "1.74", ask_price: "1.75",
+                bid_size: 2, ask_size: 2, updated_at: new Date(NOW - (fixture.quoteAgeMs ?? 1000)).toISOString() } }] };
+            case "get_portfolio":
+              return { total_value: "100000.00", cash: "100000.00", pending_deposits: "0.00",
+                buying_power: { unleveraged_buying_power: "100000.00" } };
+            case "get_option_positions":
+              return { positions: fixture.positions ?? [] };
+            case "get_option_orders":
+              return { orders: fixture.workingOrders ?? [] };
+            case "review_option_order":
+              reviewed.push(args);
+              fixture.onReview?.(appDeps.store);
+              return { order_checks: fixture.alerts ?? [], customer_approval_required: fixture.approvalRequired ?? false };
+            case "place_option_order": {
+              assert.equal(appDeps.store.listOrders(1)[0]?.status, "triggering");
+              placed.push(args);
+              return { customer_approval_required: false, order: { id: XSP_BROKER_ORDER } };
+            }
+            default: return assert.fail(`unexpected fixture call ${name}`);
+          }
+        },
+      }),
+    },
+  });
+  const app = createApp({ ...appDeps, gate });
+  const tool = createRiskExtension({ ...appDeps, gate, calendar, optionTickets: "xsp", currentCycleId: () => undefined })
+    .tools!.find((candidate) => candidate.name === "submit_order")!;
+  const execute = tool.execute as (input: unknown, api: object, ctx: object) => Promise<{ details: { orderId: string; status: string } }>;
+  async function submit(overrides: Record<string, unknown> = {}) {
+    const proposal = await execute({ ...xspIntent, longOption: xspTicket, ...overrides }, {}, {});
+    const record = appDeps.store.getOrder(proposal.details.orderId);
+    assert.ok(record, "the gate persists every submitted ticket");
+    return { proposal, record };
+  }
+  return { appDeps, app, gate, placed, reviewed, brokerCalls, submit };
+}
+
+it("XSP auto entry sends the exact reviewed day limit once without an owner instruction or approve tap", async () => {
+  const fx = xspFixture();
+  const { proposal, record } = await fx.submit();
+  assert.equal(proposal.details.status, "submitted");
+  assert.deepEqual(fx.reviewed, [XSP_REVIEW_ARGS]);
+  assert.equal(fx.placed.length, 1);
+  const { ref_id, ...placement } = fx.placed[0]!;
+  assert.match(String(ref_id), /^[a-f0-9]{64}$/);
+  assert.deepEqual(placement, XSP_PLACEMENT_ARGS);
+  assert.equal(record.status, "submitted");
+  assert.equal(record.brokerOrderId, XSP_BROKER_ORDER);
+  assert.equal(record.intent.ownerInstruction, undefined);
+});
+
+it("XSP approve entry reviews and places only after the CSRF-protected owner tap", async () => {
+  const fx = xspFixture({ mode: "approve" });
+  const { proposal } = await fx.submit();
+  assert.equal(proposal.details.status, "pending_approval");
+  assert.deepEqual(fx.reviewed, []);
+  const route = `/api/orders/${proposal.details.orderId}/approve`;
+  assert.equal((await fx.app.request(route, { method: "POST" })).status, 403);
+  assert.equal(fx.placed.length, 0);
+  const approved = await fx.app.request(route, { method: "POST", headers: CSRF });
+  assert.equal(approved.status, 200);
+  const submitted = await approved.json() as OrderRecord;
+  assert.equal(submitted.status, "submitted");
+  assert.equal(submitted.brokerOrderId, XSP_BROKER_ORDER);
+  assert.deepEqual(fx.reviewed, [XSP_REVIEW_ARGS]);
+  assert.equal(fx.placed.length, 1);
+  const { ref_id, ...placement } = fx.placed[0]!;
+  assert.match(String(ref_id), /^[a-f0-9]{64}$/);
+  assert.deepEqual(placement, XSP_PLACEMENT_ARGS);
+  await fx.app.request(route, { method: "POST", headers: CSRF });
+  assert.equal(fx.placed.length, 1);
+});
+
+it("XSP auto entry never places when Robinhood requires approval or reports pre-trade alerts", async (t) => {
+  const cases: Record<string, XspBrokerFixture> = {
+    "customer approval required": { approvalRequired: true },
+    "pre-trade alerts": { alerts: [{ check: "buying power" }] },
+  };
+  for (const [name, fixture] of Object.entries(cases)) {
+    await t.test(name, async () => {
+      const fx = xspFixture(fixture);
+      const { record } = await fx.submit();
+      assert.equal(record.status, "rejected_risk");
+      assert.match(record.error ?? "", /prevented placement/);
+      assert.deepEqual(fx.reviewed, [XSP_REVIEW_ARGS]);
+      assert.equal(fx.placed.length, 0);
+    });
+  }
+});
+
+it("XSP auto entry refuses to advance on a broker position or working option order", async (t) => {
+  const cases: Record<string, XspBrokerFixture> = {
+    "existing position": { positions: [{ option_id: XSP_INSTRUMENT, type: "long", quantity: "1.0000", quantity_available_for_sells: "1.0000" }] },
+    "working order": { workingOrders: [{ id: XSP_BROKER_ORDER, state: "queued" }] },
+  };
+  for (const [name, fixture] of Object.entries(cases)) {
+    await t.test(name, async () => {
+      const fx = xspFixture(fixture);
+      const { record } = await fx.submit();
+      assert.equal(record.status, "rejected_risk");
+      assert.ok(record.verdict.checks.some((check) => check.rule === "options_capacity" && !check.ok));
+      assert.deepEqual(fx.reviewed, []);
+      assert.equal(fx.placed.length, 0);
+    });
+  }
+});
+
+it("XSP mode refuses openings for other products or more than one contract before any broker call", async () => {
+  for (const [symbol, contracts] of [["SPY", 1], ["XSP", 2]] as const) {
+    const fx = xspFixture();
+    const order = await fx.gate.submit({ ...xspIntent, symbol, quantity: contracts, longOption: { ...xspTicket, symbol, contracts } });
+    assert.equal(order.status, "rejected_risk");
+    assert.equal(order.verdict.checks[0]?.rule, "options_xsp_only");
+    assert.deepEqual(fx.brokerCalls, []);
+  }
+});
+
+it("XSP mode never reaches broker review with a stale quote or while Off", async () => {
+  for (const [fixture, rule] of [[{ quoteAgeMs: 120_001 }, "options_quote"], [{ mode: "off" }, "options_mode"]] as const) {
+    const fx = xspFixture(fixture);
+    const { record } = await fx.submit();
+    assert.equal(record.status, "rejected_risk");
+    assert.ok(record.verdict.checks.some((check) => check.rule === rule && !check.ok));
+    assert.deepEqual(fx.reviewed, []);
+    assert.deepEqual(fx.placed, []);
+  }
+});
+
+it("XSP auto entry that loses auto mode during review waits for an owner tap", async () => {
+  const fx = xspFixture({ onReview: (store) => store.patchSettings({ mode: "approve" }) });
+  const { proposal } = await fx.submit();
+  assert.equal(proposal.details.status, "pending_approval");
+  assert.deepEqual(fx.reviewed, [XSP_REVIEW_ARGS]);
+  assert.equal(fx.placed.length, 0);
+  const route = `/api/orders/${proposal.details.orderId}/approve`;
+  const approved = await fx.app.request(route, { method: "POST", headers: CSRF });
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json() as OrderRecord).status, "submitted");
+  assert.equal(fx.reviewed.length, 2);
+  assert.equal(fx.placed.length, 1);
+  const { ref_id, ...placement } = fx.placed[0]!;
+  assert.match(String(ref_id), /^[a-f0-9]{64}$/);
+  assert.deepEqual(placement, XSP_PLACEMENT_ARGS);
+});
+
 it("logs failed mutations and unexpected errors without request bodies or query strings", async () => {
   const warnings: unknown[] = [];
   const errors: unknown[] = [];

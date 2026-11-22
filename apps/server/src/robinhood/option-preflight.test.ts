@@ -149,7 +149,7 @@ test("a mismatched or ambiguous contract stops before the broker review", async 
   ]) {
     const { call, calls } = broker({ get_option_instruments: () => ({ instruments }) });
     await expectMappingError(previewLongOption(valid, call, session),
-      /did not confirm the exact standard equity option/);
+      /did not confirm the exact standard equity option or eligible XSP index option\.$/);
     assert.deepEqual(calls.map(([name]) => name), ["get_accounts", "get_option_instruments"]);
   }
 });
@@ -180,8 +180,57 @@ test("preview refuses adjusted, mismatched, or close-only chains before broker r
     chain({ can_open_position: false }),
   ]) {
     const { call, calls } = broker({ get_option_chains: () => ({ chains: [candidate] }) });
-    await expectMappingError(previewLongOption(valid, call, session), /did not confirm an eligible 100-multiplier chain/);
+    await expectMappingError(previewLongOption(valid, call, session),
+      /did not confirm an eligible 100-multiplier chain and deliverable\.$/);
     assert.deepEqual(calls.map(([name]) => name), ["get_accounts", "get_option_instruments", "get_option_chains"]);
+  }
+});
+
+test("exact XSP index preview is cash-settled; AM, deliverable, or other index roots fail closed", async () => {
+  const xsp = { ...valid, symbol: "XSP" };
+  const xspContract = (overrides: Record<string, unknown> = {}) =>
+    contract({ chain_symbol: "XSP", underlying_type: "index", ...overrides });
+  const xspChain = (overrides: Record<string, unknown> = {}) =>
+    chain({ symbol: "XSP", underlying_instruments: [], settle_on_open: false, ...overrides });
+  const reviewRequest = {
+    account_number: dedicated,
+    legs: [{ option_id: instrumentId, side: "buy", position_effect: "open", ratio_quantity: 1 }],
+    type: "limit", quantity: "3", price: "2.50", time_in_force: "gfd", market_hours: "regular_hours",
+    chain_symbol: "XSP", underlying_type: "index",
+  };
+
+  const allowed = broker({
+    get_option_instruments: () => ({ instruments: [xspContract()] }),
+    get_option_chains: () => ({ chains: [xspChain()] }),
+  });
+  assert.deepEqual(await previewLongOption(xsp, allowed.call, session), {
+    ...xsp, kind: "preview-only", maxPremiumOrLimitProceedsCents: 75_000,
+    premiumExcludesFees: true, robinhoodApprovalRequired: false, preTradeAlertCount: 0,
+    nextStep: "This was a broker preview only; no order was submitted.",
+  });
+  assert.deepEqual(allowed.calls.at(-1), ["review_option_order", reviewRequest]);
+  assert.deepEqual(allowed.calls.map(([name]) => name), [...optionPreviewTools]);
+
+  const contractOnly = ["get_accounts", "get_option_instruments"];
+  const chainsToo = [...contractOnly, "get_option_chains"];
+  for (const { ticket, instruments, chains, pattern, names } of [
+    { ticket: xsp, instruments: [xspContract()], chains: [xspChain({ settle_on_open: true })],
+      pattern: /did not confirm an eligible 100-multiplier chain and deliverable\.$/, names: chainsToo },
+    { ticket: xsp, instruments: [xspContract()],
+      chains: [xspChain({ underlying_instruments: [{ instrument: "fixture", symbol: "XSP" }] })],
+      pattern: /did not confirm an eligible 100-multiplier chain and deliverable\.$/, names: chainsToo },
+    { ticket: xsp, instruments: [xspContract({ underlying_type: "equity" })], chains: [xspChain()],
+      pattern: /did not confirm the exact standard equity option or eligible XSP index option\.$/, names: contractOnly },
+    { ticket: { ...valid, symbol: "SPX" }, instruments: [xspContract({ chain_symbol: "SPX" })],
+      chains: [xspChain({ symbol: "SPX" })],
+      pattern: /did not confirm the exact standard equity option or eligible XSP index option\.$/, names: contractOnly },
+  ]) {
+    const { call, calls } = broker({
+      get_option_instruments: () => ({ instruments }),
+      get_option_chains: () => ({ chains }),
+    });
+    await expectMappingError(previewLongOption(ticket, call, session), pattern);
+    assert.deepEqual(calls.map(([name]) => name), names);
   }
 });
 

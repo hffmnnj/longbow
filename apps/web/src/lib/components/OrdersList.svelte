@@ -11,9 +11,14 @@
     fractionalQuoteLabel,
     isOptionIntent,
     isValidOptionIntent,
+    optionBadgeLabel,
+    optionBadgeTitle,
+    optionCompactUnit,
     optionFilledTotal,
     optionLimitPerShare,
+    optionPerUnit,
     optionProblem,
+    optionSettlementNote,
     optionSideLabel,
     optionStrike,
     optionTotal,
@@ -58,9 +63,9 @@
             {#if opt && optValid}
               <span
                 class="border-primary/40 text-primary inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[10.5px] font-semibold tracking-wider uppercase"
-                title="Standard 100-share long option"
+                title={optionBadgeTitle(opt)}
               >
-                Option
+                {optionBadgeLabel(opt)}
               </span>
             {:else if opt}
               <span class="border-destructive/40 text-destructive inline-flex h-5 shrink-0 items-center rounded border px-1.5 text-[10.5px] font-semibold tracking-wider uppercase">Option</span>
@@ -70,7 +75,7 @@
                 <Ticker symbol={o.intent.symbol} />
                 {#if opt && optValid}
                   <span class="text-muted-foreground text-[12.5px]">
-                    {opt.contracts} {opt.contracts === 1 ? "contract" : "contracts"} · {usd(optionStrike(opt))} {optionTypeLabel(opt).toLowerCase()} · Exp {isoShort(opt.expiration)} · {usd(optionLimitPerShare(opt))}/sh · {usd(optionTotal(opt))}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qtyFor(o.intent.symbol, o.filledQuantity)} of {qtyFor(o.intent.symbol, o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}/sh{/if}
+                    {opt.contracts} {opt.contracts === 1 ? "contract" : "contracts"} · {usd(optionStrike(opt))} {optionTypeLabel(opt).toLowerCase()} · Exp {isoShort(opt.expiration)} · {usd(optionLimitPerShare(opt))}{optionCompactUnit(opt)} · {usd(optionTotal(opt))}{#if o.status === "partially_filled" && o.filledQuantity !== undefined} · {qtyFor(o.intent.symbol, o.filledQuantity)} of {qtyFor(o.intent.symbol, o.intent.quantity)} filled{/if}{#if o.status === "filled" && o.averageFillPrice !== undefined} · avg {usd(o.averageFillPrice)}{optionCompactUnit(opt)}{/if}
                   </span>
                 {:else if opt}
                   <span class="text-destructive text-[12.5px]">details need review</span>
@@ -93,14 +98,14 @@
                 <p class="num text-muted-foreground text-[12.5px] leading-relaxed">
                   {optionSideLabel(opt)} {opt.contracts} {opt.contracts === 1 ? "contract" : "contracts"} ·
                   {usd(optionStrike(opt))} {opt.contractType} · Exp {isoDay(opt.expiration)} {opt.expiration.slice(0, 4)} ·
-                  Limit {usd(optionLimitPerShare(opt))} per share ·
+                  Limit {usd(optionLimitPerShare(opt))} {optionPerUnit(opt)} ·
                   Total {usd(optionTotal(opt))} {opt.side === "buy-to-open" ? "debit" : "proceeds"} before fees.
-                  If exercised, this can create {opt.symbol} stock.
+                  {optionSettlementNote(opt)}
                 </p>
                 {#if o.status === "filled" || o.status === "partially_filled"}
                   {#if o.averageFillPrice !== undefined}
                     <p class="num text-muted-foreground text-[12.5px]">
-                      Filled {qtyFor(o.intent.symbol, o.filledQuantity ?? 0)} of {qtyFor(o.intent.symbol, o.intent.quantity)} contracts @ {usd(o.averageFillPrice)}/share ·
+                      Filled {qtyFor(o.intent.symbol, o.filledQuantity ?? 0)} of {qtyFor(o.intent.symbol, o.intent.quantity)} contracts @ {usd(o.averageFillPrice)}{optionCompactUnit(opt)} ·
                       {usd(optionFilledTotal(o.filledQuantity ?? 0, o.averageFillPrice))}
                     </p>
                   {/if}

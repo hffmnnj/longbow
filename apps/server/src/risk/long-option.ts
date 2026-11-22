@@ -23,8 +23,10 @@ export interface LongOptionRiskInputs {
   feeReservePerContractCents: number;
   entriesUsed: number;
   entryHalted: boolean;
-  /** True only when exercise consequences can be enforced and reconciled by the gate. */
+  /** True only when the contract has no unbounded or stock-delivery exposure at expiry. */
   exerciseRiskControlled: boolean;
+  /** The XSP route must establish both broker and locally reconciled capacity. */
+  xspCapacity?: boolean;
 }
 
 const whole = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
@@ -67,7 +69,10 @@ export function evaluateLongOption(ticket: LongOptionTicket, facts: LongOptionRi
     : 0;
   check("options_premium_at_risk", cashAndFeeKnown && maxQuantity >= ticket.contracts,
     "One or more whole contracts must fit settled unreserved cash, order notional and loss limits at the full premium plus fees.");
-  check("options_exercise", facts.exerciseRiskControlled, "An unfilled exit cannot guarantee that the broker will not exercise the option.");
+  check("options_exercise", facts.exerciseRiskControlled, "Opening requires verified settlement with no stock delivery or exercise debit.");
+  if (facts.xspCapacity !== undefined) {
+    check("options_capacity", facts.xspCapacity, "Opening requires no existing option exposure or working orders, and no unreconciled prior XSP entry.");
+  }
   check("options_entry_halt", !facts.entryHalted && !settings.drawdownHalted, "Entry halts must be clear.");
   check("options_entry_budget", whole(facts.entriesUsed) && facts.entriesUsed < risk.maxEntriesPerDay,
     "Options entries share the existing daily entry budget.");

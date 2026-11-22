@@ -66,6 +66,25 @@ background update check. Web Settings also shows the latest release and APK down
 1. Click **Connect Robinhood** and sign in. The agent trades only in the Robinhood MCP account.
 2. Leave the mode on **Approve** until you trust it. **Auto** places risk-approved orders without you.
 
+## XSP options
+
+`HARNESS_XSP_OPTIONS=1` opts into the cash-settled XSP route on a service with
+`HARNESS_LIVE_TRADING=1`. Leave it unset until a regular-hours, non-executing
+review of an exact XSP order succeeds on the dedicated account, with no alerts
+or separate approval required by Robinhood. Do not place a test order.
+
+Eligible XSP orders follow the app's mode: Auto can send them, Approve waits for
+the owner, and Off and the kill switch prevent placement. Explicitly owner-directed
+orders and equity-option closes still need a tap. Nothing overrides a broker
+approval requirement. Only whole, single-leg long contracts and regular-hours
+day limits are supported; stock-delivery openings, spreads, and shorts are not.
+
+An XSP entry is limited to one contract, funded with settled cash. The whole
+premium plus fees is at risk. An expired contract disappearing from inventory
+does not prove what it settled for. An unmatched local XSP buy blocks new
+entries rather than guessing a cash credit, even after expiration or an exit
+made outside Longbow. Disabling this route does not cancel existing orders.
+
 ## Operate
 
 - Account balances and positions refresh every five minutes while Robinhood is connected, including outside equity hours for 24/7 crypto fills. `account.at` is the cached snapshot time; a newer fill record does not by itself prove that snapshot has caught up.

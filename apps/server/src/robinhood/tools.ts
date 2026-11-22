@@ -42,7 +42,7 @@ export function robinhoodExtension(options: {
   tools: Tool[]; status(): BrokerStatus;
   call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult>;
   marketClock?: () => OptionResearchClock;
-  optionExecution?: "close-only" | "unavailable";
+  optionExecution?: "xsp" | "close-only" | "unavailable";
 }): Extension {
   const marketClock = options.marketClock;
   const has = (names: readonly string[]) => names.every((name) => options.tools.some((tool) => tool.name === name));
@@ -77,7 +77,7 @@ export function robinhoodExtension(options: {
       })] : []),
       ...(canPreview ? [defineTool({
         name: "rh_preview_long_option",
-        description: "Non-executing Robinhood preview for an exact single-leg long equity call or put; requires options approval and regular hours. No order or approval request is created.",
+        description: "Non-executing Robinhood preview for an exact single-leg long equity or XSP call or put; requires options approval and regular hours. No order or approval request is created.",
         parameters: Type.Object({
           instrumentId: Type.String({ format: "uuid" }),
           symbol: Type.String({ pattern: "^[A-Z][A-Z0-9.]{0,9}$" }),

@@ -170,6 +170,71 @@ void main() {
     expect(isValidLongOptionTicket(malformed), isFalse);
   });
 
+  test('orders_xspIsCashSettledWhileOtherSymbolsWarnOfStockDelivery', () {
+    const xsp = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'XSP',
+      expiration: '2026-12-18',
+      strikeCents: 60000,
+      contractType: OptionContractType.call,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 1,
+      limitCents: 250,
+    );
+    const aapl = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'AAPL',
+      expiration: '2026-12-18',
+      strikeCents: 15000,
+      contractType: OptionContractType.put,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 2,
+      limitCents: 175,
+    );
+
+    expect(isCashSettledOption(xsp), isTrue);
+    expect(isCashSettledOption(aapl), isFalse);
+    expect(optionSettlementNote(xsp), 'Cash settled; no shares are delivered.');
+    expect(
+      optionSettlementNote(aapl),
+      'If exercised, this can create AAPL stock.',
+    );
+  });
+
+  test('orders_cashSettledXspUsesPointsWhileEquitiesUseShares', () {
+    const xsp = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'XSP',
+      expiration: '2026-12-18',
+      strikeCents: 60000,
+      contractType: OptionContractType.call,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 1,
+      limitCents: 250,
+    );
+    const aapl = LongOptionTicket(
+      instrumentId: '10000000-0000-0000-0000-000000000001',
+      symbol: 'AAPL',
+      expiration: '2026-12-18',
+      strikeCents: 15000,
+      contractType: OptionContractType.put,
+      side: OptionTicketSide.buyToOpen,
+      contracts: 2,
+      limitCents: 175,
+    );
+
+    expect(optionBadgeLabel(xsp), 'Cash-settled option');
+    expect(optionBadgeLabel(aapl), 'Option');
+    expect(optionSectionHeading(xsp), 'Long option · cash settled');
+    expect(optionSectionHeading(aapl), 'Long option · 100-share');
+    expect(optionPerUnit(xsp), 'per point');
+    expect(optionPerUnit(aapl), 'per share');
+    expect(optionCompactUnit(xsp), '/pt');
+    expect(optionCompactUnit(aapl), '/sh');
+    expect(optionLimitHeading(xsp), 'Limit / pt');
+    expect(optionLimitHeading(aapl), 'Limit / share');
+  });
+
   test('orders_optionTriggeringIsSubmissionUncertainNotAHeldStop', () {
     OrderRecord optionAt(OrderStatus status) => OrderRecord(
           id: 'opt',

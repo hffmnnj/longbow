@@ -11,9 +11,16 @@
     isOptionIntent,
     isValidOptionIntent,
     notional,
+    optionBadgeLabel,
+    optionBadgeTitle,
+    optionCompactUnit,
     optionFilledTotal,
+    optionLimitHeading,
     optionLimitPerShare,
+    optionPerUnit,
     optionProblem,
+    optionSectionHeading,
+    optionSettlementNote,
     optionSideLabel,
     optionStrike,
     optionTotal,
@@ -44,9 +51,9 @@
           {#if shownIsOption}
             <span
               class="border-primary/40 text-primary inline-flex h-5 items-center rounded border px-1.5 text-[10.5px] font-semibold tracking-wider uppercase"
-              title="Standard 100-share long option"
+              title={shownTicket ? optionBadgeTitle(shownTicket) : "Option details need review"}
             >
-              Option
+              {shownTicket ? optionBadgeLabel(shownTicket) : "Option"}
             </span>
           {/if}
           <Ticker symbol={shown.intent.symbol} />
@@ -65,21 +72,21 @@
         {@const t = shownTicket}
         <div class="flex flex-col gap-4 text-[13px]">
           <div class="border-primary/30 bg-primary/5 rounded-md border px-2.5 py-2">
-            <p class="label-caps">Long option · 100-share</p>
+            <p class="label-caps">{optionSectionHeading(t)}</p>
             <p class="num mt-1 leading-relaxed">
               {optionSideLabel(t)} {t.contracts} {t.contracts === 1 ? "contract" : "contracts"} of {t.symbol} ·
               {usd(optionStrike(t))} {t.contractType} · Exp {isoDay(t.expiration)} {t.expiration.slice(0, 4)}
             </p>
             <p class="num mt-0.5 leading-relaxed">
-              Limit {usd(optionLimitPerShare(t))} per share ·
+              Limit {usd(optionLimitPerShare(t))} {optionPerUnit(t)} ·
               Total {usd(optionTotal(t))} {t.side === "buy-to-open" ? "debit" : "proceeds"} before fees
             </p>
-            <p class="text-muted-foreground mt-1 leading-relaxed">If exercised, this can create {t.symbol} stock. A fill is not guaranteed at the limit.</p>
+            <p class="text-muted-foreground mt-1 leading-relaxed">{optionSettlementNote(t)} A fill is not guaranteed at the limit.</p>
           </div>
           <dl class="num grid grid-cols-2 gap-3">
             <div><dt class="label-caps">Side</dt><dd>{optionSideLabel(t)}</dd></div>
             <div><dt class="label-caps">Contracts</dt><dd>{t.contracts}</dd></div>
-            <div><dt class="label-caps">Limit / share</dt><dd>{usd(optionLimitPerShare(t))}</dd></div>
+            <div><dt class="label-caps">{optionLimitHeading(t)}</dt><dd>{usd(optionLimitPerShare(t))}</dd></div>
             <div><dt class="label-caps">Total at limit</dt><dd>{usd(optionTotal(t))} {t.side === "buy-to-open" ? "debit" : "proceeds"}</dd></div>
             <div><dt class="label-caps">Strike</dt><dd>{usd(optionStrike(t))} {optionTypeLabel(t).toLowerCase()}</dd></div>
             <div><dt class="label-caps">Expiration</dt><dd title={t.expiration}>{isoDay(t.expiration)} {t.expiration.slice(0, 4)}</dd></div>
@@ -90,7 +97,7 @@
               <div>
                 <dt class="label-caps">Filled</dt>
                 <dd>
-                  {qtyFor(shown.intent.symbol, shown.filledQuantity ?? 0)} of {qtyFor(shown.intent.symbol, shown.intent.quantity)} contracts @ {usd(shown.averageFillPrice)}/share ·
+                  {qtyFor(shown.intent.symbol, shown.filledQuantity ?? 0)} of {qtyFor(shown.intent.symbol, shown.intent.quantity)} contracts @ {usd(shown.averageFillPrice)}{optionCompactUnit(t)} ·
                   {usd(optionFilledTotal(shown.filledQuantity ?? 0, shown.averageFillPrice))}
                 </dd>
               </div>

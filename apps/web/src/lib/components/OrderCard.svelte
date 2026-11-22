@@ -14,8 +14,14 @@
     isOptionIntent,
     isValidOptionIntent,
     notional,
+    optionBadgeLabel,
+    optionBadgeTitle,
+    optionLimitHeading,
     optionLimitPerShare,
+    optionPerUnit,
     optionProblem,
+    optionSectionHeading,
+    optionSettlementNote,
     optionSideLabel,
     optionStrike,
     optionTotal,
@@ -51,9 +57,9 @@
       <SideBadge side={i.side} />
       <span
         class="border-primary/40 text-primary inline-flex h-5 items-center rounded border px-1.5 text-[10.5px] font-semibold tracking-wider uppercase"
-        title="Standard 100-share long option"
+        title={optionBadgeTitle(ticket)}
       >
-        Option
+        {optionBadgeLabel(ticket)}
       </span>
       <Ticker symbol={i.symbol} class="text-[15px]" />
       {#if isOwner}
@@ -64,17 +70,17 @@
     </header>
 
     <div class="border-primary/30 bg-primary/5 rounded-md border px-2.5 py-2" aria-label="Option order details">
-      <p class="label-caps">Long option · 100-share</p>
+      <p class="label-caps">{optionSectionHeading(ticket)}</p>
       <p class="num mt-1 text-[12.5px] leading-relaxed">
         {optionSideLabel(ticket)}
         {ticket.contracts} {ticket.contracts === 1 ? "contract" : "contracts"} of {ticket.symbol} ·
         {usd(optionStrike(ticket))} {ticket.contractType} · Exp {isoDay(ticket.expiration)} {ticket.expiration.slice(0, 4)} ·
-        Limit {usd(optionLimitPerShare(ticket))} per share ·
+        Limit {usd(optionLimitPerShare(ticket))} {optionPerUnit(ticket)} ·
         Total {usd(optionTotal(ticket))} {ticket.side === "buy-to-open" ? "debit" : "proceeds"} before fees ·
         Order expires at today's close
       </p>
       <p class="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">
-        If exercised, this can create {ticket.symbol} stock. A fill is not guaranteed at the limit.
+        {optionSettlementNote(ticket)} A fill is not guaranteed at the limit.
       </p>
       {#if i.ownerInstruction}
         <p class="text-muted-foreground mt-1 truncate text-[12.5px]">From your message: “{i.ownerInstruction}”</p>
@@ -160,7 +166,7 @@
         <dd class="num mt-0.5">{ticket.contracts}</dd>
       </div>
       <div>
-        <dt class="label-caps">Limit / share</dt>
+        <dt class="label-caps">{optionLimitHeading(ticket)}</dt>
         <dd class="num mt-0.5">{usd(optionLimitPerShare(ticket))}</dd>
       </div>
       <div>

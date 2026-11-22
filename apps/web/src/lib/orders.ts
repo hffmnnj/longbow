@@ -80,6 +80,68 @@ export function optionTypeLabel(t: Pick<LongOptionTicket, "contractType">): stri
   return t.contractType === "call" ? "Call" : "Put";
 }
 
+/**
+ * XSP Mini-SPX index options are cash settled: no stock changes hands at
+ * exercise. Display discriminator is the validated ticket symbol only;
+ * no new wire field.
+ */
+export function isCashSettledOption(t: Pick<LongOptionTicket, "symbol">): boolean {
+  return t.symbol === "XSP";
+}
+
+/**
+ * Badge for the option ticket: XSP never touches shares.
+ */
+export function optionBadgeLabel(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "Cash-settled option" : "Option";
+}
+
+/**
+ * Section heading for the option ticket box.
+ */
+export function optionSectionHeading(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "Long option · cash settled" : "Long option · 100-share";
+}
+
+/**
+ * Tooltip for the option badge.
+ */
+export function optionBadgeTitle(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "Cash-settled long option" : "Standard 100-share long option";
+}
+
+/**
+ * Long-form quote-unit noun: XSP is quoted in index points, equities per share.
+ */
+export function optionPerUnit(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "per point" : "per share";
+}
+
+/**
+ * Compact quote-unit suffix for dense rows: "/pt" for XSP, "/sh" otherwise.
+ */
+export function optionCompactUnit(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "/pt" : "/sh";
+}
+
+/**
+ * "Limit / pt" for XSP, "Limit / share" for equity options.
+ */
+export function optionLimitHeading(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t) ? "Limit / pt" : "Limit / share";
+}
+
+/**
+ * Settlement sentence for a valid option ticket. Cash-settled XSP never
+ * delivers shares; every other symbol keeps the underlying-stock warning.
+ * Pair with the no-fill-guarantee sentence wherever it already appears.
+ */
+export function optionSettlementNote(t: Pick<LongOptionTicket, "symbol">): string {
+  return isCashSettledOption(t)
+    ? "Cash settled; no shares are delivered."
+    : `If exercised, this can create ${t.symbol} stock.`;
+}
+
 /** Per-share limit in dollars: limitCents is cents per share. */
 export function optionLimitPerShare(t: Pick<LongOptionTicket, "limitCents">): number {
   return t.limitCents / 100;

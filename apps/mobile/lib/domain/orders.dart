@@ -84,6 +84,39 @@ String optionSideLabel(LongOptionTicket t) =>
 String optionTypeLabel(LongOptionTicket t) =>
     t.contractType == OptionContractType.call ? 'Call' : 'Put';
 
+/// XSP Mini-SPX index options are cash settled: no stock changes hands at
+/// exercise. Display discriminator is the validated ticket symbol only; no
+/// new wire field.
+bool isCashSettledOption(LongOptionTicket t) => t.symbol == 'XSP';
+
+/// Badge for the option ticket: XSP never touches shares.
+String optionBadgeLabel(LongOptionTicket t) =>
+    isCashSettledOption(t) ? 'Cash-settled option' : 'Option';
+
+/// Section heading for the option ticket box.
+String optionSectionHeading(LongOptionTicket t) => isCashSettledOption(t)
+    ? 'Long option · cash settled'
+    : 'Long option · 100-share';
+
+/// Long-form quote-unit noun: XSP is quoted in index points, equities per share.
+String optionPerUnit(LongOptionTicket t) =>
+    isCashSettledOption(t) ? 'per point' : 'per share';
+
+/// Compact quote-unit suffix for dense rows: "/pt" for XSP, "/sh" otherwise.
+String optionCompactUnit(LongOptionTicket t) =>
+    isCashSettledOption(t) ? '/pt' : '/sh';
+
+/// "Limit / pt" for XSP, "Limit / share" for equity options.
+String optionLimitHeading(LongOptionTicket t) =>
+    isCashSettledOption(t) ? 'Limit / pt' : 'Limit / share';
+
+/// Settlement sentence for a valid option ticket. Cash-settled XSP never
+/// delivers shares; every other symbol keeps the underlying-stock warning.
+/// Pair with the no-fill-guarantee sentence wherever it already appears.
+String optionSettlementNote(LongOptionTicket t) => isCashSettledOption(t)
+    ? 'Cash settled; no shares are delivered.'
+    : 'If exercised, this can create ${t.symbol} stock.';
+
 /// Per-share limit in dollars: limitCents is cents per share.
 double optionLimitPerShare(LongOptionTicket t) => t.limitCents / 100;
 

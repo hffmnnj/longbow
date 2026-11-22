@@ -115,10 +115,10 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       SideBadge(i.side.name),
-                      if (isOption && validOption)
-                        const StatusChip('Option', tone: StatusTone.live, showIcon: false)
+                      if (isOption && validOption && ticket != null)
+                        StatusChip(optionBadgeLabel(ticket), tone: StatusTone.live, showIcon: false)
                       else if (isOption)
-                        const StatusChip('Option', tone: StatusTone.warn, showIcon: false),
+                        StatusChip(ticket != null ? optionBadgeLabel(ticket) : 'Option', tone: StatusTone.warn, showIcon: false),
                       TickerLink(i.symbol, style: LbText.number(context, size: 15, weight: FontWeight.w600)),
                       if (isOwner) const StatusChip('Owner order', tone: StatusTone.live, showIcon: false),
                       if (isOption && ticket != null && validOption)
@@ -194,7 +194,7 @@ class _OrderCardState extends ConsumerState<OrderCard> {
                 runSpacing: 10,
                 children: [
                   Stat(label: 'Contracts', value: '${ticket.contracts}'),
-                  Stat(label: 'Limit / share', value: usd(optionLimitPerShare(ticket))),
+                  Stat(label: optionLimitHeading(ticket), value: usd(optionLimitPerShare(ticket))),
                   Stat(
                     label: 'Total at limit',
                     value: '${usd(optionTotal(ticket))} ${ticket.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'}',
@@ -343,9 +343,9 @@ class _OwnerOrderDetails extends StatelessWidget {
   }
 }
 
-/// Exact terms of a standard 100-share long option: contract, side, limit
-/// per share and total debit or proceeds at the limit before fees. Always
-/// shown for valid options so the ticket never reads as shares.
+/// Exact terms of a long option: contract, side, limit per share (per point
+/// for cash-settled XSP) and total debit or proceeds at the limit before
+/// fees. Always shown for valid options so the ticket never reads as shares.
 class _OptionTicketBox extends StatelessWidget {
   const _OptionTicketBox({required this.order});
 
@@ -369,7 +369,7 @@ class _OptionTicketBox extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SectionLabel('Long option · 100-share'),
+            SectionLabel(optionSectionHeading(t)),
             const SizedBox(height: 4),
             Text(
               '$side $contracts of ${t.symbol} · ${usd(optionStrike(t))} ${t.contractType.name} · Exp ${optionExpiryLabel(t.expiration)}',
@@ -377,13 +377,13 @@ class _OptionTicketBox extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              'Limit ${usd(optionLimitPerShare(t))} per share · Total ${usd(optionTotal(t))} ${t.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'} before fees · Order expires at today\'s close',
+              'Limit ${usd(optionLimitPerShare(t))} ${optionPerUnit(t)} · Total ${usd(optionTotal(t))} ${t.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'} before fees · Order expires at today\'s close',
               style: LbText.number(context, size: 12.5, weight: FontWeight.w400),
             ),
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'If exercised, this can create ${t.symbol} stock. A fill is not guaranteed at the limit.',
+                '${optionSettlementNote(t)} A fill is not guaranteed at the limit.',
                 style: LbText.muted(context, size: 12.5),
               ),
             ),
@@ -581,13 +581,13 @@ class _CompactFacts extends StatelessWidget {
           const TextSpan(text: '   '),
           pair('Total', '${usd(optionTotal(t))} ${t.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'}'),
           const TextSpan(text: '\n'),
-          pair('Limit', '${usd(optionLimitPerShare(t))}/sh'),
+          pair('Limit', '${usd(optionLimitPerShare(t))}${optionCompactUnit(t)}'),
           const TextSpan(text: '   '),
           pair('Exp', isoShort(t.expiration)),
           if (order.averageFillPrice != null) ...[
             const TextSpan(text: '   '),
             pair('Filled',
-                '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}/sh'),
+                '${qtyFor(i.symbol, order.filledQuantity ?? 0)} @ ${usd(order.averageFillPrice!)}${optionCompactUnit(t)}'),
           ],
         ]),
       );

@@ -20,7 +20,7 @@ async function accountOptions(call: Call<"get_accounts">, signal?: AbortSignal) 
 }
 
 export async function getOptionReadiness(call: Call<(typeof optionReadinessTools)[number]>, signal?: AbortSignal,
-  execution: "close-only" | "unavailable" = "unavailable") {
+  execution: "xsp" | "close-only" | "unavailable" = "unavailable") {
   const { accountId, entitlement } = await accountOptions(call, signal);
   signal?.throwIfAborted();
   const { setting } = await call("get_trade_approval_setting", { account_number: accountId }, signal);
@@ -35,7 +35,8 @@ export async function getOptionReadiness(call: Call<(typeof optionReadinessTools
     longbowExecution: eligible ? execution : "unavailable",
     nextStep: entitlement === "not-approved" ? "The owner can apply for options access on the dedicated MCP account in the Robinhood app." :
       entitlement === "unknown" ? "Robinhood did not return a recognized options level. Verify the options level in the app." :
-        execution === "close-only" ? "Longbow can propose a sell-to-close for an existing long option. The owner must approve it; no opening orders." :
+        execution === "xsp" ? "Longbow supports one cash-settled XSP contract per entry. Auto can submit gated XSP orders; Approve needs a tap. Robinhood may require its own approval." :
+          execution === "close-only" ? "Longbow can propose a sell-to-close for an existing long option. The owner must approve it; no opening orders." :
           "Longbow can preview orders but cannot send live options orders.",
   } as const;
 }
@@ -49,21 +50,26 @@ export async function findStandardOption(input: LongOptionTicket, call: Contract
   signal?.throwIfAborted();
   const { instruments } = await call("get_option_instruments", { ids: instrumentId, state: "active" }, signal);
   const option = Array.isArray(instruments) && instruments.length === 1 ? record(instruments[0]) : {};
+  // XSP is Cboe Mini-SPX, European-style and cash-settled. Do not infer
+  // settlement for any other index or from a missing deliverable.
+  const isXsp = symbol === "XSP" && option.underlying_type === "index";
   if (option.id !== instrumentId || option.chain_symbol !== symbol || option.expiration_date !== expiration ||
       option.type !== contractType || Number(option.strike_price) !== strikeCents / 100 ||
       Number(option.trade_value_multiplier) !== 100 || option.state !== "active" || option.tradability !== "tradable" ||
-      option.underlying_type !== "equity" || typeof option.chain_id !== "string" || !idPattern.test(option.chain_id)) {
-    throw new BrokerMappingError("Robinhood did not confirm the exact standard equity option.");
+      (!isXsp && (symbol === "XSP" || option.underlying_type !== "equity")) ||
+      typeof option.chain_id !== "string" || !idPattern.test(option.chain_id)) {
+    throw new BrokerMappingError("Robinhood did not confirm the exact standard equity option or eligible XSP index option.");
   }
   signal?.throwIfAborted();
   const { chains } = await call("get_option_chains", { ids: option.chain_id }, signal);
   const chain = Array.isArray(chains) && chains.length === 1 ? record(chains[0]) : {};
   if (chain.id !== option.chain_id || chain.symbol !== symbol || Number(chain.trade_value_multiplier) !== 100 ||
-      chain.cash_component !== null || !Array.isArray(chain.underlying_instruments) || chain.underlying_instruments.length !== 1 ||
+      chain.cash_component !== null || !Array.isArray(chain.underlying_instruments) ||
+      (isXsp ? chain.settle_on_open !== false || chain.underlying_instruments.length !== 0 : chain.underlying_instruments.length !== 1) ||
       (side === "buy-to-open" && chain.can_open_position !== true)) {
-    throw new BrokerMappingError("Robinhood did not confirm an eligible 100-multiplier chain with one underlying and no cash deliverable.");
+    throw new BrokerMappingError("Robinhood did not confirm an eligible 100-multiplier chain and deliverable.");
   }
-  return { ticket: parsed.data, chainId: option.chain_id };
+  return { ticket: parsed.data, chainId: option.chain_id, settlement: isXsp ? "xsp-cash" : "equity-delivery" } as const;
 }
 
 /** Review exact terms and retain the account and request only inside server code. */
@@ -82,14 +88,16 @@ export async function reviewLongOption(input: LongOptionTicket, call: PreviewCal
   if (entitlement !== "level-2" && entitlement !== "level-3") {
     throw new BrokerMappingError("The dedicated Robinhood MCP account does not report Level 2 or Level 3 options approval.");
   }
-  await findStandardOption(parsed.data, call, signal);
+  const contract = await findStandardOption(parsed.data, call, signal);
   const atReview = session();
   if (!atReview.isOpen || atReview.date !== date) {
     throw new BrokerMappingError("The trading session changed while preparing the preview.");
   }
   const request = optionOrderRequest(parsed.data, accountId);
   signal?.throwIfAborted();
-  const result = await call("review_option_order", request.review, signal);
+  const result = await call("review_option_order", contract.settlement === "xsp-cash"
+    ? { ...request.review, chain_symbol: "XSP", underlying_type: "index" }
+    : request.review, signal);
   if (!Array.isArray(result.order_checks) || typeof result.customer_approval_required !== "boolean") {
     throw new BrokerMappingError("Broker preview did not confirm approval and alert status; nothing was submitted.");
   }

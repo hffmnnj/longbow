@@ -33,8 +33,8 @@ export interface RobinhoodBroker extends Broker {
   tradeHistory(): Promise<PnlTrade[]>;
   /** Open sell stop orders resting at Robinhood. Read-only. */
   openStopOrders(): Promise<OpenStopOrder[]>;
-  /** Private close-only adapter for the shared order gate; never installed on the agent registry. */
-  optionCloseAdapter(store: Pick<Store, "equityMarks" | "getSettings">): ReturnType<typeof createRobinhoodOptionAdapter>;
+  /** Private option adapter for the shared order gate; never installed on the agent registry. */
+  optionOrderAdapter(store: Pick<Store, "equityMarks" | "getSettings">): ReturnType<typeof createRobinhoodOptionAdapter>;
 }
 
 export function liveTradingLockedMessage(tool: string): string {
@@ -381,11 +381,13 @@ export function createRobinhoodBroker(deps: {
       if (isCryptoSymbol(intent.symbol)) return place(intent, {});
       return place(intent, await execution(intent, "place"));
     },
-    optionCloseAdapter(store) {
+    optionOrderAdapter(store) {
+      const xsp = deps.config.LIVE_TRADING && deps.config.XSP_OPTIONS === true;
       const adapter = createRobinhoodOptionAdapter({
         clock, calendar, store,
         // Robinhood's current options regulatory and OCC clearing fee, per contract.
         feeReservePerContractCents: 4,
+        allowXspOpen: xsp,
         call: (name, args) => {
           if (!optionAdapterTools.every((needed) => tools.some((tool) => tool.name === needed))) {
             throw new BrokerMappingError("Robinhood did not advertise the full option order tool set");
@@ -395,9 +397,12 @@ export function createRobinhoodBroker(deps: {
       });
       return {
         ...adapter,
-        closeOnly: true,
+        closeOnly: !xsp,
+        xspOpenOnly: xsp,
         review(ticket, accountPin) {
-          if (ticket.side !== "sell-to-close") throw new BrokerMappingError("Only reducing long-option orders are enabled");
+          if (ticket.side !== "sell-to-close" && !(xsp && ticket.symbol === "XSP" && ticket.contracts === 1)) {
+            throw new BrokerMappingError("Only long-option closes and explicitly enabled single-contract XSP entries are supported");
+          }
           return adapter.review(ticket, accountPin);
         },
       };
@@ -405,7 +410,9 @@ export function createRobinhoodBroker(deps: {
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     extension() {
       return robinhoodExtension({ tools, status: () => broker.status(), call,
-        optionExecution: deps.config.LIVE_TRADING && optionAdapterTools.every((name) => tools.some((tool) => tool.name === name)) ? "close-only" : "unavailable",
+        optionExecution: deps.config.LIVE_TRADING && optionAdapterTools.every((name) => tools.some((tool) => tool.name === name))
+          ? deps.config.XSP_OPTIONS ? "xsp" : "close-only"
+          : "unavailable",
         marketClock: () => {
         const now = clock.now();
         const session = calendar.clock(now);
