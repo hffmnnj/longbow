@@ -278,4 +278,33 @@ void main() {
       '20261025040601021-b2732a',
     );
   });
+
+  testWidgets('a completed cash-only run explains the missing fills', (
+    tester,
+  ) async {
+    final data = fixtureRunJson();
+    final run = fixtureRun({
+      'fills': [],
+      'metrics': {
+        ...data['metrics'] as Map<String, dynamic>,
+        'trades': 0,
+        'ordersRejected': 1,
+        'riskBlocks': {'notional_cap': 1},
+      },
+    });
+    final h = await labHarness(tester, runs: [run]);
+    await pumpScreen(tester, RunPage(runId: run.id), harness: h);
+    await settle(tester);
+
+    expect(
+      find.text(
+        'No orders filled in this run. See Orders under Trades for risk refusals.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Trades'));
+    await settle(tester);
+    expect(find.text('No orders filled in this run.'), findsOneWidget);
+    expect(find.text('No fills yet'), findsNothing);
+  });
 }

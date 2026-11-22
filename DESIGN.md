@@ -231,6 +231,7 @@ Controls (buttons, inputs, segmented tabs) at 6px, cards at 8px, chat bubbles an
 ### Lab
 
 - **Metric labels:** Closing drawdown reflects daily equity marks, not intraday extremes. Closed-lot win rate excludes positions that remain open at the end of the run.
+- **Run outcomes:** A completed run with zero fills says so alongside the metrics. If there were risk refusals, point to Orders without counting individual checks as rejected orders.
 
 ## Decisions
 

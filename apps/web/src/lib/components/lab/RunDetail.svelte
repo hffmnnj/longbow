@@ -62,6 +62,8 @@
     { value: "journal", label: "Journal" },
     { value: "orders", label: "Orders" },
   ]);
+  const noFillDone = $derived(run.status === "done" && run.fills.length === 0);
+  const hadRiskRefusals = $derived(Object.values(run.metrics?.riskBlocks ?? {}).some((count) => count > 0));
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 md:p-4">
@@ -131,6 +133,12 @@
 
   <MetricsGrid {run} />
 
+  {#if noFillDone}
+    <p class="text-muted-foreground max-w-prose text-[12.5px] leading-relaxed">
+      No orders filled in this run.{#if hadRiskRefusals} Review the risk refusals in Orders.{/if}
+    </p>
+  {/if}
+
   <section class="border-border bg-card flex shrink-0 flex-col overflow-hidden rounded-lg border" aria-label="Run activity">
     <div class="border-border no-scrollbar shrink-0 overflow-x-auto border-b p-2">
       <ToggleGroup.Root
@@ -168,7 +176,7 @@
       </div>
     {:else if section === "fills"}
       {#if run.fills.length === 0}
-        <Empty text="No fills yet" />
+        <Empty text={run.status === "done" ? "No orders filled in this run." : "No fills yet"} />
       {:else}
         <Table.Root class="text-[12.5px]">
           <Table.Header>

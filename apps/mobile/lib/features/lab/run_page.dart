@@ -171,12 +171,24 @@ class _RunBody extends ConsumerWidget {
         ),
         const SizedBox(height: LbSpace.gap),
         switch (section) {
-          _RunSection.overview => TwoUp(
-            left: [
-              _EquityPanel(run: run, revealed: revealed),
-              _ConfigPanel(run: run),
+          _RunSection.overview => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TwoUp(
+                left: [
+                  _EquityPanel(run: run, revealed: revealed),
+                  _ConfigPanel(run: run),
+                ],
+                right: [MetricsGrid(run: run)],
+              ),
+              if (_isNoFillDone(run)) ...[
+                const SizedBox(height: LbSpace.gap),
+                Text(
+                  _noFillCopy(run),
+                  style: LbText.muted(context, size: 12.5),
+                ),
+              ],
             ],
-            right: [MetricsGrid(run: run)],
           ),
           _RunSection.trades => TwoUp(
             left: [_FillsPanel(run: run, revealed: revealed)],
@@ -232,6 +244,16 @@ String _unavailableText(SimRun run, bool revealed) {
       : '${tickers.length} requested tickers not replayed '
             '(insufficient price history)';
 }
+
+bool _isNoFillDone(SimRun run) =>
+    run.status == SimRunStatus.done && run.fills.isEmpty;
+
+bool _hadRiskRefusals(SimRun run) =>
+    run.metrics?.riskBlocks.values.any((count) => count > 0) ?? false;
+
+String _noFillCopy(SimRun run) => _hadRiskRefusals(run)
+    ? 'No orders filled in this run. See Orders under Trades for risk refusals.'
+    : 'No orders filled in this run.';
 
 class _Header extends StatelessWidget {
   const _Header({
@@ -659,7 +681,12 @@ class _FillsPanel extends StatelessWidget {
       title: 'Fills \u00b7 ${fills.length}',
       padChild: false,
       child: fills.isEmpty
-          ? const Empty(title: 'No fills yet', icon: LbIcons.note01)
+          ? Empty(
+              title: run.status == SimRunStatus.done
+                  ? 'No orders filled in this run.'
+                  : 'No fills yet',
+              icon: LbIcons.note01,
+            )
           : Padding(
               padding: const EdgeInsets.fromLTRB(
                 LbSpace.card,
