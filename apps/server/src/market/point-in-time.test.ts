@@ -260,6 +260,21 @@ describe("createPointInTimeMarketData", () => {
     }
   });
 
+  it("gives callers independent bars without modifying the cached tape", async () => {
+    const cached = dailyBars((i) => 100 + i * 0.05);
+    const market = createPointInTimeMarketData({
+      history: async (symbol) => ({ symbol, bars: cached, source: "cached", asOf: 0 }),
+    }, () => ASOF);
+    const prior = await market.history("SPY", "1m");
+    const close = prior.bars.at(-1)!.close;
+    const adv = await market.avgDollarVolume("SPY", 20);
+    prior.bars.at(-1)!.close *= 10;
+
+    const next = await market.history("SPY", "1m");
+    assert.equal(next.bars.at(-1)?.close, close);
+    assert.equal(await market.avgDollarVolume("SPY", 20), adv);
+  });
+
   it("keeps_everything_when_asof_is_after_the_last_bar", async () => {
     const live = createPointInTimeMarketData(fakeMarket(bars), () => "2026-10-23");
     const hist = await live.history("SPY", "1y");
