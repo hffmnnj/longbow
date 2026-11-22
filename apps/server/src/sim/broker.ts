@@ -21,6 +21,12 @@ export interface PaperBroker extends TradingBroker {
   orders(): PaperOrder[];
   fills(): SimFill[];
   cancelOrder(id: string): Promise<void>;
+  bookCashDividends(exDate: string, dividends: readonly CashDividend[]): void;
+}
+export interface CashDividend {
+  symbol: string;
+  amountPerShare: number;
+  payDate: string;
 }
 export interface ObservedMinutes {
   open: number;
@@ -47,7 +53,8 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   const execution: SimExecution = deps.execution ?? "realistic";
   const seed = deps.seed ?? 1;
   let settled = deps.startingCash;
-  const proceeds: { settlesOn: string; amount: number }[] = [];
+  const receivables: { settlesOn: string; amount: number }[] = [];
+  let lastDividendDate = "";
   const holdings = new Map<string, { quantity: number; cost: number; sector?: string }>();
   const orders: PaperOrder[] = [];
   const fills: SimFill[] = [];
@@ -104,9 +111,30 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     return points;
   }
   function settle(day = date()): void {
-    for (let i = proceeds.length - 1; i >= 0; i--) {
-      if (proceeds[i]!.settlesOn <= day) { settled += proceeds[i]!.amount; proceeds.splice(i, 1); }
+    for (let i = receivables.length - 1; i >= 0; i--) {
+      if (receivables[i]!.settlesOn <= day) { settled += receivables[i]!.amount; receivables.splice(i, 1); }
     }
+  }
+  function bookCashDividends(exDate: string, dividends: readonly CashDividend[]): void {
+    if (dividends.length === 0) return;
+    const bounds = session(exDate);
+    if (deps.fictionalDates || date() !== exDate || bounds.tradingDay !== exDate ||
+        deps.clock.now() !== bounds.nextOpen || exDate <= lastDividendDate) {
+      throw new Error(`Cash dividends require a new historical session at its open: ${exDate}`);
+    }
+    const seen = new Set<string>();
+    const payments = dividends.map(({ symbol, amountPerShare, payDate }) => {
+      const pay = Date.parse(`${payDate}T00:00:00Z`);
+      const amount = (holdings.get(symbol)?.quantity ?? 0) * amountPerShare;
+      if (!symbol || seen.has(symbol) || !Number.isFinite(amountPerShare) || amountPerShare <= 0 ||
+          !Number.isFinite(amount) || !Number.isFinite(pay) || new Date(pay).toISOString().slice(0, 10) !== payDate || payDate < exDate) {
+        throw new Error(`Invalid cash dividend for ${symbol} on ${exDate}`);
+      }
+      seen.add(symbol);
+      return { settlesOn: payDate, amount };
+    });
+    lastDividendDate = exDate;
+    receivables.push(...payments.filter(({ amount }) => amount > 0));
   }
   const reservedCash = (except?: string): number => orders.filter((o) => o.id !== except && o.status === "open" && o.intent.side === "buy")
     .reduce((sum, o) => sum + o.intent.quantity * o.intent.limitPrice, 0);
@@ -128,7 +156,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       const quantity = Math.max(0, held.quantity - intent.quantity);
       if (quantity < 1e-8) holdings.delete(intent.symbol);
       else holdings.set(intent.symbol, { ...held, quantity, cost: held.cost * quantity / held.quantity });
-      proceeds.push({ settlesOn: paperSettlementDate(deps.calendar.etDate(at), deps.calendar, deps.fictionalDates ?? false),
+      receivables.push({ settlesOn: paperSettlementDate(deps.calendar.etDate(at), deps.calendar, deps.fictionalDates ?? false),
         amount: notional - fees });
     }
     order.status = "filled";
@@ -282,6 +310,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     return advancing;
   }
   return {
+    bookCashDividends,
     status: () => ({ state: "connected", tools: [] }),
     async beginConnect() { throw new Error("not available in simulation"); },
     async completeConnect() { throw new Error("not available in simulation"); },
@@ -297,7 +326,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
           averageCost: held.cost / held.quantity, marketValue: mark * held.quantity,
           unrealizedPnl: mark * held.quantity - held.cost, ...(held.sector === undefined ? {} : { sector: held.sector }) };
       }));
-      const cash = settled + proceeds.reduce((sum, p) => sum + p.amount, 0);
+      const cash = settled + receivables.reduce((sum, p) => sum + p.amount, 0);
       return { at: deps.clock.now(), cash, settledCash: settled - reservedCash(), buyingPower: settled - reservedCash(),
         equity: cash + positions.reduce((sum, p) => sum + p.marketValue, 0), positions };
     },

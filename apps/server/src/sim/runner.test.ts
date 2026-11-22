@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmdirS
 import { join } from "node:path";
 import { Hono } from "hono";
 import { DEFAULT_SETTINGS } from "@rh/shared";
-import type { Bar, CycleKind, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
+import type { AccountSnapshot, Bar, CycleKind, OrderIntent, SimRun, SimRunConfigInput } from "@rh/shared";
 import { createSimService, type SimDriverContext } from "./runner.ts";
 import { createSuiteService } from "./suite.ts";
 import type { PaperBroker } from "./broker.ts";
@@ -284,6 +284,135 @@ test("a fractional protective stop exits on the first simulated quote after a ga
   } finally {
     await sim.close();
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a historical paper replay credits a cash dividend on its ex-date and settles it on the pay date", async () => {
+  const dataDir = mkdtempSync("/tmp/sim-dividend-");
+  const priorDay = "2026-07-06";
+  const exDate = "2026-07-07";
+  const payDate = "2026-07-08";
+  const symbol = "AAPL";
+  const perShare = 2;
+  const priorQuantity = 0.5;
+  const exDateQuantity = 0.25;
+  // Flat $100 sessions keep every mark unchanged, so each account difference
+  // below is the dividend, a fill, or the pay-date settlement release.
+  const flat: Bar[] = [];
+  for (let at = Date.parse("2026-06-01T12:00:00Z"); at <= Date.parse("2026-07-10T12:00:00Z"); at += 86_400_000) {
+    const date = new Date(at).toISOString().slice(0, 10);
+    if (new Date(at).getUTCDay() % 6 === 0) continue;
+    flat.push({ date, open: 100, high: 100, low: 100, close: 100, volume: 10_000_000 });
+  }
+  const buy = (quantity: number): OrderIntent => ({
+    symbol, side: "buy", quantity, orderType: "limit", limitPrice: 100.05, timeInForce: "day",
+    invalidationPrice: 95, timeStopDate: "2026-08-05", thesis: "Replay fixture for historical cash dividends.",
+    probabilityWin: 0.7, expectedGainPct: 20, expectedLossPct: 10, estimatedCostPct: 0.2, evidence: ["synthetic paper market"],
+  });
+  const near = (actual: number, expected: number, label: string): void => {
+    assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} != ${expected}`);
+  };
+  const accounts = new Map<string, AccountSnapshot>();
+  const dividendDates: string[] = [];
+  let paper: PaperBroker | undefined;
+  const sim = createSimService({
+    config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+    calendar: createNyseCalendar(),
+    fetchBars: async () => flat,
+    cashDividends: (date) => {
+      dividendDates.push(date);
+      return date === exDate ? [{ symbol, amountPerShare: perShare, payDate }] : [];
+    },
+    buildExtensions: ({ broker }) => { paper = broker; return []; },
+    driver: async (run, ctx) => {
+      assert.ok(paper !== undefined);
+      if (run.progress.day === 1 && ctx.kind === "intraday" && run.progress.cycle === 2) {
+        await ctx.submit(buy(priorQuantity));
+        assert.deepEqual(paper.fills().map((fill) => [fill.side, fill.date]), [["buy", priorDay]]);
+        return;
+      }
+      if (run.progress.day === 1 && ctx.kind === "intraday" && run.progress.cycle === 3) {
+        accounts.set("priorClose", await paper.snapshot());
+        return;
+      }
+      if (run.progress.day === 2 && ctx.kind === "pre_open") {
+        accounts.set("exDatePreOpen", await paper.snapshot());
+        return;
+      }
+      if (run.progress.day === 2 && ctx.kind === "intraday" && run.progress.cycle === 2) {
+        accounts.set("exDate", await paper.snapshot());
+        await ctx.submit(buy(exDateQuantity));
+        accounts.set("exDateAfterBuy", await paper.snapshot());
+        return;
+      }
+      if (run.progress.day === 3 && ctx.kind === "intraday" && run.progress.cycle === 2) accounts.set("payDate", await paper.snapshot());
+    },
+  });
+  try {
+    const run = await sim.start({ startDate: priorDay, days: 3, startingCash: 1200, cyclesPerDay: 3,
+      watchlist: [symbol], execution: "ideal", risk: { earningsBlackoutDays: 0 } }, "user");
+    const done = await waitForDone(sim, run.id);
+    assert.equal(done.status, "done", done.error ?? "dividend replay did not finish");
+    assert.ok(dividendDates.includes(exDate), "the replay must consult the supplied dividend source");
+    const broker = paper;
+    assert.ok(broker !== undefined, "the replay must build a paper broker");
+
+    const priorClose = accounts.get("priorClose");
+    const exDatePreOpen = accounts.get("exDatePreOpen");
+    const exDateAccount = accounts.get("exDate");
+    const afterExDateBuy = accounts.get("exDateAfterBuy");
+    const payDateAccount = accounts.get("payDate");
+    assert.ok(priorClose !== undefined && exDatePreOpen !== undefined && exDateAccount !== undefined &&
+      afterExDateBuy !== undefined && payDateAccount !== undefined);
+    const holdings = (account: AccountSnapshot) => account.positions.find((position) => position.symbol === symbol);
+    const settledCash = (account: AccountSnapshot): number => {
+      assert.ok(account.settledCash !== undefined, "the paper account must report settled cash");
+      return account.settledCash;
+    };
+    const [entry, exDayEntry] = broker.fills();
+    assert.ok(entry !== undefined && exDayEntry !== undefined);
+    assert.deepEqual(broker.fills().map((fill) => fill.date), [priorDay, exDate]);
+
+    // Before the ex-date the account holds only the entry fill; no dividend was credited early.
+    assert.equal(holdings(priorClose)?.quantity, priorQuantity);
+    near(priorClose.cash, 1200 - priorQuantity * entry.price - (entry.fees ?? 0), "prior-close cash");
+    assert.equal(settledCash(priorClose), priorClose.cash);
+    assert.equal(priorClose.buyingPower, priorClose.cash);
+
+    // The ex-date pre-open mark is still cum-dividend: the prior close and the
+    // new receivable must not be counted together before the ex-date's own open.
+    assert.equal(holdings(exDatePreOpen)?.quantity, priorQuantity);
+    assert.equal(exDatePreOpen.cash, priorClose.cash, "no dividend before the ex-date open");
+    assert.equal(exDatePreOpen.equity, priorClose.equity, "no dividend in the pre-open equity mark");
+    assert.equal(settledCash(exDatePreOpen), settledCash(priorClose));
+
+    // By the first ex-date intraday cycle the prior-close shares have earned
+    // cash that counts toward cash and equity but stays unsettled; the lot
+    // mark is unchanged.
+    const dividend = priorQuantity * perShare;
+    near(exDateAccount.cash - priorClose.cash, dividend, "ex-date cash");
+    near(exDateAccount.equity - priorClose.equity, dividend, "ex-date equity");
+    assert.equal(settledCash(exDateAccount), settledCash(priorClose));
+    assert.equal(exDateAccount.buyingPower, priorClose.buyingPower);
+    assert.equal(holdings(exDateAccount)?.quantity, priorQuantity);
+    assert.equal(holdings(exDateAccount)?.averageCost, holdings(priorClose)?.averageCost);
+
+    // The ex-date purchase does not earn the dividend: the only entitlement
+    // that can be released below is still the prior-close quantity.
+    const buyCost = exDateQuantity * exDayEntry.price + (exDayEntry.fees ?? 0);
+    assert.equal(holdings(afterExDateBuy)?.quantity, priorQuantity + exDateQuantity);
+    near(afterExDateBuy.cash, exDateAccount.cash - buyCost, "ex-day purchase cash");
+    near(settledCash(afterExDateBuy), settledCash(exDateAccount) - buyCost, "ex-day purchase settled cash");
+
+    // The pay date releases exactly the prior-close entitlement into settled
+    // cash and buying power without creating new cash.
+    assert.equal(holdings(payDateAccount)?.quantity, priorQuantity + exDateQuantity);
+    near(payDateAccount.cash, afterExDateBuy.cash, "pay-date cash");
+    near(settledCash(payDateAccount), settledCash(afterExDateBuy) + dividend, "pay-date settled cash");
+    near(payDateAccount.buyingPower, afterExDateBuy.buyingPower + dividend, "pay-date buying power");
+  } finally {
+    await sim.close();
+    cleanReplayCoverageFixture(dataDir, sim);
   }
 });
 
