@@ -110,7 +110,7 @@ List<ChartMarker> fillMarkers(List<Bar> bars, List<OrderRecord> orders, {LbZone?
       out.add(ChartMarker(
         index: idx,
         kind: side == OrderSide.buy ? ChartMarkerKind.buy : ChartMarkerKind.sell,
-        label: '$open ${qtyFor(o.intent.symbol, q)} ${q == 1 ? 'contract' : 'contracts'} at ${usd(price)}/sh',
+        label: '$open ${qtyFor(o.intent.symbol, q)} ${q == 1 ? 'contract' : 'contracts'} at ${usd(price)}${optionCompactUnit(ticket)}',
       ));
       continue;
     }
@@ -130,7 +130,7 @@ String orderLine(OrderRecord o) {
   if (ticket != null) {
     if (!isValidOptionIntent(o.intent)) return 'Option · details need review';
     final side = ticket.side == OptionTicketSide.buyToOpen ? 'Buy to open' : 'Sell to close';
-    return '$side ${qtyFor(o.intent.symbol, o.intent.quantity)} ${ticket.contracts == 1 ? 'contract' : 'contracts'} @ ${usd(optionLimitPerShare(ticket))}/sh \u00b7 ${usd(optionTotal(ticket))}';
+    return '$side ${qtyFor(o.intent.symbol, o.intent.quantity)} ${ticket.contracts == 1 ? 'contract' : 'contracts'} @ ${usd(optionLimitPerShare(ticket))}${optionCompactUnit(ticket)} \u00b7 ${usd(optionTotal(ticket))}';
   }
   return '${qtyFor(o.intent.symbol, o.intent.quantity)} @ ${usd(o.intent.limitPrice)} \u00b7 ${usd(notional(o.intent))}';
 }

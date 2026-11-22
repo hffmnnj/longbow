@@ -69,7 +69,7 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SideBadge(i.side.name),
-              const StatusChip('Option', tone: StatusTone.live, showIcon: false),
+              StatusChip(optionBadgeLabel(ticket), tone: StatusTone.live, showIcon: false),
               TickerLink(i.symbol, style: LbText.number(context, size: 16, weight: FontWeight.w600)),
               StatusChip(orderStatusLabel(order), tone: orderStatusTone(order.status)),
               Text(etStamp(order.createdAt), style: LbText.number(context, size: 12, weight: FontWeight.w400, color: c.mutedForeground)),
@@ -82,7 +82,7 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
                   value: '${i.symbol} ${usd(optionStrike(ticket))} ${optionTypeLabel(ticket).toLowerCase()} · Exp ${optionExpiryLabel(ticket.expiration)}'),
               KeyValueRow('Side', value: optionSideLabel(ticket), mono: false),
               KeyValueRow('Contracts', value: '${ticket.contracts}'),
-              KeyValueRow('Limit / share', value: usd(optionLimitPerShare(ticket))),
+              KeyValueRow(optionLimitHeading(ticket), value: usd(optionLimitPerShare(ticket))),
               KeyValueRow('Total at limit',
                   value:
                       '${usd(optionTotal(ticket))} ${ticket.side == OptionTicketSide.buyToOpen ? 'debit' : 'proceeds'}'),
@@ -97,12 +97,12 @@ class _OrderSheetBodyState extends ConsumerState<OrderSheetBody> {
               if (order.averageFillPrice != null)
                 KeyValueRow('Filled',
                     value:
-                        '${qtyFor(i.symbol, order.filledQuantity ?? 0)} of ${qtyFor(i.symbol, i.quantity)} @ ${usd(order.averageFillPrice!)}/sh · ${usd(optionFilledTotal(order.filledQuantity ?? 0, order.averageFillPrice!))}'),
+                        '${qtyFor(i.symbol, order.filledQuantity ?? 0)} of ${qtyFor(i.symbol, i.quantity)} @ ${usd(order.averageFillPrice!)}${optionCompactUnit(ticket)} · ${usd(optionFilledTotal(order.filledQuantity ?? 0, order.averageFillPrice!))}'),
               KeyValueRow('Updated', value: etStamp(order.updatedAt)),
             ],
           ),
           const SizedBox(height: LbSpace.gap),
-          Text('If exercised, this can create ${ticket.symbol} stock. A fill is not guaranteed at the limit.',
+          Text('${optionSettlementNote(ticket)} A fill is not guaranteed at the limit.',
               style: LbText.muted(context, size: 13)),
           const SizedBox(height: LbSpace.gap),
           SectionLabel('Thesis'),

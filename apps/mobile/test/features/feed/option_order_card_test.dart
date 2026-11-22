@@ -18,6 +18,17 @@ const _ticket = LongOptionTicket(
   limitCents: 175,
 );
 
+const _xspTicket = LongOptionTicket(
+  instrumentId: '10000000-0000-0000-0000-000000000002',
+  symbol: 'XSP',
+  expiration: '2026-12-18',
+  strikeCents: 60000,
+  contractType: OptionContractType.call,
+  side: OptionTicketSide.buyToOpen,
+  contracts: 1,
+  limitCents: 250,
+);
+
 OrderRecord _mismatchedOption(String id) {
   // Ticket says 2 contracts but the order quantity says 1: the ticket and
   // the order disagree, so approval must stay blocked and no stock ticket
@@ -68,6 +79,13 @@ void main() {
       expect(find.textContaining('\$150'), findsWidgets);
       expect(find.textContaining('Exp Dec 18', findRichText: true), findsWidgets);
       expect(find.textContaining('\$1.75 per share', findRichText: true), findsWidgets);
+      // Equity wording is preserved: standard badge, share section and limit.
+      expect(find.text('Cash-settled option'), findsNothing);
+      expect(
+        find.textContaining('LONG OPTION · 100-SHARE', findRichText: true),
+        findsWidgets,
+      );
+      expect(find.textContaining('LIMIT / SHARE', findRichText: true), findsWidgets);
       // 2 contracts at $1.75 is $350, never quantity * limitPrice ($3.50).
       expect(find.text('\$350.00'), findsWidgets);
       expect(find.text('\$3.50'), findsNothing);
@@ -138,6 +156,44 @@ void main() {
       expect(find.text('Total at limit'), findsOneWidget);
       expect(find.textContaining('\$350.00 debit'), findsWidgets);
       expect(find.textContaining('If exercised, this can create AAPL stock'), findsWidgets);
+    });
+
+    testWidgets('xspOption_statesCashSettlementInsteadOfStockDelivery', (tester) async {
+      final h = await startHarness(tester);
+      final o = order('ord-opt-xsp', longOption: _xspTicket);
+      await pumpScreen(
+        tester,
+        Scaffold(body: SingleChildScrollView(child: OrderCard(order: o))),
+        harness: h,
+        size: const Size(360, 900),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Cash-settled badge and section heading, never equity share language.
+      expect(find.text('Cash-settled option'), findsWidgets);
+      expect(find.text('Option'), findsNothing);
+      expect(
+        find.textContaining('LONG OPTION · CASH SETTLED', findRichText: true),
+        findsWidgets,
+      );
+      expect(find.textContaining('100-share', findRichText: true), findsNothing);
+      // Quote-unit labels use points, never shares.
+      expect(find.textContaining('\$2.50 per point', findRichText: true), findsWidgets);
+      expect(find.textContaining('per share', findRichText: true), findsNothing);
+      expect(find.textContaining('LIMIT / PT', findRichText: true), findsWidgets);
+      expect(find.textContaining('LIMIT / SHARE', findRichText: true), findsNothing);
+      expect(
+        find.textContaining('Cash settled; no shares are delivered', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.textContaining('If exercised', findRichText: true), findsNothing);
+      expect(find.textContaining('create XSP stock'), findsNothing);
+      expect(find.textContaining('A fill is not guaranteed', findRichText: true), findsOneWidget);
+
+      final approve =
+          tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Approve'));
+      expect(approve.onPressed, isNotNull, reason: 'valid XSP option approval stays actionable');
+      expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
     });
   });
 }

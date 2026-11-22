@@ -6,15 +6,23 @@ import {
   expectedValuePct,
   failedChecks,
   fractionalQuoteLabel,
+  isCashSettledOption,
   isDoneOrderStatus,
   isOpenOrderStatus,
   isOptionIntent,
   isValidLongOptionTicket,
   isValidOptionIntent,
   notional,
+  optionBadgeLabel,
+  optionBadgeTitle,
+  optionCompactUnit,
   optionFilledTotal,
+  optionLimitHeading,
   optionLimitPerShare,
+  optionPerUnit,
   optionProblem,
+  optionSectionHeading,
+  optionSettlementNote,
   optionSideLabel,
   optionStrike,
   optionTotal,
@@ -93,6 +101,30 @@ describe("long option tickets", () => {
     // isOptionIntent first and disables approval when optionProblem is set.
     expect(isValidLongOptionTicket({ ...ticket, expiration: "2026-02-30" })).toBe(false);
     expect(isValidLongOptionTicket({ ...ticket, contractType: "stock" })).toBe(false);
+  });
+
+  it("states cash settlement for XSP and stock delivery for everything else", () => {
+    expect(isCashSettledOption({ symbol: "XSP" })).toBe(true);
+    expect(isCashSettledOption({ symbol: "AAPL" })).toBe(false);
+    expect(optionSettlementNote({ symbol: "XSP" })).toBe("Cash settled; no shares are delivered.");
+    expect(optionSettlementNote({ symbol: "AAPL" })).toBe("If exercised, this can create AAPL stock.");
+  });
+
+  it("labels cash-settled XSP in points and equities in shares", () => {
+    const xsp = { symbol: "XSP" };
+    const aapl = { symbol: "AAPL" };
+    expect(optionBadgeLabel(xsp)).toBe("Cash-settled option");
+    expect(optionBadgeLabel(aapl)).toBe("Option");
+    expect(optionBadgeTitle(xsp)).toBe("Cash-settled long option");
+    expect(optionBadgeTitle(aapl)).toBe("Standard 100-share long option");
+    expect(optionSectionHeading(xsp)).toBe("Long option · cash settled");
+    expect(optionSectionHeading(aapl)).toBe("Long option · 100-share");
+    expect(optionPerUnit(xsp)).toBe("per point");
+    expect(optionPerUnit(aapl)).toBe("per share");
+    expect(optionCompactUnit(xsp)).toBe("/pt");
+    expect(optionCompactUnit(aapl)).toBe("/sh");
+    expect(optionLimitHeading(xsp)).toBe("Limit / pt");
+    expect(optionLimitHeading(aapl)).toBe("Limit / share");
   });
 
   it("never calls an option submission a held stop", () => {
