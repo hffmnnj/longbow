@@ -6,6 +6,7 @@ export const optionReadinessTools = ["get_accounts", "get_trade_approval_setting
 export const optionPreviewTools = ["get_accounts", "get_option_instruments", "get_option_chains", "review_option_order"] as const;
 type Call<Name extends string> = (name: Name, args: Record<string, unknown>, signal?: AbortSignal) => Promise<Record<string, unknown>>;
 type PreviewCall = Call<(typeof optionPreviewTools)[number]>;
+type ContractCall = Call<"get_option_instruments" | "get_option_chains">;
 const idPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 async function accountOptions(call: Call<"get_accounts">, signal?: AbortSignal) {
@@ -36,19 +37,12 @@ export async function getOptionReadiness(call: Call<(typeof optionReadinessTools
   } as const;
 }
 
-/** Review exact terms and retain the account and request only inside server code. */
-export async function reviewLongOption(input: LongOptionTicket, call: PreviewCall, session: () => { date: string; isOpen: boolean }, signal?: AbortSignal) {
+export async function findStandardOption(input: LongOptionTicket, call: ContractCall, signal?: AbortSignal) {
   const parsed = LongOptionTicketSchema.safeParse(input);
   if (!parsed.success) {
     throw new BrokerMappingError("Use a single exact option contract and a positive whole-contract quantity and limit.");
   }
   const { instrumentId, symbol, expiration, strikeCents, contractType, side } = parsed.data;
-  const { date, isOpen } = session();
-  if (!isOpen || expiration <= date) throw new BrokerMappingError("Previews require regular market hours and an expiration after today.");
-  const { accountId, entitlement } = await accountOptions(call, signal);
-  if (entitlement !== "level-2" && entitlement !== "level-3") {
-    throw new BrokerMappingError("The dedicated Robinhood MCP account does not report Level 2 or Level 3 options approval.");
-  }
   signal?.throwIfAborted();
   const { instruments } = await call("get_option_instruments", { ids: instrumentId, state: "active" }, signal);
   const option = Array.isArray(instruments) && instruments.length === 1 ? record(instruments[0]) : {};
@@ -66,8 +60,28 @@ export async function reviewLongOption(input: LongOptionTicket, call: PreviewCal
       (side === "buy-to-open" && chain.can_open_position !== true)) {
     throw new BrokerMappingError("Robinhood did not confirm an eligible 100-multiplier chain with one underlying and no cash deliverable.");
   }
+  return { ticket: parsed.data, chainId: option.chain_id };
+}
+
+/** Review exact terms and retain the account and request only inside server code. */
+export async function reviewLongOption(input: LongOptionTicket, call: PreviewCall, session: () => { date: string; isOpen: boolean }, signal?: AbortSignal, expectedAccount?: string) {
+  const parsed = LongOptionTicketSchema.safeParse(input);
+  if (!parsed.success) throw new BrokerMappingError("Use a single exact option contract and a positive whole-contract quantity and limit.");
+  const { expiration, side } = parsed.data;
+  const { date, isOpen } = session();
+  if (!isOpen || expiration < date || expiration === date && side === "buy-to-open") {
+    throw new BrokerMappingError("Previews require regular market hours; opening requires an expiration after today.");
+  }
+  const { accountId, entitlement } = await accountOptions(call, signal);
+  if (expectedAccount !== undefined && accountId !== expectedAccount) {
+    throw new BrokerMappingError("The dedicated options account changed during approval");
+  }
+  if (entitlement !== "level-2" && entitlement !== "level-3") {
+    throw new BrokerMappingError("The dedicated Robinhood MCP account does not report Level 2 or Level 3 options approval.");
+  }
+  await findStandardOption(parsed.data, call, signal);
   const atReview = session();
-  if (!atReview.isOpen || atReview.date !== date || expiration <= atReview.date) {
+  if (!atReview.isOpen || atReview.date !== date) {
     throw new BrokerMappingError("The trading session changed while preparing the preview.");
   }
   const request = optionOrderRequest(parsed.data, accountId);

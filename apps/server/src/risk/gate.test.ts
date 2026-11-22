@@ -265,6 +265,7 @@ const optionIntent = (): OrderIntent => ({
   },
 });
 const optionFacts: NonNullable<Parameters<typeof createOrderGate>[0]["options"]>["facts"] = async (ticket) => ({
+  accountPin: "option-mcp-fixture",
   quote: { instrumentId: ticket.instrumentId, bidCents: 174, askCents: 175, bidSize: 2, askSize: 2, at: NOW - 1000 },
   equityCents: 2_000_000, settledUnreservedCashCents: 500_000, sellableContracts: 0,
   expirySession: ticket.expiration, sessionsUntilExpiry: 20, feeReservePerContractCents: 10,
@@ -302,6 +303,23 @@ describe("long options in the shared order gate", () => {
     const rejected = await f.gate.approve(order.id);
     assert.equal(rejected.status, "rejected_risk");
     assert.match(rejected.error!, /prevented placement/);
+  });
+
+  it("an options approval cannot move to a different brokerage account", async () => {
+    let accountPin = "first-mcp-fixture";
+    const f = setup({ optionBroker: {
+      facts: async (...args) => ({ ...await optionFacts(...args), accountPin }),
+      review: async () => assert.fail("account change must stop before broker review"),
+      reconcile: async () => undefined, cancel: async () => {},
+    } });
+    f.store.settings.risk.maxSpreadBps = 100;
+    const order = await f.gate.submit(optionIntent());
+    assert.equal(order.status, "pending_approval");
+    assert.doesNotMatch(JSON.stringify(order), /first-mcp-fixture/);
+    accountPin = "new-mcp-fixture";
+    const result = await f.gate.approve(order.id);
+    assert.equal(result.status, "rejected_risk");
+    assert.equal(result.verdict.checks[0]?.rule, "options_account");
   });
 
   it("claims the order before sending, refuses a second tap after restart, and preserves a partial fill on cancel", async () => {

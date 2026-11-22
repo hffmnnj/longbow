@@ -12,9 +12,9 @@ type Request = (operation: Operation, args: Record<string, unknown>) => Promise<
  * No agent-facing extension calls this function. `call` must be the protected
  * broker transport with discovered-schema validation and the hard live lock.
  */
-export async function prepareOptionPlacement(ticket: LongOptionTicket, call: Request, session: Session) {
+export async function prepareOptionPlacement(ticket: LongOptionTicket, call: Request, session: Session, expectedAccount?: string) {
   const tradingDate = session().date;
-  const { request, preview } = await reviewLongOption(ticket, call, session);
+  const { request, preview } = await reviewLongOption(ticket, call, session, undefined, expectedAccount);
   const noAlerts = preview.preTradeAlertCount === 0;
   const approvalRequired = preview.robinhoodApprovalRequired;
   let sent = false;

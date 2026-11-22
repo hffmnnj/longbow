@@ -22,9 +22,10 @@ export interface FillLeg {
 
 type ExecutedOrder = OrderRecord & { filledQuantity: number; averageFillPrice: number };
 
-/** Broker-confirmed execution is independent of whether the remainder was cancelled. */
+/** Share/coin executions only; options need contract-level FIFO, fees and exercise accounting. */
 export function executedHarnessOrders(orders: readonly OrderRecord[]): ExecutedOrder[] {
   return orders.filter((order): order is ExecutedOrder =>
+    !order.intent.longOption &&
     (order.status === "filled" || order.status === "partially_filled" || order.status === "cancelled") &&
     order.filledQuantity !== undefined && Number.isFinite(order.filledQuantity) && order.filledQuantity > 0 &&
     order.averageFillPrice !== undefined && Number.isFinite(order.averageFillPrice) && order.averageFillPrice > 0,

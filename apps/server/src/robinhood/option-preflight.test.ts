@@ -210,3 +210,12 @@ test("private placement handle sends pinned terms once; alerts never reach place
     }
   }
 });
+
+test("replacement MCP account is refused even before the broker review", async () => {
+  const mock = broker();
+  await assert.rejects(prepareOptionPlacement(valid, async (name, args) => {
+    if (name === "place_option_order") return assert.fail("no placement");
+    return mock.call(name, args);
+  }, session, "original-account"), /account changed during approval/);
+  assert.deepEqual(mock.calls, [["get_accounts", {}]]);
+});

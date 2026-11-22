@@ -134,3 +134,20 @@ A replay is a check of a rule on a fixed tape, not evidence that buying options
 earns after costs. Do not promise, extrapolate or annualize replay profit, and
 do not cite a replay, an equity base rate, or a single profitable trade as a
 proven options edge.
+
+## Execution verification
+
+The options integration tests exercise `submit_order`, the existing approval
+route, the risk gate, and the Robinhood adapter using a fixture transport. They
+do not enable placement in the running service. A fresh approval is required
+after a server restart or an account change; a previously dispatched ticket is
+never retried automatically. A broker order ID or an exact echoed client
+reference is required to reconcile a lost response. Matching the contract,
+quantity and time is not proof that the broker accepted this order.
+
+Broker automatic exercise can create a stock position. An expiration alert or a
+submitted close is not a guaranteed exit, and the current Trading MCP does not
+advertise a Do Not Exercise request. No stock/ETF option opening is wired to
+production without a verified way to protect and reconcile that exposure.
+Robinhood's published clearing and regulatory fee is $0.04 per stock/ETF option
+contract, on both sides; it is not a guarantee of all-in costs.

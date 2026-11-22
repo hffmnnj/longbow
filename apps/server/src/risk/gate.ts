@@ -51,8 +51,8 @@ export interface OrderGateDeps {
   entryReview?: (intent: OrderIntent, gate: SystemOneGate) => Promise<RiskCheck | undefined>;
   /** None until an option adapter can supply authoritative account, quote and lifecycle facts. */
   options?: {
-    facts(ticket: LongOptionTicket, orders: OrderRecord[]): Promise<Omit<LongOptionRiskInputs, "market" | "settings">>;
-    review(ticket: LongOptionTicket): Promise<{
+    facts(ticket: LongOptionTicket, orders: OrderRecord[]): Promise<Omit<LongOptionRiskInputs, "market" | "settings"> & { accountPin: string }>;
+    review(ticket: LongOptionTicket, accountPin: string): Promise<{
       noAlerts: boolean;
       approvalRequired: boolean;
       place(localOrderId: string): Promise<{ brokerOrderId: string } | undefined>;
@@ -181,6 +181,9 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
   let tail: Promise<unknown> = Promise.resolve();
   let latestSnapshot: AccountSnapshot | null = null;
   const shareOrders = (since: number) => store.ordersSince(since).filter((order) => !order.intent.longOption);
+  // An unapproved ticket is never portable to a new account or a new process.
+  // This private in-memory binding never enters SQLite, an event, or the API.
+  const optionApprovalPins = new Map<string, string>();
 
   function enqueue<T>(work: () => Promise<T>): Promise<T> {
     const next = tail.then(work, work);
@@ -195,7 +198,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     bus.publish({ type: "order", order });
   }
 
-  async function checkOption(intent: OrderIntent, currentId?: string): Promise<RiskVerdict> {
+  async function checkOption(intent: OrderIntent, currentId?: string, remember?: (accountPin: string) => void): Promise<RiskVerdict> {
     const ticket = intent.longOption!;
     const isExit = ticket.side === "sell-to-close";
     function refused(rule: string, detail: string): RiskVerdict {
@@ -214,6 +217,10 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     }
     try {
       const facts = await adapter.facts(ticket, orders);
+      if (!facts.accountPin || currentId !== undefined && facts.accountPin !== optionApprovalPins.get(currentId)) {
+        return refused("options_account", "The original approval account could not be verified. Propose a new ticket.");
+      }
+      remember?.(facts.accountPin);
       return evaluateLongOption(ticket, { ...facts, settings: store.getSettings(), market: calendar.clock(clock.now()) });
     } catch {
       return refused("options_facts", "The broker did not provide enough current contract and account facts.");
@@ -223,15 +230,17 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
   async function approveLongOption(existing: OrderRecord): Promise<OrderRecord> {
     const ticket = existing.intent.longOption!;
     function update(patch: Parameters<Store["updateOrder"]>[1]): OrderRecord {
+      if (patch.status !== undefined && patch.status !== "pending_approval") optionApprovalPins.delete(existing.id);
       const order = store.updateOrder(existing.id, { ...patch, updatedAt: clock.now() });
       publish(order);
       return order;
     }
+    const accountPin = optionApprovalPins.get(existing.id);
     const verdict = await checkOption(existing.intent, existing.id);
-    if (!verdict.approved || !deps.options) return update({ verdict, status: "rejected_risk" });
+    if (!verdict.approved || !deps.options || !accountPin) return update({ verdict, status: "rejected_risk" });
     let reviewed: Awaited<ReturnType<NonNullable<OrderGateDeps["options"]>["review"]>>;
     try {
-      reviewed = await deps.options.review(ticket);
+      reviewed = await deps.options.review(ticket, accountPin);
     } catch {
       return update({ verdict, status: "failed", error: "Broker options review failed; no placement attempted." });
     }
@@ -320,6 +329,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     const expired: OrderRecord[] = [];
     for (const order of store.ordersSince(0)) {
       if (isExpired(order, now)) {
+        optionApprovalPins.delete(order.id);
         const updated = store.updateOrder(order.id, { status: "expired", updatedAt: now });
         publish(updated);
         log.info("order expired", {
@@ -389,11 +399,13 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       }
       const valid = parsed.data;
       if (valid.longOption) {
-        const verdict = await checkOption(valid);
+        let accountPin: string | undefined;
+        const verdict = await checkOption(valid, undefined, (pin) => { accountPin = pin; });
         const order = store.addOrder({
           createdAt: now, updatedAt: clock.now(), ...(cycleId === undefined ? {} : { cycleId }),
           intent: valid, verdict, status: verdict.approved ? "pending_approval" : "rejected_risk",
         });
+        if (verdict.approved && accountPin) optionApprovalPins.set(order.id, accountPin);
         publish(order);
         return order;
       }
@@ -827,6 +839,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       if (existing.status !== "pending_approval") {
         throw new Error(`order ${id} is ${existing.status}, not pending approval`);
       }
+      optionApprovalPins.delete(id);
       const order = store.updateOrder(id, {
         status: "rejected_user",
         ...(reason === undefined ? {} : { error: reason.slice(0, 300) }),
