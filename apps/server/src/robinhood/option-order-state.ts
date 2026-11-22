@@ -1,8 +1,7 @@
 import { type OrderRecord } from "@rh/shared";
 import { BrokerMappingError, record } from "./mapping.ts";
-import { optionOrderReference } from "./option-order-mapping.ts";
+import { optionBrokerId } from "./option-order-mapping.ts";
 
-const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 type State = Pick<OrderRecord, "brokerOrderId" | "status" | "filledQuantity" | "averageFillPrice">;
 
 function positiveNumber(value: unknown): number | undefined {
@@ -17,22 +16,23 @@ export function optionOrderRows(data: Record<string, unknown>): Record<string, u
 }
 
 /**
- * Bind updates to a broker ID already on file or to an exact echoed reference.
+ * Bind updates to a broker order ID or to the broker-issued approval ID.
+ * The client's submitted idempotency key is not returned on the placed order.
  * Matching price/time/contract isn't proof of ownership. No match, including
  * a complete empty list, is not proof that an uncertain send was rejected.
  */
-export function reconcileOptionOrder(order: OrderRecord, accountId: string, rows: Record<string, unknown>[]): State | undefined {
+export function reconcileOptionOrder(order: OrderRecord, accountId: string, rows: Record<string, unknown>[], approvalId?: string): State | undefined {
   const t = order.intent.longOption;
   if (!t) throw new BrokerMappingError("Options reconciliation requires a contract ticket");
   const found = rows.filter((row) => order.brokerOrderId !== undefined
     ? (row.id ?? row.order_id) === order.brokerOrderId
-    : row.ref_id === optionOrderReference(order.id));
+    : approvalId !== undefined && row.ref_id === approvalId);
   if (found.length === 0) return undefined;
   if (found.length !== 1) throw new BrokerMappingError("Robinhood options order identity was ambiguous");
   const row = found[0]!;
   const id = row.id ?? row.order_id;
   const mismatch = () => new BrokerMappingError("Robinhood options order did not match the approved contract and terms");
-  if (typeof id !== "string" || !uuid.test(id) ||
+  if (typeof id !== "string" || !optionBrokerId.test(id) ||
       row.id !== undefined && row.order_id !== undefined && row.id !== row.order_id ||
       row.account_number !== undefined && row.account_number !== accountId ||
       !Array.isArray(row.legs) || row.legs.length !== 1 ||
@@ -63,4 +63,20 @@ export function reconcileOptionOrder(order: OrderRecord, accountId: string, rows
   const averageFillPrice = positiveNumber(row.average_price ?? row.average_fill_price);
   if (filled > 0 && (averageFillPrice === undefined || averageFillPrice <= 0)) throw mismatch();
   return { brokerOrderId: id, status, filledQuantity: filled, ...(filled > 0 ? { averageFillPrice } : {}) };
+}
+
+export function terminalOptionApproval(data: Record<string, unknown>, accountId: string, approvalId: string) {
+  if (!Array.isArray(data.approvals)) throw new BrokerMappingError("Robinhood returned no trade approvals array");
+  const matches = data.approvals.map(record).filter((row) => (row.approval_id ?? row.id) === approvalId);
+  if (matches.length === 0) return undefined;
+  if (matches.length !== 1) throw new BrokerMappingError("Robinhood options approval identity was ambiguous");
+  const row = matches[0]!;
+  if ((row.account_number !== undefined && row.account_number !== accountId) ||
+      (row.id !== undefined && row.approval_id !== undefined && row.id !== row.approval_id) ||
+      (row.state !== undefined && row.status !== undefined && row.state !== row.status) ||
+      (row.asset_class !== undefined && row.asset_class !== "option")) {
+    throw new BrokerMappingError("Robinhood options approval did not match the saved receipt");
+  }
+  const state = row.state ?? row.status;
+  return state === "declined" || state === "expired" ? state : undefined;
 }

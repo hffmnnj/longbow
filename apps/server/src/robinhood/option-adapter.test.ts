@@ -45,7 +45,7 @@ const store: Pick<Store, "equityMarks" | "getSettings"> = {
   equityMarks: () => ({}),
 };
 
-type Operation = (typeof optionAdapterTools)[number];
+type Operation = (typeof optionAdapterTools)[number] | "get_trade_approvals";
 type Handler = (args: Record<string, unknown>) => Record<string, unknown>;
 type HandlerValue = Record<string, unknown> | Handler;
 type Handlers = Partial<Record<Operation, HandlerValue>>;
@@ -368,9 +368,9 @@ test("reconcile binds partial and cancelled fills only to the exact broker order
   }
 });
 
-test("reconcile adopts an exact echoed agent reference for a partial or cancelled fill", async () => {
+test("reconcile adopts an exact broker-issued approval reference for a partial or cancelled fill", async () => {
   const order = optionOrder({ status: "triggering" });
-  const reference = optionOrderReference(order.id);
+  const reference = "de3ce4f4-fea3-408d-be1e-49da292d0d87";
   const cases = [
     {
       state: "partially_filled",
@@ -398,8 +398,28 @@ test("reconcile adopts an exact echoed agent reference for a partial or cancelle
       },
     });
 
-    assert.deepEqual(await makeAdapter(fake.call).reconcile(order), item.expected);
+    assert.deepEqual(await makeAdapter(fake.call).reconcile(order, { accountPin: DEDICATED, approvalId: reference }), item.expected);
   }
+});
+
+test("reconciliation never clears an ambiguous send from a wrong account, repeated cursor, or missing approval", async () => {
+  const order = optionOrder({ status: "triggering" });
+  const receipt = { accountPin: DEDICATED, approvalId: "de3ce4f4-fea3-408d-be1e-49da292d0d87" };
+  const incomplete = fakeBroker({
+    get_accounts: { accounts: [account()] },
+    get_option_orders: { orders: [], next: "same-page" },
+  });
+  await expectMappingError(makeAdapter(incomplete.call).reconcile(order, receipt), /complete Robinhood option order history/);
+  assert.equal(callsTo(incomplete, "get_option_orders").length, 2);
+  assert.deepEqual(callsTo(incomplete, "get_trade_approvals"), []);
+  await expectMappingError(makeAdapter(incomplete.call).reconcile(order, { ...receipt, accountPin: PERSONAL }), /account changed/);
+  const missing = fakeBroker({
+    get_accounts: { accounts: [account()] },
+    get_option_orders: { orders: [] },
+    get_trade_approvals: { approvals: [{ id: OTHER_BROKER_ORDER, state: "declined" }] },
+  });
+  assert.equal(await makeAdapter(missing.call).reconcile(order, receipt), undefined);
+  assert.deepEqual(callsTo(missing, "get_trade_approvals"), [{ account_number: DEDICATED, approval_ids: [receipt.approvalId] }]);
 });
 
 test("an identical date, contract and price without the exact identity never reconciles", async () => {
@@ -429,6 +449,15 @@ test("an identical date, contract and price without the exact identity never rec
     get_option_orders: { orders: [] },
   });
   assert.equal(await makeAdapter(emptyFake.call).reconcile(identified), undefined);
+});
+
+test("the client idempotency key is not proof of an options order's identity", async () => {
+  const attempt = optionOrder({ status: "triggering" });
+  const fake = fakeBroker({
+    get_accounts: { accounts: [account()] },
+    get_option_orders: { orders: [orderRow({ ref_id: optionOrderReference(attempt.id) })] },
+  });
+  assert.equal(await makeAdapter(fake.call).reconcile(attempt), undefined);
 });
 
 test("cancel acts only after the exact existing order reconciles", async () => {

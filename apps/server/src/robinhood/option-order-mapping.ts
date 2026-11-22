@@ -3,6 +3,8 @@ import { LongOptionTicketSchema } from "@rh/shared";
 import { BrokerMappingError, record } from "./mapping.ts";
 
 export const optionContractMultiplier = 100;
+export const optionBrokerId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+export type OptionPlacementAck = { brokerOrderId: string; approvalId?: never } | { approvalId: string; brokerOrderId?: never };
 
 /** Called with the persisted local order ID, not the ticker or same-shaped ticket. */
 export function optionOrderReference(localOrderId: string): string {
@@ -39,15 +41,18 @@ export function optionPlacementRequest(prepared: ReturnType<typeof optionOrderRe
 
 /**
  * A returned order may have an approval-derived reference, different from our
- * submitted idempotency key. Only an explicitly identified broker order is a
- * placement acknowledgment. The caller must retain an uncertain attempt.
+ * submitted idempotency key. An approval reference is useful for lookups,
+ * but must never advance the order to submitted.
  */
-export function optionPlacementAcknowledgment(response: unknown): { brokerOrderId: string } | undefined {
+export function optionPlacementAcknowledgment(response: unknown): OptionPlacementAck | undefined {
   const payload = record(response);
-  if (payload.customer_approval_required !== false || payload.order == null) return undefined;
-  const order = record(payload.order);
-  const id = order.order_id ?? order.id;
-  if (typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) return undefined;
-  if (order.order_id !== undefined && order.id !== undefined && order.order_id !== order.id) return undefined;
-  return { brokerOrderId: id };
+  if (typeof payload.customer_approval_required !== "boolean") return undefined;
+  if (payload.customer_approval_required === false && payload.order != null) {
+    const order = record(payload.order);
+    const id = order.order_id ?? order.id;
+    if (typeof id === "string" && optionBrokerId.test(id) &&
+        (order.order_id === undefined || order.id === undefined || order.order_id === order.id)) return { brokerOrderId: id };
+  }
+  const approvalId = payload.approval_id;
+  return typeof approvalId === "string" && optionBrokerId.test(approvalId) ? { approvalId } : undefined;
 }

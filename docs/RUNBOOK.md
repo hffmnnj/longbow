@@ -85,6 +85,13 @@ does not prove what it settled for. An unmatched local XSP buy blocks new
 entries rather than guessing a cash credit, even after expiration or an exit
 made outside Longbow. Disabling this route does not cancel existing orders.
 
+If an option send returns no confirmed order, Longbow never retries it.
+It tracks any broker approval receipt privately and waits for an exact broker
+order or a matching declined/expired approval. A response lost before any
+broker ID was received remains uncertain: check Robinhood directly before
+attempting a replacement. Unresolved sends block new entries and closes on
+the same instrument, but not separately verified reducing closes.
+
 ## Operate
 
 - Account balances and positions refresh every five minutes while Robinhood is connected, including outside equity hours for 24/7 crypto fills. `account.at` is the cached snapshot time; a newer fill record does not by itself prove that snapshot has caught up.

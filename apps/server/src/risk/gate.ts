@@ -14,10 +14,13 @@ import {
 import { etDayEndEpoch } from "./calendar.ts";
 import { evaluate, sevenDaysAgo, countsAsSubmitted } from "./engine.ts";
 import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, orderChanged, restingCryptoStops } from "./stops.ts";
-import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
+import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OptionApprovalReceipt, OrderGate, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 import { FractionalPreflightError, PlacementQuoteUnavailableError } from "../robinhood/mapping.ts";
 import { evaluateLongOption, type LongOptionRiskInputs } from "./long-option.ts";
+import type { OptionPlacementAck } from "../robinhood/option-order-mapping.ts";
+
+type OptionUpdate = Partial<Pick<OrderRecord, "status" | "brokerOrderId" | "filledQuantity" | "averageFillPrice" | "error">>;
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -58,9 +61,9 @@ export interface OrderGateDeps {
     review(ticket: LongOptionTicket, accountPin: string): Promise<{
       noAlerts: boolean;
       approvalRequired: boolean;
-      place(localOrderId: string): Promise<{ brokerOrderId: string } | undefined>;
+      place(localOrderId: string): Promise<OptionPlacementAck | undefined>;
     }>;
-    reconcile(order: OrderRecord): Promise<Partial<Pick<OrderRecord, "status" | "brokerOrderId" | "filledQuantity" | "averageFillPrice" | "error">> | undefined>;
+    reconcile(order: OrderRecord, receipt?: OptionApprovalReceipt): Promise<OptionUpdate | { approvalTerminal: "declined" | "expired" } | undefined>;
     cancel(order: OrderRecord): Promise<void>;
   };
 }
@@ -231,12 +234,13 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     if (adapter.xspOpenOnly && !isExit) {
       const reviewDate = intent.timeStopDate;
       if (reviewDate <= calendar.etDate(clock.now()) || reviewDate >= ticket.expiration ||
-          !calendar.clock(Date.parse(`${reviewDate}T17:00:00Z`)).isOpen) {
+          !calendar.clock(Date.parse(`${reviewDate}T15:30:00Z`)).isOpen) {
         return refused("options_exit_plan", "Set a trading-session exit review before expiration.");
       }
     }
     const orders = store.ordersSince(0).filter((order) => order.id !== currentId);
-    if (orders.some((o) => o.intent.longOption && o.status === "triggering")) {
+    if (orders.some((o) => o.intent.longOption && o.status === "triggering" &&
+        (!isExit || o.intent.longOption.instrumentId === ticket.instrumentId))) {
       return refused("options_unreconciled", "Reconcile the outstanding option order before sending another.");
     }
     if (isExit && orders.some((o) => o.intent.longOption?.instrumentId === ticket.instrumentId &&
@@ -296,6 +300,10 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     try {
       const ack = await reviewed.place(existing.id);
       if (ack?.brokerOrderId) return update({ status: "submitted", brokerOrderId: ack.brokerOrderId });
+      if (ack?.approvalId && store.optionApprovals) {
+        store.optionApprovals.save(existing.id, { accountPin, approvalId: ack.approvalId });
+        return update({ error: "Robinhood returned an approval reference, not a confirmed order. Do not retry." });
+      }
     } catch { /* May have reached Robinhood. Keep the durable claim. */ }
     return update({ error: "Option submission is uncertain. Reconcile with Robinhood before any retry." });
   }
@@ -306,13 +314,22 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     for (const order of store.ordersSince(0)) {
       if (!order.intent.longOption || !["triggering", "submitted", "partially_filled"].includes(order.status)) continue;
       try {
-        const patch = await adapter.reconcile(order);
-        if (patch) applyOptionUpdate(order, patch);
+        const receipt = store.optionApprovals?.get(order.id);
+        const patch = await adapter.reconcile(order, receipt);
+        if (!patch) continue;
+        if ("approvalTerminal" in patch) {
+          if (receipt && order.status === "triggering" && !order.brokerOrderId && !order.filledQuantity) {
+            publish(store.updateOrder(order.id, { status: "cancelled", updatedAt: clock.now(),
+              error: `Robinhood approval ${patch.approvalTerminal}; no order was confirmed.` }));
+          }
+        } else {
+          applyOptionUpdate(order, patch);
+        }
       } catch { log.warn("options reconciliation unavailable", { orderId: order.id }); }
     }
   }
 
-  function applyOptionUpdate(order: OrderRecord, patch: NonNullable<Awaited<ReturnType<NonNullable<OrderGateDeps["options"]>["reconcile"]>>>): OrderRecord {
+  function applyOptionUpdate(order: OrderRecord, patch: OptionUpdate): OrderRecord {
     const id = patch.brokerOrderId ?? order.brokerOrderId;
     const quantity = patch.filledQuantity ?? order.filledQuantity ?? 0;
     const averagePrice = patch.averageFillPrice ?? order.averageFillPrice;
@@ -331,7 +348,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         quantity === (order.filledQuantity ?? 0) && averagePrice === order.averageFillPrice && patch.error === order.error) {
       return order;
     }
-    const updated = store.updateOrder(order.id, { ...patch, updatedAt: clock.now() });
+    const updated = store.updateOrder(order.id, { ...patch, error: patch.error, updatedAt: clock.now() });
     publish(updated);
     return updated;
   }
@@ -942,7 +959,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         }
         await deps.options.cancel(order);
         const patch = await deps.options.reconcile(order);
-        if (!patch) return order;
+        if (!patch || "approvalTerminal" in patch) return order;
         return applyOptionUpdate(order, patch);
       }
       if (!supportsTrading(broker)) throw new Error("Broker does not support cancellation");

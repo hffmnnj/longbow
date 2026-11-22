@@ -5,7 +5,7 @@ import { countSubmittedBuysToday } from "../risk/engine.ts";
 import { BrokerMappingError, record, tradingAccount } from "./mapping.ts";
 import { findStandardOption, optionPreviewTools } from "./option-preflight.ts";
 import { prepareOptionPlacement } from "./option-order-transport.ts";
-import { optionOrderRows, reconcileOptionOrder } from "./option-order-state.ts";
+import { optionOrderRows, reconcileOptionOrder, terminalOptionApproval } from "./option-order-state.ts";
 
 export const optionAdapterTools = [
   ...optionPreviewTools, "get_portfolio", "get_option_quotes", "get_option_orders",
@@ -13,7 +13,7 @@ export const optionAdapterTools = [
 ] as const;
 // Reserve the highest disclosed XSP contract fee, regulatory/clearing and exchange fees.
 const XSP_FEE_RESERVE_CENTS = 65;
-type Operation = (typeof optionAdapterTools)[number];
+type Operation = (typeof optionAdapterTools)[number] | "get_trade_approvals";
 type Call = (name: Operation, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 /** Exact nonnegative decimal to cents. Fractional cents may round down for cash, never for quotes. */
@@ -115,6 +115,21 @@ export function createRobinhoodOptionAdapter(deps: {
     return result;
   }
   const session = () => ({ date: calendar.etDate(clock.now()), isOpen: calendar.clock(clock.now()).isOpen });
+  async function orderRows(filter: Record<string, unknown>) {
+    const rows: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 8; page++) {
+      const data = await call("get_option_orders", cursor === undefined ? filter : { ...filter, cursor });
+      rows.push(...optionOrderRows(data));
+      const next = data.next;
+      if (next == null || next === "") return rows;
+      if (typeof next !== "string" || seen.has(next)) break;
+      seen.add(next);
+      cursor = next;
+    }
+    throw new BrokerMappingError("Could not establish complete Robinhood option order history");
+  }
   return {
     async facts(input, orders) {
       const { ticket, settlement } = await findStandardOption(input, call);
@@ -132,8 +147,10 @@ export function createRobinhoodOptionAdapter(deps: {
       ]);
       const now = clock.now();
       const date = calendar.etDate(now);
-      const expiry = calendar.clock(Date.parse(`${ticket.expiration}T17:00:00Z`));
-      if (expiry.tradingDay !== ticket.expiration || !expiry.isOpen) throw new BrokerMappingError("Could not verify the option expiry session");
+      const expiry = calendar.clock(Date.parse(`${ticket.expiration}T15:30:00Z`));
+      if (ticket.expiration < date || expiry.tradingDay !== ticket.expiration || !expiry.isOpen) {
+        throw new BrokerMappingError("Could not verify the option expiry session");
+      }
       const equityCents = value ? money(value.total_value, true) : 0;
       const settings = store.getSettings();
       const marks = store.equityMarks(date);
@@ -162,13 +179,19 @@ export function createRobinhoodOptionAdapter(deps: {
     review(ticket, accountPin) {
       return prepareOptionPlacement(ticket, call, session, accountPin);
     },
-    async reconcile(order) {
+    async reconcile(order, receipt) {
+      if (!order.brokerOrderId && !receipt) return undefined;
       const { accountId } = await account();
+      if (receipt && receipt.accountPin !== accountId) throw new BrokerMappingError("Robinhood options approval account changed");
       const filter = order.brokerOrderId
         ? { order_id: order.brokerOrderId }
         : { agent_initiated: true, created_at_gte: new Date(order.createdAt - 60_000).toISOString() };
-      const data = await call("get_option_orders", { account_number: accountId, ...filter });
-      return reconcileOptionOrder(order, accountId, optionOrderRows(data));
+      const rows = await orderRows({ account_number: accountId, ...filter });
+      const updated = reconcileOptionOrder(order, accountId, rows, receipt?.approvalId);
+      if (updated || order.brokerOrderId || !receipt) return updated;
+      const data = await call("get_trade_approvals", { account_number: accountId, approval_ids: [receipt.approvalId] });
+      const state = terminalOptionApproval(data, accountId, receipt.approvalId);
+      return state ? { approvalTerminal: state } : undefined;
     },
     async cancel(order) {
       if (!order.intent.longOption || !order.brokerOrderId) throw new BrokerMappingError("Options cancel needs an identified broker order");

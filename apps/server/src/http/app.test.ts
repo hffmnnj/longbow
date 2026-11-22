@@ -2,10 +2,12 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { DEFAULT_SETTINGS, type OrderRecord } from "@rh/shared";
 import { buildStatus, createApp, type AppDeps } from "./app.ts";
 import { loadConfig } from "../config.ts";
 import { createEventBus } from "../events.ts";
+import { openStore } from "../db/store.ts";
 import { createOrderGate } from "../risk/gate.ts";
 import { createRiskExtension } from "../risk/tools.ts";
 import { createNyseCalendar } from "../risk/calendar.ts";
@@ -300,7 +302,6 @@ const XSP_LEGS = [{ option_id: XSP_INSTRUMENT, side: "buy", position_effect: "op
 const XSP_REVIEW_ARGS = {
   account_number: "mcp-fixture", legs: XSP_LEGS,
   type: "limit", quantity: "1", price: "1.75", time_in_force: "gfd", market_hours: "regular_hours",
-  chain_symbol: "XSP", underlying_type: "index",
 };
 const XSP_PLACEMENT_ARGS = {
   account_number: "mcp-fixture", legs: XSP_LEGS,
@@ -315,10 +316,14 @@ type XspBrokerFixture = {
   positions?: Record<string, unknown>[];
   workingOrders?: Record<string, unknown>[];
   onReview?: (store: Store) => void;
+  store?: Store;
+  placeResponse?: Record<string, unknown>;
+  optionOrderPage?: (args: Record<string, unknown>) => Record<string, unknown>;
+  approvalRead?: (args: Record<string, unknown>) => Record<string, unknown>;
 };
 
 function xspFixture(fixture: XspBrokerFixture = {}) {
-  const appDeps = deps();
+  const appDeps = deps(fixture.store ? { store: fixture.store } : {});
   const calendar = createNyseCalendar();
   appDeps.store.patchSettings({ mode: fixture.mode ?? "auto", risk: { maxSpreadBps: 100 } });
   const placed: Record<string, unknown>[] = [];
@@ -351,7 +356,9 @@ function xspFixture(fixture: XspBrokerFixture = {}) {
             case "get_option_positions":
               return { positions: fixture.positions ?? [] };
             case "get_option_orders":
-              return { orders: fixture.workingOrders ?? [] };
+              return fixture.optionOrderPage?.(args) ?? { orders: fixture.workingOrders ?? [] };
+            case "get_trade_approvals":
+              return fixture.approvalRead?.(args) ?? assert.fail("unexpected trade approval lookup");
             case "review_option_order":
               reviewed.push(args);
               fixture.onReview?.(appDeps.store);
@@ -359,7 +366,7 @@ function xspFixture(fixture: XspBrokerFixture = {}) {
             case "place_option_order": {
               assert.equal(appDeps.store.listOrders(1)[0]?.status, "triggering");
               placed.push(args);
-              return { customer_approval_required: false, order: { id: XSP_BROKER_ORDER } };
+              return fixture.placeResponse ?? { customer_approval_required: false, order: { id: XSP_BROKER_ORDER } };
             }
             default: return assert.fail(`unexpected fixture call ${name}`);
           }
@@ -392,6 +399,57 @@ it("XSP auto entry sends the exact reviewed day limit once without an owner inst
   assert.equal(record.status, "submitted");
   assert.equal(record.brokerOrderId, XSP_BROKER_ORDER);
   assert.equal(record.intent.ownerInstruction, undefined);
+});
+
+it("XSP retains Robinhood's private approval receipt across restart and adopts only the matching paginated broker order", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "longbow-option-receipt-")), "app.sqlite");
+  const approvalId = "e06a9f0a-f76e-4fa9-abaa-1b8ad7226c22";
+  const first = xspFixture({ store: openStore(path, clock),
+    placeResponse: { customer_approval_required: true, approval_id: approvalId } });
+  const { record } = await first.submit();
+  assert.equal(record.status, "triggering");
+  assert.equal(record.brokerOrderId, undefined);
+  assert.equal(first.placed.length, 1);
+  assert.doesNotMatch(JSON.stringify(await (await first.app.request("/api/orders")).json()), /e06a9f0a|mcp-fixture/);
+
+  const reopened = openStore(path, clock);
+  const next = xspFixture({ store: reopened, optionOrderPage(args) {
+    assert.equal(args.account_number, "mcp-fixture");
+    assert.equal(args.agent_initiated, true);
+    return args.cursor === undefined
+      ? { orders: [], next: "page-two" }
+      : { orders: [{ id: XSP_BROKER_ORDER, ref_id: approvalId, legs: XSP_LEGS,
+        quantity: "1", price: "1.75", state: "filled", processed_quantity: "1", average_price: "1.74" }] };
+  } });
+  await next.gate.sync();
+  const filled = reopened.getOrder(record.id);
+  assert.equal(filled?.status, "filled");
+  assert.equal(filled.brokerOrderId, XSP_BROKER_ORDER);
+  assert.equal(filled.filledQuantity, 1);
+  assert.equal(filled.averageFillPrice, 1.74);
+  assert.equal(filled.error, undefined);
+  assert.equal(next.placed.length, 0);
+});
+
+it("an exact declined Robinhood approval closes the attempt without fabricating an order", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "longbow-option-decline-")), "app.sqlite");
+  const approvalId = "e06a9f0a-f76e-4fa9-abaa-1b8ad7226c22";
+  const fx = xspFixture({ store: openStore(path, clock),
+    placeResponse: { customer_approval_required: true, approval_id: approvalId },
+    approvalRead(args) {
+      assert.deepEqual(args, { account_number: "mcp-fixture", approval_ids: [approvalId] });
+      return { approvals: [{ id: approvalId, asset_class: "option", state: "declined" }] };
+    },
+  });
+  const { record } = await fx.submit();
+  assert.equal(record.status, "triggering");
+  await fx.gate.sync();
+  const declined = fx.appDeps.store.getOrder(record.id);
+  assert.equal(declined?.status, "cancelled");
+  assert.equal(declined.brokerOrderId, undefined);
+  assert.equal(declined.filledQuantity, undefined);
+  assert.match(declined.error ?? "", /approval declined/);
+  assert.equal(fx.placed.length, 1);
 });
 
 it("XSP approve entry reviews and places only after the CSRF-protected owner tap", async () => {

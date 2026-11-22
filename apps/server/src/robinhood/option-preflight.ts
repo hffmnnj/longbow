@@ -88,16 +88,14 @@ export async function reviewLongOption(input: LongOptionTicket, call: PreviewCal
   if (entitlement !== "level-2" && entitlement !== "level-3") {
     throw new BrokerMappingError("The dedicated Robinhood MCP account does not report Level 2 or Level 3 options approval.");
   }
-  const contract = await findStandardOption(parsed.data, call, signal);
+  await findStandardOption(parsed.data, call, signal);
   const atReview = session();
   if (!atReview.isOpen || atReview.date !== date) {
     throw new BrokerMappingError("The trading session changed while preparing the preview.");
   }
   const request = optionOrderRequest(parsed.data, accountId);
   signal?.throwIfAborted();
-  const result = await call("review_option_order", contract.settlement === "xsp-cash"
-    ? { ...request.review, chain_symbol: "XSP", underlying_type: "index" }
-    : request.review, signal);
+  const result = await call("review_option_order", request.review, signal);
   if (!Array.isArray(result.order_checks) || typeof result.customer_approval_required !== "boolean") {
     throw new BrokerMappingError("Broker preview did not confirm approval and alert status; nothing was submitted.");
   }
