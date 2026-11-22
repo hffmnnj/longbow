@@ -418,7 +418,7 @@ class Harness {
     const order = await this.#run(`order:${id}`, (a) => a.approve(id), "Could not approve the order");
     if (!order?.intent.longOption) return;
     switch (order.status) {
-      case "submitted": toast.success("Option submitted to Robinhood", { description: "A fill is not confirmed." }); break;
+      case "submitted": toast.success("Option submitted to Robinhood. A fill is not confirmed."); break;
       case "filled": toast.success("Option filled"); break;
       case "partially_filled": toast.info("Option partially filled"); break;
       case "triggering": toast.warning("Option submission uncertain", { description: "Reconcile with Robinhood before retrying." }); break;
