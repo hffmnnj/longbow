@@ -38,7 +38,7 @@ export interface PaperBrokerDeps {
   seed?: number;
   /** Blind/bootstrap dates are fictional weekdays, not historical clearing dates. */
   fictionalDates?: boolean;
-  /** Local historical observations, not quotes. Return undefined only to model that session. */
+  /** Local historical observations on the daily tape's price basis, not quotes. */
   observedMinutes?: (symbol: string, date: string) => ObservedMinutes | undefined;
 }
 
@@ -62,8 +62,9 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     return bounds;
   }
   const observed = new Map<string, ObservedMinutes | undefined>();
-  function minutes(symbol: string, day: string): ObservedMinutes | undefined {
+  function minutes(symbol: string, bar: Bar): ObservedMinutes | undefined {
     if (execution !== "realistic" || deps.fictionalDates || deps.observedMinutes === undefined) return undefined;
+    const day = bar.date;
     const key = `${symbol}:${day}`;
     if (observed.has(key)) return observed.get(key);
     const data = deps.observedMinutes(symbol, day);
@@ -74,6 +75,12 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
           ![data.open, ...data.closes].every((price) => Number.isFinite(price) && price > 0)) {
         throw new Error(`Invalid recorded minute tape for ${symbol} on ${day}`);
       }
+      // Allow ordinary vendor differences in the opening print, not a
+      // materially different open. Do not guess a corporate-action adjustment.
+      const openRatio = data.open / bar.open;
+      if (!Number.isFinite(openRatio) || openRatio < 0.95 || openRatio > 1.05) {
+        throw new Error(`Recorded minute open differs from the daily open by more than 5% for ${symbol} on ${day}; verify the price basis`);
+      }
       observed.set(key, { open: data.open, closes: [...data.closes] });
     } else {
       observed.set(key, undefined);
@@ -82,7 +89,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   }
   function realisticLast(bar: Bar, symbol: string, at: number): number {
     const bounds = session(bar.date);
-    const tape = minutes(symbol, bar.date);
+    const tape = minutes(symbol, bar);
     if (tape === undefined) return realisticPrice(bar, symbol, seed, at, bounds.nextClose);
     const complete = Math.floor((at - bounds.nextOpen) / 60_000);
     return complete <= 0 ? tape.open : tape.closes[Math.min(complete, tape.closes.length) - 1]!;
@@ -183,7 +190,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         if (bounds.tradingDay !== bar.date) continue;
         const close = bounds.nextClose;
         const from = Math.max(order.checkedAt, order.createdAt);
-        const tape = minutes(intent.symbol, bar.date);
+        const tape = minutes(intent.symbol, bar);
         const points = tape !== undefined
           ? minuteObservations(tape, bounds.nextOpen, from, now)
           : execution === "ideal" ? pathSegment(bar, from, now, close) : realisticSegment(bar, intent.symbol, seed, from, now, close);
