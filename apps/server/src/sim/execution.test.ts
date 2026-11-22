@@ -21,6 +21,11 @@ test("average dollar volume uses strictly earlier sessions", () => {
   assert.equal(avgDollarVolumeBefore(bars, "2026-07-01"), 105 * 10_000_000);
   assert.equal(avgDollarVolumeBefore(bars, "2026-06-29"), undefined);
 });
+test("average dollar volume ignores older sessions once 20 earlier bars are available", () => {
+  const earlier = Array.from({ length: 20 }, (_, index) => bar(`2026-06-${String(index + 2).padStart(2, "0")}`, 100));
+  const bars = [bar("2026-06-01", 100, 1_000_000_000), ...earlier, bar("2026-06-22", 100, 1_000_000_000)];
+  assert.equal(avgDollarVolumeBefore(bars, "2026-06-22"), 1_000_000_000);
+});
 test("return volatility is zero on flat history and positive otherwise", () => {
   assert.equal(returnVolatilityBefore([bar("2026-06-29", 100), bar("2026-06-30", 100)], "2026-07-01"), 0);
   assert.equal(returnVolatilityBefore([bar("2026-06-30", 100)], "2026-07-01"), 0);

@@ -8,11 +8,17 @@ import type { Bar } from "@rh/shared";
  * the order's share of that volume, scaled by recent daily return volatility.
  */
 
-/** Average daily dollar volume (close times volume) over the `lookback` sessions strictly before `day`. */
-export function avgDollarVolumeBefore(bars: Bar[], day: string, lookback = 20): number | undefined {
-  const prior = bars.filter((b) => b.date < day).slice(-lookback);
+/** Average daily dollar volume (close times volume) over up to 20 sessions strictly before `day`. */
+export function avgDollarVolumeBefore(bars: Bar[], day: string): number | undefined {
+  const prior: Bar[] = [];
+  // Collect only the tail of earlier bars, then sum in the original order.
+  // Do not assume input is sorted or let current/future sessions enter the sample.
+  for (let i = bars.length - 1; i >= 0 && prior.length < 20; i--) {
+    const bar = bars[i]!;
+    if (bar.date < day) prior.push(bar);
+  }
   if (prior.length === 0) return undefined;
-  return prior.reduce((sum, b) => sum + b.close * b.volume, 0) / prior.length;
+  return prior.reduceRight((sum, b) => sum + b.close * b.volume, 0) / prior.length;
 }
 
 /** Sample standard deviation of daily simple returns over the `lookback` sessions strictly before `day`. */
