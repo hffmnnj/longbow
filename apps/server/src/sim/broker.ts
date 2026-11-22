@@ -228,8 +228,9 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         const close = bounds.nextClose;
         const from = Math.max(order.checkedAt, order.createdAt);
         const tape = minutes(intent.symbol, bar);
+        // The print already visible at placement cannot fill a new resting order.
         const points = tape !== undefined
-          ? minuteObservations(tape, bounds.nextOpen, from, now)
+          ? minuteObservations(tape, bounds.nextOpen, Math.max(from, order.createdAt + 1), now)
           : execution === "ideal" ? pathSegment(bar, from, now, close) : realisticSegment(bar, intent.symbol, seed, from, now, close);
         // A resting limit fills only on a trade through the limit: a touch is
         // not enough in realistic mode, so the level sits a cent beyond it.
