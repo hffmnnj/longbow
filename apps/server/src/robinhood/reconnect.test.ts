@@ -139,19 +139,16 @@ test("broker diagnostics redact untrusted failures and never retry ambiguous pla
     const advanced = f.broker.extension().tools?.find((item) => item.name === "rh_get_advanced_orders") as ToolRegistration;
     assert.ok(advanced);
     const advancedResult = await advanced.execute({}, {} as never, { abortSignal: new AbortController().signal } as never);
-    const unknown = f.broker.extension().tools?.find((item) => item.name === "rh_get_sensitive_secret") as ToolRegistration;
-    assert.ok(unknown);
-    const result = await unknown.execute({}, {} as never, { abortSignal: new AbortController().signal } as never);
+    assert.equal(f.broker.extension().tools?.some((item) => item.name === "rh_get_sensitive_secret"), false);
     const intent = { symbol: "AAPL", side: "sell", quantity: 1, orderType: "limit", limitPrice: 100, timeInForce: "day" } as OrderIntent;
     await assert.rejects(f.broker.placeOrder(intent), { message: "Robinhood tool request failed; reconcile any uncertain order before retrying" });
-    assert.deepEqual(calls, ["get_portfolio", "get_advanced_orders", "get_sensitive_secret", "place_equity_order"]);
+    assert.deepEqual(calls, ["get_portfolio", "get_advanced_orders", "place_equity_order"]);
     assert.deepEqual(f.warnings, [
       { msg: "Robinhood tool response failed", fields: { operation: "get_portfolio", classification: "tool_error" } },
       { msg: "Robinhood tool response failed", fields: { operation: "get_advanced_orders", classification: "tool_error" } },
-      { msg: "Robinhood tool request failed", fields: { operation: "unknown", name: "McpHttpError", status: 503 } },
       { msg: "Robinhood tool request failed", fields: { operation: "place_equity_order", name: "McpHttpError", status: 503 } },
     ]);
-    assert.doesNotMatch(JSON.stringify({ warnings: f.warnings, result, advancedResult }), /secret|503.*body/i);
+    assert.doesNotMatch(JSON.stringify({ warnings: f.warnings, advancedResult }), /secret|503.*body/i);
   } finally { await f.cleanup(); }
 });
 
