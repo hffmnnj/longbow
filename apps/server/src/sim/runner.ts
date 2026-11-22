@@ -218,9 +218,18 @@ export function createSimService(deps: SimServiceDeps): SimService {
       if (days.length !== run.config.days || days.some((b) => b.date >= completedBefore)) throw new Error("Simulation range must contain the requested number of completed past trading days");
       simDays = days.map((b) => b.date);
       assertReplayBenchmarkCoverage(simDays, startDate, deps.calendar);
-      const closes = new Map(days.map((b) => [b.date, b.close]));
-      const firstOpen = days[0]!.open;
-      benchPrice = (date) => (closes.get(date) ?? NaN) / firstOpen * run.config.startingCash;
+      const first = days[0]!;
+      if (!Number.isFinite(first.open) || first.open <= 0) {
+        throw new Error(`Invalid replay benchmark price for SPY on ${first.date}: opening price must be finite and positive`);
+      }
+      const benchmarkMarks = new Map(days.map(({ date, close }) => {
+        const mark = close / first.open * run.config.startingCash;
+        if (!Number.isFinite(mark) || mark <= 0) {
+          throw new Error(`Invalid replay benchmark price for SPY on ${date}: closing price cannot produce a finite positive mark`);
+        }
+        return [date, mark];
+      }));
+      benchPrice = (date) => benchmarkMarks.get(date) ?? NaN;
       asOf = (): string => {
         const date = deps.calendar.etDate(now);
         return spy.filter((b) => b.date < date || (b.date === date && now >= sessionClose(date))).at(-1)?.date
