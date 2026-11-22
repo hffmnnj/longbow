@@ -77,7 +77,8 @@ async function main(): Promise<void> {
   const broker = createRobinhoodBroker({ config, log: log.child("robinhood"), clock });
   const sectors = createSectorDirectory({ cache: new MarketCache(config.DATA_DIR, log.child("sectors"), clock), log: log.child("sectors") });
   const systemOne = createConfiguredSystemOne(config, log.child("systemone"), clock);
-  const optionClose = config.LIVE_TRADING ? broker.optionCloseAdapter(store) : undefined;
+  const optionOrders = config.LIVE_TRADING ? broker.optionOrderAdapter(store) : undefined;
+  const optionMode = optionOrders ? optionOrders.xspOpenOnly ? "xsp" : "close-only" : "unavailable";
   const gate = createOrderGate({
     store,
     broker,
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
     ownerMessagesSince: (since) => store.ownerMessagesSince(since),
     market,
     sectors,
-    ...(optionClose ? { options: optionClose } : {}),
+    ...(optionOrders ? { options: optionOrders } : {}),
     entryReview: createEntryReview({ client: systemOne, clock, log: log.child("systemone") }),
   });
 
@@ -152,7 +153,7 @@ async function main(): Promise<void> {
 
   const extensions = [
     createRiskExtension({ gate, store, calendar, clock, broker, currentCycleId, getAccount: () => cachedAccount, cancelOrder: (id) => gate.cancel(id),
-      ...(optionClose ? { optionTickets: "close-only" } : {}) }),
+      ...(optionMode !== "unavailable" ? { optionTickets: optionMode } : {}) }),
     await createWebsearchExtension({ keyFile: config.EXA_KEY_FILE, log: log.child("websearch") }),
     createJournalExtension({ store, bus, clock, currentCycleId }),
     // Live only: simulations build their own extension list and never publish reports.
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
       bus,
       currentCycleId,
     }),
-    createTraderPromptExtension(optionClose ? "close-only" : "unavailable"),
+    createTraderPromptExtension(optionMode),
     createSkillsExtension({ library: skills, notes }),
     createMarketExtension({ market, dataDir: config.DATA_DIR, log: log.child("market"), clock }),
     createSubagentExtension({

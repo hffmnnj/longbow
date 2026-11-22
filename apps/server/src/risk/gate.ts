@@ -52,6 +52,8 @@ export interface OrderGateDeps {
   /** None until an option adapter can supply authoritative account, quote and lifecycle facts. */
   options?: {
     closeOnly?: boolean;
+    /** Fixture adapters may exercise the generic workflow; production declares its sole entry route. */
+    xspOpenOnly?: boolean;
     facts(ticket: LongOptionTicket, orders: OrderRecord[]): Promise<Omit<LongOptionRiskInputs, "market" | "settings"> & { accountPin: string }>;
     review(ticket: LongOptionTicket, accountPin: string): Promise<{
       noAlerts: boolean;
@@ -215,13 +217,23 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     if (adapter.closeOnly && !isExit) {
       return refused("options_close_only", "Longbow can close existing long options but cannot open option positions.");
     }
-    if (adapter.closeOnly) {
+    if (adapter.xspOpenOnly && !isExit && (ticket.symbol !== "XSP" || ticket.contracts !== 1)) {
+      return refused("options_xsp_only", "Opening is limited to one verified cash-settled XSP contract.");
+    }
+    if (adapter.closeOnly || (adapter.xspOpenOnly && ticket.symbol !== "XSP") || intent.ownerInstruction !== undefined) {
       const now = clock.now();
       const words = intent.ownerInstruction === undefined ? "" : normalizeInstruction(intent.ownerInstruction);
       const ownerRequest = words.length >= 12 && deps.ownerMessagesSince?.(now - OWNER_MESSAGE_WINDOW_MS)
         .some((message) => message.at >= now - OWNER_MESSAGE_WINDOW_MS && message.at <= now &&
           normalizeInstruction(message.text).includes(words));
-      if (!ownerRequest) return refused("options_owner_request", "An options close requires a recent, quoted owner request.");
+      if (!ownerRequest) return refused("options_owner_request", "An options order requires a recent, quoted owner request.");
+    }
+    if (adapter.xspOpenOnly && !isExit) {
+      const reviewDate = intent.timeStopDate;
+      if (reviewDate <= calendar.etDate(clock.now()) || reviewDate >= ticket.expiration ||
+          !calendar.clock(Date.parse(`${reviewDate}T17:00:00Z`)).isOpen) {
+        return refused("options_exit_plan", "Set a trading-session exit review before expiration.");
+      }
     }
     const orders = store.ordersSince(0).filter((order) => order.id !== currentId);
     if (orders.some((o) => o.intent.longOption && o.status === "triggering")) {
@@ -237,13 +249,23 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return refused("options_account", "The original approval account could not be verified. Propose a new ticket.");
       }
       remember?.(facts.accountPin);
-      return evaluateLongOption(ticket, { ...facts, settings: store.getSettings(), market: calendar.clock(clock.now()) });
+      const settings = store.getSettings();
+      const verdict = evaluateLongOption(ticket, { ...facts, settings, market: calendar.clock(clock.now()) });
+      if (!adapter.xspOpenOnly || isExit || !verdict.approved) return verdict;
+      const { bidCents, askCents } = facts.quote;
+      const mid = (bidCents + askCents) / 2;
+      const costFloor = ((askCents - bidCents) * 100 + 2 * facts.feeReservePerContractCents) / mid;
+      const ev = intent.probabilityWin * intent.expectedGainPct -
+        (1 - intent.probabilityWin) * intent.expectedLossPct - intent.estimatedCostPct;
+      const ok = intent.estimatedCostPct >= costFloor && ev > settings.risk.minEvToCost * intent.estimatedCostPct;
+      return { ...verdict, approved: ok, checks: [...verdict.checks, { rule: "options_ev_after_costs", ok,
+        detail: `Estimated costs must cover the ${costFloor.toFixed(2)}% observed spread and round-trip fee floor, and estimated net EV must clear the configured hurdle.` }] };
     } catch {
       return refused("options_facts", "The broker did not provide enough current contract and account facts.");
     }
   }
 
-  async function approveLongOption(existing: OrderRecord): Promise<OrderRecord> {
+  async function dispatchLongOption(existing: OrderRecord, source: "auto" | "approval"): Promise<OrderRecord> {
     const ticket = existing.intent.longOption!;
     function update(patch: Parameters<Store["updateOrder"]>[1]): OrderRecord {
       if (patch.status !== undefined && patch.status !== "pending_approval") optionApprovalPins.delete(existing.id);
@@ -267,6 +289,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         !finalVerdict.approved || reviewed.noAlerts !== true || reviewed.approvalRequired !== false) {
       return update({ verdict: finalVerdict, status: "rejected_risk", error: "Option review, approval rules, or trading controls prevented placement." });
     }
+    if (source === "auto" && settings.mode !== "auto") return update({ verdict: finalVerdict });
     // Claim before the first possible send. A crash/timeout never turns a claim
     // into a retryable approval, and the UUID of this record fixes the ref_id.
     update({ verdict: finalVerdict, status: "triggering" });
@@ -422,6 +445,11 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
           intent: valid, verdict, status: verdict.approved ? "pending_approval" : "rejected_risk",
         });
         if (verdict.approved && accountPin) optionApprovalPins.set(order.id, accountPin);
+        if (verdict.approved && accountPin && deps.options?.xspOpenOnly &&
+            valid.longOption.symbol === "XSP" && valid.ownerInstruction === undefined &&
+            store.getSettings().mode === "auto") {
+          return dispatchLongOption(order, "auto");
+        }
         publish(order);
         return order;
       }
@@ -693,7 +721,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       if (existing.status !== "pending_approval") {
         throw new Error(`order ${id} is ${existing.status}, not pending approval`);
       }
-      if (existing.intent.longOption) return approveLongOption(existing);
+      if (existing.intent.longOption) return dispatchLongOption(existing, "approval");
 
       let snapshot: AccountSnapshot;
       try {

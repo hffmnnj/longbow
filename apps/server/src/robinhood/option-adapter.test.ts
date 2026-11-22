@@ -287,6 +287,31 @@ test("option facts claim exercise protection only when the explicit policy verif
   assert.equal(seen[0]!.account.account_number, DEDICATED);
 });
 
+test("XSP cannot open a new lot while a prior buy is missing a reconciled close", async () => {
+  const ticket = { ...buyTicket, symbol: "XSP", contracts: 1 };
+  const fake = fakeBroker(buyHandlers({
+    get_option_instruments: { instruments: [contract({ chain_symbol: "XSP", underlying_type: "index" })] },
+    get_option_chains: { chains: [chain({ symbol: "XSP", underlying_instruments: [], settle_on_open: false })] },
+    get_option_positions: { positions: [] },
+    get_option_orders: { orders: [] },
+  }));
+  const adapter = createRobinhoodOptionAdapter({
+    call: fake.call, clock: { now: () => NOW }, calendar: createNyseCalendar(), store,
+    feeReservePerContractCents: FEE_PER_CONTRACT_CENTS, allowXspOpen: true,
+  });
+  const held = optionOrder({ ticket, status: "filled", filledQuantity: 1, createdAt: NOW - 60_000 });
+  const close = optionOrder({ ticket: { ...ticket, side: "sell-to-close" },
+    status: "filled", filledQuantity: 1, createdAt: NOW - 30_000 });
+  const unmatched = await adapter.facts(ticket, [held]);
+  assert.equal(unmatched.exerciseRiskControlled, true);
+  assert.equal(unmatched.feeReservePerContractCents, 65);
+  assert.equal(unmatched.xspCapacity, false, "empty inventory does not prove settlement");
+  assert.equal((await adapter.facts(ticket, [{ ...close, createdAt: NOW - 90_000 }, held])).xspCapacity, false,
+    "an earlier external-position close cannot offset a new buy");
+  assert.equal((await adapter.facts(ticket, [close, held])).xspCapacity, true);
+  assert.deepEqual(callsTo(fake, "get_option_orders").at(-1), { account_number: DEDICATED, state_group: "open" });
+});
+
 test("a close reads only broker-sellable contracts and never claims exercise protection", async () => {
   const sellTicket: LongOptionTicket = { ...buyTicket, side: "sell-to-close", limitCents: 425 };
   const fake = fakeBroker({

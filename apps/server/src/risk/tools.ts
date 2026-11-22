@@ -21,7 +21,7 @@ export interface RiskToolsDeps {
   getAccount?: () => AccountSnapshot | null;
   currentCycleId: () => string | undefined;
   /** When a real option gate is not wired, keep this absent, including in ordinary paper simulations. */
-  optionTickets?: true | "close-only";
+  optionTickets?: true | "close-only" | "xsp";
 }
 
 const submitOrderSchema = Type.Object({
@@ -111,9 +111,11 @@ const optionTicket = Type.Object({
   side: Type.Union([Type.Literal("buy-to-open"), Type.Literal("sell-to-close")]),
   contracts: Type.Integer({ minimum: 1, maximum: 100 }),
   limitCents: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
-}, { additionalProperties: false, description: "One standard contract identity. Limit is integer cents per underlying share; always waits for owner approval." });
+}, { additionalProperties: false, description: "One standard contract identity. Limit is integer cents per underlying unit, multiplied by 100 per contract." });
 const submitWithOptionSchema = Type.Object({ ...submitOrderSchema.properties, longOption: Type.Optional(optionTicket) });
 const closeTicket = Type.Object({ ...optionTicket.properties, side: Type.Literal("sell-to-close") }, { additionalProperties: false });
+const xspEntryTicket = Type.Object({ ...optionTicket.properties, symbol: Type.Literal("XSP"),
+  side: Type.Literal("buy-to-open"), contracts: Type.Literal(1) }, { additionalProperties: false });
 type SubmitOrderArgs = Static<typeof submitWithOptionSchema>;
 
 const etClockFormat = new Intl.DateTimeFormat("en-US", {
@@ -149,14 +151,16 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       "In approve mode a human must approve the pending order before anything is placed. " +
       "Owner-instruction orders always require human approval, including in auto mode." +
       (deps.optionTickets === "close-only" ? " Options are sell-to-close only, for existing long contracts. Include the owner's verbatim request in ownerInstruction. The owner must still approve."
+        : deps.optionTickets === "xsp" ? " One long cash-settled XSP contract may be opened. Eligible XSP orders follow mode (Auto submits; Approve waits). Other contracts are sell-to-close only, with a quoted owner request and approval."
         : deps.optionTickets ? " A standard single-leg options ticket always requires owner approval; no spreads or short positions." : ""),
     parameters: deps.optionTickets
       ? Type.Object({
         ...submitWithOptionSchema.properties,
         ...(deps.optionTickets === "close-only" ? { longOption: Type.Optional(closeTicket) } : {}),
+        ...(deps.optionTickets === "xsp" ? { longOption: Type.Optional(Type.Union([closeTicket, xspEntryTicket])) } : {}),
         symbol: Type.String({ ...submitOrderSchema.properties.symbol, description: "Underlying ticker for an options ticket; otherwise the existing equity symbol or crypto pair." }),
         quantity: Type.Number({ exclusiveMinimum: 0, description: "Shares or coins. With longOption, must equal its whole contract count." }),
-        limitPrice: Type.Number({ exclusiveMinimum: 0, description: "USD per share. With longOption, must equal limitCents / 100; full premium is 100 shares per contract." }),
+        limitPrice: Type.Number({ exclusiveMinimum: 0, description: "USD per share. With longOption, must equal limitCents / 100; multiply by 100 and the contract count for the total premium." }),
       })
       : submitOrderSchema,
     async execute(args: SubmitOrderArgs) {
@@ -168,6 +172,10 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       }
       if (option?.success && deps.optionTickets === "close-only" && option.data.side !== "sell-to-close") {
         return { isError: true, output: [{ type: "text", text: "Option opening orders are disabled. Nothing was proposed." }] };
+      }
+      if (option?.success && deps.optionTickets === "xsp" && option.data.side === "buy-to-open" &&
+          (option.data.symbol !== "XSP" || option.data.contracts !== 1)) {
+        return { isError: true, output: [{ type: "text", text: "Opening is limited to one standard XSP contract. Nothing was proposed." }] };
       }
       const order = await gate.submit(
         {
@@ -194,7 +202,7 @@ export function createRiskExtension(deps: RiskToolsDeps): Extension {
       );
       const lines = [
         order.intent.longOption
-          ? `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.longOption.expiration} ${order.intent.longOption.strikeCents / 100} ${order.intent.longOption.contractType} ${order.intent.longOption.side} ${order.intent.longOption.contracts} contract(s) @ ${order.intent.limitPrice} USD/share)`
+          ? `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.longOption.expiration} ${order.intent.longOption.strikeCents / 100} ${order.intent.longOption.contractType} ${order.intent.longOption.side} ${order.intent.longOption.contracts} contract(s) @ ${order.intent.limitPrice} premium per unit)`
           : `order ${order.id}: ${order.status} (${order.intent.symbol} ${order.intent.side} ${order.intent.quantity} @ ${order.intent.limitPrice})`,
       ];
       for (const check of order.verdict.checks.filter((c) => !c.ok)) {

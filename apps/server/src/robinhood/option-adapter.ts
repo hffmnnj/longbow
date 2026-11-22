@@ -11,6 +11,8 @@ export const optionAdapterTools = [
   ...optionPreviewTools, "get_portfolio", "get_option_quotes", "get_option_orders",
   "get_option_positions", "place_option_order", "cancel_option_order",
 ] as const;
+// Reserve the highest disclosed XSP contract fee, regulatory/clearing and exchange fees.
+const XSP_FEE_RESERVE_CENTS = 65;
 type Operation = (typeof optionAdapterTools)[number];
 type Call = (name: Operation, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
@@ -75,6 +77,25 @@ function additionallyReservedBuyCents(orders: readonly OrderRecord[], fee: numbe
   return reserved;
 }
 
+function xspEntryAvailable(orders: readonly OrderRecord[]): boolean {
+  const net = new Map<string, number>();
+  for (const order of [...orders].sort((a, b) => a.createdAt - b.createdAt)) {
+    const ticket = order.intent.longOption;
+    if (["triggering", "submitted", "partially_filled"].includes(order.status) &&
+        (ticket || order.intent.side === "buy")) return false;
+    if (ticket?.symbol !== "XSP") continue;
+    const filled = order.filledQuantity ?? 0;
+    if (!Number.isSafeInteger(filled) || filled < 0 || filled > ticket.contracts ||
+        order.status === "filled" && filled !== ticket.contracts) return false;
+    // A close of a broker-side position must not offset a later local entry.
+    if (filled > 0) net.set(ticket.instrumentId, Math.max(0, (net.get(ticket.instrumentId) ?? 0) +
+      filled * (ticket.side === "buy-to-open" ? 1 : -1)));
+  }
+  // An expiry or a broker-side action can remove a position from the inventory
+  // without telling us what it settled for. That is not proof of a closed lot.
+  return [...net.values()].every((quantity) => quantity === 0);
+}
+
 export function createRobinhoodOptionAdapter(deps: {
   call: Call; clock: Clock; calendar: MarketCalendar;
   store: Pick<Store, "equityMarks" | "getSettings">;
@@ -82,6 +103,8 @@ export function createRobinhoodOptionAdapter(deps: {
   feeReservePerContractCents: number;
   /** Only a broker-verified policy for this exact account and contract may return true. */
   exerciseRiskControlled?: (ticket: LongOptionTicket, account: Readonly<Record<string, unknown>>) => Promise<boolean>;
+  /** Used only after verifying XSP on the dedicated account. */
+  allowXspOpen?: boolean;
 }): NonNullable<OrderGateDeps["options"]> {
   const { call, clock, calendar, store, feeReservePerContractCents } = deps;
   async function account(requireEntitlement = false) {
@@ -94,15 +117,18 @@ export function createRobinhoodOptionAdapter(deps: {
   const session = () => ({ date: calendar.etDate(clock.now()), isOpen: calendar.clock(clock.now()).isOpen });
   return {
     async facts(input, orders) {
-      const { ticket } = await findStandardOption(input, call);
+      const { ticket, settlement } = await findStandardOption(input, call);
       const { account: details, accountId } = await account(true);
-      const fee = units(feeReservePerContractCents);
+      const fee = units(settlement === "xsp-cash" ? XSP_FEE_RESERVE_CENTS : feeReservePerContractCents);
       const buy = ticket.side === "buy-to-open";
-      const [prices, value, positions, exerciseRiskControlled] = await Promise.all([
+      const verifyXspCapacity = buy && deps.allowXspOpen === true && settlement === "xsp-cash" && ticket.contracts === 1;
+      const [prices, value, positions, exerciseRiskControlled, working] = await Promise.all([
         call("get_option_quotes", { instrument_ids: [ticket.instrumentId] }),
         buy ? call("get_portfolio", { account_number: accountId }) : undefined,
-        buy ? undefined : call("get_option_positions", { account_number: accountId, option_ids: ticket.instrumentId, type: "long", nonzero: true }),
-        buy ? deps.exerciseRiskControlled?.(ticket, details) ?? false : false,
+        verifyXspCapacity ? call("get_option_positions", { account_number: accountId, nonzero: true })
+          : buy ? undefined : call("get_option_positions", { account_number: accountId, option_ids: ticket.instrumentId, type: "long", nonzero: true }),
+        buy && !verifyXspCapacity ? deps.exerciseRiskControlled?.(ticket, details) ?? false : false,
+        verifyXspCapacity ? call("get_option_orders", { account_number: accountId, state_group: "open" }) : undefined,
       ]);
       const now = clock.now();
       const date = calendar.etDate(now);
@@ -120,13 +146,18 @@ export function createRobinhoodOptionAdapter(deps: {
         money(record(value.buying_power).unleveraged_buying_power, true),
         money(value.cash, true) - money(value.pending_deposits, true) - money(details.unsettled_funds, true),
       ) : 0;
+      const xspCapacity = verifyXspCapacity && requireComplete(positions!, "positions").length === 0 &&
+        requireComplete(working!, "orders").length === 0 &&
+        xspEntryAvailable(orders);
       return { quote: parseQuote(prices, ticket.instrumentId), equityCents, accountPin: accountId,
         settledUnreservedCashCents: Math.max(0, cashCents - additionallyReservedBuyCents(orders, fee)),
-        sellableContracts: positions ? availableToClose(positions, ticket.instrumentId) : 0,
+        sellableContracts: !buy && positions ? availableToClose(positions, ticket.instrumentId) : 0,
         expirySession: expiry.tradingDay,
         sessionsUntilExpiry: ticket.expiration === date ? 0 : calendar.tradingDaysBetween(date, ticket.expiration) + 1,
         feeReservePerContractCents: fee,
-        entriesUsed: countSubmittedBuysToday(orders, date), entryHalted, exerciseRiskControlled: exerciseRiskControlled === true };
+        entriesUsed: countSubmittedBuysToday(orders, date), entryHalted,
+        ...(verifyXspCapacity ? { xspCapacity } : {}),
+        exerciseRiskControlled: exerciseRiskControlled === true || verifyXspCapacity };
     },
     review(ticket, accountPin) {
       return prepareOptionPlacement(ticket, call, session, accountPin);
