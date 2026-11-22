@@ -28,7 +28,7 @@ export interface OwnerMessageStore {
   ownerMessagesSince(since: number): OwnerMessage[];
 }
 
-export function openStore(path: string, _clock: Clock): Store & OwnerMessageStore {
+export function openStore(path: string, _clock: Clock, { reuseReplayReads = false } = {}): Store & OwnerMessageStore {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
@@ -77,8 +77,19 @@ export function openStore(path: string, _clock: Clock): Store & OwnerMessageStor
   const markColumns = db.prepare("PRAGMA table_info(equity_marks)").all() as { name: string }[];
   if (!markColumns.some((column) => column.name === "day_last")) db.exec("ALTER TABLE equity_marks ADD COLUMN day_last REAL");
 
+  // The replay watcher issues these reads every simulated minute. Reuse the
+  // statements, not the results, so status and settings changes stay visible.
+  const selectSettings = "SELECT value FROM kv WHERE key = 'settings'";
+  const selectOrder = "SELECT body FROM orders WHERE id = ?";
+  const selectOrdersSince = "SELECT body FROM orders WHERE created_at >= ? ORDER BY created_at ASC";
+  const replayReads = reuseReplayReads ? {
+    settings: db.prepare(selectSettings),
+    order: db.prepare(selectOrder),
+    ordersSince: db.prepare(selectOrdersSince),
+  } : undefined;
+
   const getSettings = (): ReturnType<Store["getSettings"]> => {
-    const row = db.prepare("SELECT value FROM kv WHERE key = 'settings'").get() as
+    const row = (replayReads?.settings ?? db.prepare(selectSettings)).get() as
       | { value: string }
       | undefined;
     if (row === undefined) {
@@ -195,7 +206,7 @@ export function openStore(path: string, _clock: Clock): Store & OwnerMessageStor
     },
 
     getOrder(id: string): OrderRecord | undefined {
-      const row = db.prepare("SELECT body FROM orders WHERE id = ?").get(id) as
+      const row = (replayReads?.order ?? db.prepare(selectOrder)).get(id) as
         | { body: string }
         | undefined;
       return row === undefined ? undefined : (JSON.parse(row.body) as OrderRecord);
@@ -209,8 +220,7 @@ export function openStore(path: string, _clock: Clock): Store & OwnerMessageStor
     },
 
     ordersSince(since: number): OrderRecord[] {
-      const rows = db
-        .prepare("SELECT body FROM orders WHERE created_at >= ? ORDER BY created_at ASC")
+      const rows = (replayReads?.ordersSince ?? db.prepare(selectOrdersSince))
         .all(since) as { body: string }[];
       return rows.map((row) => JSON.parse(row.body) as OrderRecord);
     },
