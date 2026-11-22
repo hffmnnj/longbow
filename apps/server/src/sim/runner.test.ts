@@ -680,6 +680,38 @@ test("missing SPY history rejects a historical replay instead of shifting to the
   }
 });
 
+test("invalid SPY benchmark prices fail a historical replay instead of scoring unusable metrics", async () => {
+  const cases = [
+    { label: "zero first open", date: "2026-04-17", patch: (bar: Bar): Bar => ({ ...bar, open: 0 }) },
+    { label: "negative final close", date: "2026-04-20", patch: (bar: Bar): Bar => ({ ...bar, close: -5 }) },
+  ];
+  for (const item of cases) {
+    const dataDir = mkdtempSync("/tmp/sim-invalid-spy-price-");
+    let cycles = 0;
+    const sim = createSimService({
+      config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills,
+      calendar: createNyseCalendar(),
+      fetchBars: async (symbol, from, to) => {
+        const bars = fixtureBars(symbol, from, to);
+        return symbol === "SPY" ? bars.map((bar) => (bar.date === item.date ? item.patch(bar) : bar)) : bars;
+      },
+      driver: async () => { cycles++; },
+    });
+    try {
+      const run = await sim.start({ startDate: "2026-04-17", days: 2, startingCash: 1200, cyclesPerDay: 2 }, "user");
+      const done = await waitForDone(sim, run.id);
+      assert.equal(done.status, "failed", `${item.label}: ${done.error ?? "replay completed with a malformed benchmark"}`);
+      assert.match(done.error ?? "", /Invalid replay benchmark price.*SPY.*2026-/, item.label);
+      assert.equal(cycles, 0, `${item.label}: no strategy cycle may run against an invalid benchmark`);
+      assert.deepEqual(done.equity, [], `${item.label}: no closing mark may be recorded`);
+      assert.deepEqual(done.fills, []);
+    } finally {
+      await sim.close();
+      cleanReplayCoverageFixture(dataDir, sim);
+    }
+  }
+});
+
 test("a replay refuses a missing SPY session that appears only after preflight", async () => {
   const dataDir = mkdtempSync("/tmp/sim-tape-changed-");
   let fetches = 0;
