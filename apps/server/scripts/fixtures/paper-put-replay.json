@@ -1,0 +1,64 @@
+{
+  "startingCashCents": 120000,
+  "maxPremiumAtRiskCents": 15000,
+  "feePerContractCents": 5,
+  "contracts": [
+    {
+      "id": "spy-put",
+      "underlying": "SPY",
+      "strikeCents": 65000,
+      "expiresAt": "2025-12-19T21:00:00Z",
+      "multiplier": 100
+    }
+  ],
+  "quotes": [
+    {
+      "at": "2025-11-21T15:00:00Z",
+      "contractId": "spy-put",
+      "bidCents": 88,
+      "askCents": 98,
+      "bidSize": 1,
+      "askSize": 1
+    },
+    {
+      "at": "2025-11-21T15:00:30Z",
+      "contractId": "spy-put",
+      "bidCents": 90,
+      "askCents": 100,
+      "bidSize": 1,
+      "askSize": 1
+    },
+    {
+      "at": "2025-11-21T15:05:00Z",
+      "contractId": "spy-put",
+      "bidCents": 90,
+      "askCents": 100,
+      "bidSize": 1,
+      "askSize": 1
+    },
+    {
+      "at": "2025-11-21T15:05:30Z",
+      "contractId": "spy-put",
+      "bidCents": 90,
+      "askCents": 100,
+      "bidSize": 1,
+      "askSize": 1
+    }
+  ],
+  "orders": [
+    {
+      "at": "2025-11-21T15:00:10Z",
+      "contractId": "spy-put",
+      "side": "buy",
+      "quantity": 1,
+      "limitCents": 100
+    },
+    {
+      "at": "2025-11-21T15:05:10Z",
+      "contractId": "spy-put",
+      "side": "sell",
+      "quantity": 1,
+      "limitCents": 90
+    }
+  ]
+}
