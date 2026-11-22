@@ -252,7 +252,7 @@ export function metricGroups(run: SimRun): MetricGroup[] {
   if (sortino !== undefined) risk.push({ label: "Sortino", text: sortino });
   const calmar = f2(m?.calmar);
   if (calmar !== undefined) risk.push({ label: "Calmar", text: calmar });
-  if (n) risk.push({ label: "Max drawdown", text: `${n.maxDrawdownPct.toFixed(2)}%` });
+  if (n) risk.push({ label: "Closing drawdown", text: `${n.maxDrawdownPct.toFixed(2)}%` });
   const vol = pct1(m?.volatilityPct);
   if (vol !== undefined) risk.push({ label: "Volatility", text: vol });
   if (risk.length) ret.push({ title: "Return and risk", rows: risk });
@@ -261,7 +261,7 @@ export function metricGroups(run: SimRun): MetricGroup[] {
   if (m) {
     trading.push({ label: "Round trips", text: String(m.roundTrips) });
     const wr = ff(m.winRatePct, (x) => `${x.toFixed(0)}%`);
-    if (wr !== undefined) trading.push({ label: "Win rate", text: wr });
+    if (wr !== undefined) trading.push({ label: "Closed-lot win rate", text: wr });
     const avgR = ff(m.avgR, (x) => `${x.toFixed(2)}R`);
     if (avgR !== undefined) trading.push({ label: "Avg R", text: avgR });
     const pf = f2(m.profitFactor);

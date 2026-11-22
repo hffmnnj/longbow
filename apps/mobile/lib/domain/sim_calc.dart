@@ -475,7 +475,7 @@ List<MetricGroup> metricGroups(SimRun run) {
   if (n != null) {
     risk.add(
       MetricRow(
-        label: 'Max drawdown',
+        label: 'Closing drawdown',
         text: '${n.maxDrawdownPct.toStringAsFixed(2)}%',
       ),
     );
@@ -488,7 +488,7 @@ List<MetricGroup> metricGroups(SimRun run) {
   if (m != null) {
     trading.add(MetricRow(label: 'Round trips', text: '${m.roundTrips}'));
     final wr = fmt(m.winRatePct, (x) => '${x.toStringAsFixed(0)}%');
-    if (wr != null) trading.add(MetricRow(label: 'Win rate', text: wr));
+    if (wr != null) trading.add(MetricRow(label: 'Closed-lot win rate', text: wr));
     final avgR = fmt(m.avgR, (x) => '${x.toStringAsFixed(2)}R');
     if (avgR != null) trading.add(MetricRow(label: 'Avg R', text: avgR));
     final pf = f2(m.profitFactor);

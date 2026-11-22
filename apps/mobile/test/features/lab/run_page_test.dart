@@ -164,7 +164,7 @@ void main() {
       expect(find.text('RETURN AND RISK'), findsOneWidget);
       expect(find.text('TRADING'), findsOneWidget);
       expect(find.text('COSTS'), findsOneWidget);
-      expect(find.text('Max drawdown'), findsOneWidget);
+      expect(find.text('Closing drawdown'), findsOneWidget);
       expect(find.text('Costs paid'), findsOneWidget);
       // Risk blocks render as one bar per rule, biggest first.
       expect(find.text('Risk blocks'), findsOneWidget);

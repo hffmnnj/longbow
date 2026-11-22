@@ -228,6 +228,10 @@ Controls (buttons, inputs, segmented tabs) at 6px, cards at 8px, chat bubbles an
 - **Job:** The chronological transcript with decision cards and tool traces, plus composer, approvals, and halt state.
 - **Deviations:** Max-width centered column; sticky bottom composer; Latest pill for jump-to-latest; activity groups inline, never pinned.
 
+### Lab
+
+- **Metric labels:** Closing drawdown reflects daily equity marks, not intraday extremes. Closed-lot win rate excludes positions that remain open at the end of the run.
+
 ## Decisions
 
 | Date | Decision | Why |

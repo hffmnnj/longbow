@@ -133,7 +133,7 @@ class RunCard extends StatelessWidget {
                               PctText(numbers.benchmarkReturnPct, size: 13),
                             ),
                             _Fig(
-                              'Max DD',
+                              'Closing DD',
                               Text(
                                 '${numbers.maxDrawdownPct.toStringAsFixed(2)}%',
                                 style: LbText.number(context, size: 13),

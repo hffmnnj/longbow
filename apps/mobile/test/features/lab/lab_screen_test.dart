@@ -239,7 +239,7 @@ void main() {
       // Both run labels head the table columns and the chart legend.
       expect(find.text(_blindTitle), findsWidgets);
       expect(find.text(_bootstrapTitle), findsWidgets);
-      expect(find.text('Max drawdown'), findsOneWidget);
+      expect(find.text('Closing drawdown'), findsOneWidget);
       expect(find.text('Window'), findsOneWidget);
     },
   );

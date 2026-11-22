@@ -80,9 +80,9 @@
     },
     { label: "Mean excess", get: (s) => fmt(s.meanExcessPct, " pts"), pnl: (s) => s.meanExcessPct },
     { label: "Beat benchmark", get: (s) => (s.beatBenchmarkPct === undefined ? "—" : `${Math.round(s.beatBenchmarkPct)}%`) },
-    { label: "Worst drawdown", get: (s) => (s.worstDrawdownPct === undefined ? "—" : `${s.worstDrawdownPct.toFixed(2)}%`) },
+    { label: "Worst closing drawdown", get: (s) => (s.worstDrawdownPct === undefined ? "—" : `${s.worstDrawdownPct.toFixed(2)}%`) },
     { label: "Median Sharpe", get: (s) => (s.medianSharpe === undefined ? "—" : s.medianSharpe.toFixed(2)) },
-    { label: "Win rate", get: (s) => (s.winRatePct === undefined ? "—" : `${Math.round(s.winRatePct)}%`) },
+    { label: "Closed-lot win rate", get: (s) => (s.winRatePct === undefined ? "—" : `${Math.round(s.winRatePct)}%`) },
     { label: "Avg R", get: (s) => (s.avgR === undefined ? "—" : `${s.avgR.toFixed(2)}R`) },
     { label: "Costs", get: (s) => (s.costsPct === undefined ? "—" : `${s.costsPct.toFixed(2)}%`) },
   ];

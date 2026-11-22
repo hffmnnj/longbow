@@ -85,7 +85,7 @@
         {#if numbers}
           <span class="text-muted-foreground">Return</span><Pnl percent={numbers.returnPct} class="text-[13px] font-medium" />
           <span class="text-muted-foreground">SPY</span><Pnl percent={numbers.benchmarkReturnPct} />
-          <span class="text-muted-foreground">Max DD</span><span>{numbers.maxDrawdownPct.toFixed(2)}%</span>
+          <span class="text-muted-foreground">Closing DD</span><span>{numbers.maxDrawdownPct.toFixed(2)}%</span>
         {:else}
           <span class="text-muted-foreground col-span-2">No closes yet</span>
         {/if}
