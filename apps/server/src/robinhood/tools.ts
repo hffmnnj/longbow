@@ -2,8 +2,9 @@ import { Type } from "typebox";
 import { defineExtension, defineTool, hook, ToolTask, type Extension } from "@earendil-works/pi-durable";
 import type { CallToolResult, Tool } from "@earendil-works/pi-mcp";
 import type { BrokerStatus } from "@rh/shared";
-import { findTool, responseObject, textContent, validateArguments } from "./mapping.ts";
+import { BrokerMappingError, findTool, responseObject, textContent, validateArguments } from "./mapping.ts";
 import { compareRobinhoodPuts, MAX_PUTS, optionResearchTools, type OptionResearchClock } from "./options-research.ts";
+import { getOptionReadiness, optionReadinessTools, optionPreviewTools, previewLongOption } from "./option-preflight.ts";
 
 const research = new Set([
   "search", "get_accounts", "get_portfolio", "get_realized_pnl", "get_pnl_trade_history",
@@ -22,7 +23,7 @@ const research = new Set([
 ]);
 
 export function beforeRobinhoodTool(call: { name: string }): { block: string } | undefined {
-  if (call.name.startsWith("rh_") && !["rh_status", "rh_compare_puts"].includes(call.name) && !allowedTool(call.name.slice(3))) {
+  if (call.name.startsWith("rh_") && !["rh_status", "rh_compare_puts", "rh_options_readiness", "rh_preview_long_option"].includes(call.name) && !allowedTool(call.name.slice(3))) {
     return { block: "This Robinhood tool is not available to the agent. Orders go through the deterministic order gate." };
   }
   return undefined;
@@ -35,7 +36,7 @@ export function allowedTool(name: string): boolean {
 }
 /** Any call to the real broker: read tools always, writes (place, cancel, ...) only with live trading unlocked. */
 export function robinhoodCallAllowed(name: string, liveTrading: boolean): boolean {
-  return liveTrading || allowedTool(name) || name === "review_equity_order";
+  return liveTrading || allowedTool(name) || name === "review_equity_order" || name === "review_option_order";
 }
 export function robinhoodExtension(options: {
   tools: Tool[]; status(): BrokerStatus;
@@ -43,7 +44,14 @@ export function robinhoodExtension(options: {
   marketClock?: () => OptionResearchClock;
 }): Extension {
   const marketClock = options.marketClock;
-  const canCompare = marketClock && optionResearchTools.every((name) => options.tools.some((tool) => tool.name === name));
+  const has = (names: readonly string[]) => names.every((name) => options.tools.some((tool) => tool.name === name));
+  const canCompare = marketClock && has(optionResearchTools);
+  const canReadiness = has(optionReadinessTools);
+  const canPreview = marketClock && has(optionPreviewTools);
+  const read = async (name: string, input: Record<string, unknown>, signal?: AbortSignal) => {
+    const reply = await options.call(name, validateArguments(findTool(options.tools, [name]), input), signal);
+    return responseObject(reply);
+  };
   return defineExtension({
     name: "robinhood",
     hooks: [hook(ToolTask, { beforeTool: beforeRobinhoodTool })],
@@ -54,6 +62,40 @@ export function robinhoodExtension(options: {
           return { output: [{ type: "text", text: JSON.stringify({ ...status, tools: status.tools.filter(allowedTool) }) }] };
         },
       }),
+      ...(canReadiness ? [defineTool({
+        name: "rh_options_readiness",
+        description: "Check options entitlement and Robinhood's trade approval setting for Longbow's dedicated MCP account. No account numbers or orders are returned.",
+        parameters: Type.Object({}), replay: "safe",
+        async execute(_args, _api, context) {
+          try {
+            return { output: [{ type: "text", text: JSON.stringify(await getOptionReadiness(read, context.abortSignal)) }] };
+          } catch {
+            return { isError: true, output: [{ type: "text", text: "Could not verify options eligibility and trade approvals for the dedicated Robinhood MCP account." }] };
+          }
+        },
+      })] : []),
+      ...(canPreview ? [defineTool({
+        name: "rh_preview_long_option",
+        description: "Non-executing Robinhood preview for an exact single-leg long equity call or put; requires options approval and regular hours. No order or approval request is created.",
+        parameters: Type.Object({
+          instrumentId: Type.String({ format: "uuid" }),
+          symbol: Type.String({ pattern: "^[A-Z][A-Z0-9.]{0,9}$" }),
+          expiration: Type.String({ pattern: "^\\d{4}-\\d\\d-\\d\\d$" }),
+          strikeCents: Type.Integer({ minimum: 1, maximum: 10_000_000 }),
+          contractType: Type.Union([Type.Literal("call"), Type.Literal("put")]),
+          side: Type.Union([Type.Literal("buy-to-open"), Type.Literal("sell-to-close")]),
+          contracts: Type.Integer({ minimum: 1, maximum: 100 }),
+          limitCents: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
+        }), replay: "unsafe",
+        async execute(args, _api, context) {
+          try {
+            return { output: [{ type: "text", text: JSON.stringify(await previewLongOption(args, read, marketClock, context.abortSignal)) }] };
+          } catch (error) {
+            const text = error instanceof BrokerMappingError ? error.message : "Robinhood option preview unavailable. Nothing was submitted.";
+            return { isError: true, output: [{ type: "text", text }] };
+          }
+        },
+      })] : []),
       ...(canCompare ? [defineTool({
         name: "rh_compare_puts",
         description: "Compare up to four exact puts at one expiration: quote freshness, bid/ask size, full contract premium and spread. Research only; never submits an order.",

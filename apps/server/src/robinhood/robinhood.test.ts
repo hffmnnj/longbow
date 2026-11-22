@@ -141,6 +141,39 @@ test("rh_status works disconnected", async () => {
   assert.deepEqual((await execute({})).output, [{ type: "text", text: '{"state":"needs_auth","tools":[]}' }]);
 });
 
+test("option preflight tools only appear for discovered capabilities and cannot execute a trade", async () => {
+  const reads: string[] = [];
+  const names = ["get_accounts", "get_trade_approval_setting", "get_option_instruments", "get_option_chains",
+    "review_option_order", "place_option_order", "cancel_option_order", "exercise_option"];
+  const options = {
+    status: () => ({ state: "connected" as const, tools: names }),
+    marketClock: () => ({ now: 1, date: "2026-11-20", isOpen: true, sessionOpen: 0 }),
+    call: async (name: string) => {
+      reads.push(name);
+      const data = name === "get_accounts"
+        ? { accounts: [{ agentic_allowed: true, account_number: "private-test-id", option_level: "" }] }
+        : { setting: { account_number: "private-test-id", human_must_approve_trades: false } };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ data }) }] };
+    },
+  };
+  const extension = robinhoodExtension({ ...options, tools: names.map(tool) });
+  const exposed = extension.tools?.map((candidate) => candidate.name);
+  assert.ok(exposed);
+  assert.ok(exposed.includes("rh_options_readiness") && exposed.includes("rh_preview_long_option"));
+  for (const name of ["rh_review_option_order", "rh_place_option_order", "rh_cancel_option_order", "rh_exercise_option"]) {
+    assert.equal(exposed.includes(name), false);
+    assert.ok(beforeRobinhoodTool({ name })?.block);
+  }
+  const missing = robinhoodExtension({ ...options, tools: [tool("get_accounts")] }).tools?.map((candidate) => candidate.name);
+  assert.deepEqual(missing, ["rh_status", "rh_get_accounts"]);
+  const readiness = extension.tools?.find((candidate) => candidate.name === "rh_options_readiness") as ToolRegistration;
+  const result = await readiness.execute({}, {} as never, { abortSignal: new AbortController().signal } as never);
+  assert.deepEqual(reads, ["get_accounts", "get_trade_approval_setting"]);
+  const payload = JSON.stringify(result);
+  assert.match(payload, /not-approved/);
+  assert.doesNotMatch(payload, /private-test-id/);
+});
+
 test("remote tool proxies only return bounded text and redact remote errors", async () => {
   let failure = false;
   const extension = robinhoodExtension({ tools: [tool("get_portfolio")], status: () => ({ state: "connected", tools: [] }),
@@ -265,11 +298,11 @@ test("review blocks approval requirements and alerts; sync maps terminal and par
 });
 
 test("the live-trading lock lets only read tools reach Robinhood until unlocked", () => {
-  for (const write of ["place_equity_order", "cancel_equity_order", "exercise_option", "place_crypto_order"]) {
+  for (const write of ["place_equity_order", "cancel_equity_order", "place_option_order", "cancel_option_order", "exercise_option", "place_crypto_order"]) {
     assert.equal(robinhoodCallAllowed(write, false), false, `${write} is blocked while locked`);
     assert.equal(robinhoodCallAllowed(write, true), true, `${write} is allowed once unlocked`);
   }
-  for (const read of ["get_accounts", "get_portfolio", "get_equity_quotes", "review_equity_order"]) {
+  for (const read of ["get_accounts", "get_portfolio", "get_equity_quotes", "review_equity_order", "review_option_order"]) {
     assert.equal(robinhoodCallAllowed(read, false), true, `${read} stays available while locked`);
   }
 });
