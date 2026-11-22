@@ -666,8 +666,27 @@ class HarnessStore extends Notifier<HarnessState> {
   }
 
   Future<void> approve(String id) async {
-    await _run('order:$id', (api) => api.approve(id),
+    final order = await _run('order:$id', (api) => api.approve(id),
         'Could not approve the order');
+    if (order == null || order.intent.longOption == null) return;
+    final (tone, title) = switch (order.status) {
+      OrderStatus.submitted => (
+          ToastTone.success,
+          'Option submitted to Robinhood. A fill is not confirmed.',
+        ),
+      OrderStatus.filled => (ToastTone.success, 'Option filled'),
+      OrderStatus.partiallyFilled => (ToastTone.info, 'Option partially filled'),
+      OrderStatus.triggering => (
+          ToastTone.info,
+          'Option submission uncertain. Reconcile before retrying.',
+        ),
+      OrderStatus.expired => (ToastTone.error, 'Option approval expired'),
+      OrderStatus.rejectedRisk ||
+      OrderStatus.failed =>
+        (ToastTone.error, 'Option not submitted. Check the order details.'),
+      _ => (ToastTone.info, 'Option not confirmed. Check the order details.'),
+    };
+    _toasts.add(ToastEvent(tone: tone, title: title));
   }
 
   Future<void> reject(String id, [String? reason]) async {

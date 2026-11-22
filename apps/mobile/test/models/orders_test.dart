@@ -46,6 +46,7 @@ void main() {
     final plain = OrderRecord.fromJson(base);
     expect(plain.ownerMessageId, isNull);
     expect(plain.intent.ownerInstruction, isNull);
+    expect(plain.intent.longOption, isNull);
 
     final owned = OrderRecord.fromJson({
       ...base,
@@ -58,5 +59,60 @@ void main() {
     expect(owned.ownerMessageId, 'm-7');
     expect(owned.intent.ownerInstruction, 'Buy a small piece of SPY');
     expect(owned.intent.symbol, plain.intent.symbol);
+  });
+
+  test('orders_optionalLongOptionParsesAndMalformedNeverThrowsOrBecomesStock', () {
+    final list =
+        jsonDecode(File('test/fixtures/orders.json').readAsStringSync())
+            as List;
+    final base = list.single as Map<String, dynamic>;
+    final baseIntent = base['intent'] as Map<String, dynamic>;
+
+    // Existing records without longOption still parse with a null ticket.
+    expect(
+      OrderRecord.fromJson(base).intent.longOption,
+      isNull,
+    );
+
+    final ticket = {
+      'instrumentId': '10000000-0000-0000-0000-000000000001',
+      'symbol': 'AAPL',
+      'expiration': '2026-12-18',
+      'strikeCents': 15000,
+      'contractType': 'put',
+      'side': 'buy-to-open',
+      'contracts': 2,
+      'limitCents': 175,
+    };
+    final option = OrderRecord.fromJson({
+      ...base,
+      'intent': {
+        ...baseIntent,
+        'symbol': 'AAPL',
+        'side': 'buy',
+        'quantity': 2,
+        'limitPrice': 1.75,
+        'orderType': 'limit',
+        'timeInForce': 'day',
+        'longOption': ticket,
+      },
+    });
+    expect(option.intent.longOption, isNotNull);
+    expect(option.intent.longOption!.contracts, 2);
+    expect(option.intent.longOption!.limitCents, 175);
+
+    // Unknown contract types and wrong value types stay present as an
+    // invalid ticket instead of throwing the order away or reading as stock.
+    final unknownType = OrderRecord.fromJson({
+      ...base,
+      'intent': {...baseIntent, 'longOption': {...ticket, 'contractType': 'stock'}},
+    });
+    expect(unknownType.intent.longOption, isNotNull);
+
+    final wrongTypes = OrderRecord.fromJson({
+      ...base,
+      'intent': {...baseIntent, 'longOption': {...ticket, 'limitCents': '175'}},
+    });
+    expect(wrongTypes.intent.longOption, isNotNull);
   });
 }

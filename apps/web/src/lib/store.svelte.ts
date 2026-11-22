@@ -415,7 +415,18 @@ class Harness {
   }
 
   async approve(id: string): Promise<void> {
-    await this.#run(`order:${id}`, (a) => a.approve(id), "Could not approve the order");
+    const order = await this.#run(`order:${id}`, (a) => a.approve(id), "Could not approve the order");
+    if (!order?.intent.longOption) return;
+    switch (order.status) {
+      case "submitted": toast.success("Option submitted to Robinhood", { description: "A fill is not confirmed." }); break;
+      case "filled": toast.success("Option filled"); break;
+      case "partially_filled": toast.info("Option partially filled"); break;
+      case "triggering": toast.warning("Option submission uncertain", { description: "Reconcile with Robinhood before retrying." }); break;
+      case "expired": toast.error("Option approval expired"); break;
+      case "rejected_risk":
+      case "failed": toast.error("Option not submitted", { description: order.error ?? "Review the order details for the failed check." }); break;
+      default: toast.info("Option not confirmed", { description: "Check the order details for its latest status." });
+    }
   }
 
   async reject(id: string, reason?: string): Promise<void> {

@@ -6,6 +6,36 @@ part of 'orders.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+LongOptionTicket _$LongOptionTicketFromJson(Map<String, dynamic> json) =>
+    LongOptionTicket(
+      instrumentId: json['instrumentId'] as String,
+      symbol: json['symbol'] as String,
+      expiration: json['expiration'] as String,
+      strikeCents: (json['strikeCents'] as num).toInt(),
+      contractType: $enumDecode(
+        _$OptionContractTypeEnumMap,
+        json['contractType'],
+        unknownValue: OptionContractType.call,
+      ),
+      side: $enumDecode(
+        _$OptionTicketSideEnumMap,
+        json['side'],
+        unknownValue: OptionTicketSide.buyToOpen,
+      ),
+      contracts: (json['contracts'] as num).toInt(),
+      limitCents: (json['limitCents'] as num).toInt(),
+    );
+
+const _$OptionContractTypeEnumMap = {
+  OptionContractType.call: 'call',
+  OptionContractType.put: 'put',
+};
+
+const _$OptionTicketSideEnumMap = {
+  OptionTicketSide.buyToOpen: 'buy-to-open',
+  OptionTicketSide.sellToClose: 'sell-to-close',
+};
+
 OrderIntent _$OrderIntentFromJson(Map<String, dynamic> json) => OrderIntent(
   symbol: json['symbol'] as String,
   side: $enumDecode(
@@ -38,6 +68,7 @@ OrderIntent _$OrderIntentFromJson(Map<String, dynamic> json) => OrderIntent(
   evidence: (json['evidence'] as List<dynamic>)
       .map((e) => e as String)
       .toList(),
+  longOption: _longOptionFromJson(json['longOption']),
 );
 
 const _$OrderSideEnumMap = {OrderSide.buy: 'buy', OrderSide.sell: 'sell'};

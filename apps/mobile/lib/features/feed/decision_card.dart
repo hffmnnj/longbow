@@ -168,10 +168,10 @@ class _DecisionCardState extends ConsumerState<DecisionCard> {
               onPressed: () => AppNav.order(context, order.id),
               icon: const LbIcon(LbIcons.arrowRight01, size: 14),
               iconAlignment: IconAlignment.end,
-              label: Semantics(label: 'Open order: ${statusLabel(order.status)}', excludeSemantics: true, child: Text(statusLabel(order.status))),
+              label: Semantics(label: 'Open order: ${orderStatusLabel(order)}', excludeSemantics: true, child: Text(orderStatusLabel(order))),
             )
           else
-            Text(statusLabel(order.status), style: LbText.muted(context, size: 12.5)),
+            Text(orderStatusLabel(order), style: LbText.muted(context, size: 12.5)),
         ],
       );
     }

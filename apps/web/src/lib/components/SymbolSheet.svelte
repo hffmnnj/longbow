@@ -14,7 +14,7 @@
   import { rangePosition } from "$lib/analytics";
   import { clock } from "$lib/clock.svelte";
   import { ago, isoDay, pct, priceFor, qtyFor, qtyUnit, usd, usdCompact } from "$lib/format";
-  import { notional, STATUS_LABEL } from "$lib/orders";
+  import { notional, isOptionIntent, isValidOptionIntent, optionLimitPerShare, optionStrike, optionTotal, optionTypeLabel, orderStatusLabel } from "$lib/orders";
   import { harness } from "$lib/store.svelte";
   import { openNote, openOrder, ui } from "$lib/ui.svelte";
   import { cn } from "$lib/utils.js";
@@ -218,11 +218,19 @@
           {:else}
             <ul class="divide-border border-border divide-y rounded-lg border">
               {#each orders.slice(0, 6) as o (o.id)}
+                {@const opt = isOptionIntent(o.intent) ? o.intent.longOption : undefined}
+                {@const optValid = isValidOptionIntent(o.intent)}
                 <li>
                   <button class="hover:bg-muted/50 flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left" onclick={() => openOrder(o.id)}>
                     <SideBadge side={o.intent.side} />
-                    <span class="num min-w-0 flex-1 text-[13px]">{qtyFor(o.intent.symbol, o.intent.quantity)} @ {usd(o.intent.limitPrice)} <span class="text-muted-foreground">· {usd(notional(o.intent))}</span></span>
-                    <span class="text-muted-foreground shrink-0 text-[12px]">{STATUS_LABEL[o.status]} · {ago(o.createdAt, clock.now)}</span>
+                    {#if opt && optValid}
+                      <span class="num min-w-0 flex-1 text-[13px]">Option · {opt.contracts} {opt.contracts === 1 ? "contract" : "contracts"} · {usd(optionStrike(opt))} {optionTypeLabel(opt).toLowerCase()} · {usd(optionLimitPerShare(opt))}/sh <span class="text-muted-foreground">· {usd(optionTotal(opt))}</span></span>
+                    {:else if opt}
+                      <span class="num text-destructive min-w-0 flex-1 text-[13px]">Option · details need review</span>
+                    {:else}
+                      <span class="num min-w-0 flex-1 text-[13px]">{qtyFor(o.intent.symbol, o.intent.quantity)} @ {usd(o.intent.limitPrice)} <span class="text-muted-foreground">· {usd(notional(o.intent))}</span></span>
+                    {/if}
+                    <span class="text-muted-foreground shrink-0 text-[12px]">{orderStatusLabel(o)} · {ago(o.createdAt, clock.now)}</span>
                   </button>
                 </li>
               {/each}

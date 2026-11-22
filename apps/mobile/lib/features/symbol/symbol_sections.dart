@@ -185,10 +185,16 @@ class _OrderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final o = order;
-    final status = '${statusLabel(o.status)} \u00b7 ${ago(o.createdAt, now: now)}';
+    final ticket = o.intent.longOption;
+    final status = '${orderStatusLabel(o)} \u00b7 ${ago(o.createdAt, now: now)}';
+    final action = ticket != null && isValidOptionIntent(o.intent)
+        ? optionSideLabel(ticket)
+        : o.intent.side == OrderSide.buy
+            ? 'Buy'
+            : 'Sell';
     return Semantics(
       button: true,
-      label: '${o.intent.side == OrderSide.buy ? 'Buy' : 'Sell'} ${orderLine(o)}, $status',
+      label: '$action ${orderLine(o)}, $status',
       excludeSemantics: true,
       child: InkWell(
         onTap: () => AppNav.order(context, o.id),

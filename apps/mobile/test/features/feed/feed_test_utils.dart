@@ -96,6 +96,8 @@ OrderRecord order(
   double quantity = 3,
   String? ownerMessageId,
   String? ownerInstruction,
+  LongOptionTicket? longOption,
+  String symbol = 'NVDA',
 }) =>
     OrderRecord(
       id: id,
@@ -103,11 +105,13 @@ OrderRecord order(
       updatedAt: createdAt,
       ownerMessageId: ownerMessageId,
       intent: OrderIntent(
-        symbol: 'NVDA',
-        side: OrderSide.buy,
-        quantity: quantity,
+        symbol: longOption?.symbol ?? symbol,
+        side: longOption != null
+            ? (longOption.side == OptionTicketSide.buyToOpen ? OrderSide.buy : OrderSide.sell)
+            : OrderSide.buy,
+        quantity: longOption != null ? longOption.contracts.toDouble() : quantity,
         orderType: OrderType.limit,
-        limitPrice: 501.25,
+        limitPrice: longOption != null ? longOption.limitCents / 100 : 501.25,
         timeInForce: TimeInForce.day,
         invalidationPrice: 480,
         timeStopDate: '2026-11-06',
@@ -119,6 +123,7 @@ OrderRecord order(
         sector: 'Technology',
         ownerInstruction: ownerInstruction,
         evidence: const ['RSI(2) at 8', 'Held the 50-day average'],
+        longOption: longOption,
       ),
       verdict: RiskVerdict(approved: true, isExit: false, checks: checks),
       status: status,
