@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFAULT_SETTINGS,
   type AccountSnapshot,
@@ -20,6 +23,7 @@ import {
 import { createOrderGate } from "./gate.ts";
 import { createNyseCalendar } from "./calendar.ts";
 import { watchStops } from "./stops.ts";
+import { openStore } from "../db/store.ts";
 import { BrokerMappingError, FractionalPreflightError, PlacementQuoteUnavailableError, fractionalExecution } from "../robinhood/mapping.ts";
 import type { Broker, Clock, EventBus, Logger, MarketData, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
@@ -250,7 +254,7 @@ function setup(options?: {
     ...(options?.ownerMessages === undefined ? {} : { ownerMessagesSince: (since: number) => options.ownerMessages!.filter((message) => message.at >= since) }),
   };
   const gate = createOrderGate(deps);
-  return { store, broker, gate, events, market, restartGate: () => createOrderGate(deps), setNow: (t: number) => (now = t) };
+  return { store, broker, gate, events, market, createGateForStore: (store: Store) => createOrderGate({ ...deps, store }), setNow: (t: number) => (now = t) };
 }
 
 const optionIntent = (): OrderIntent => ({
@@ -301,6 +305,10 @@ describe("long options in the shared order gate", () => {
   });
 
   it("claims the order before sending, refuses a second tap after restart, and preserves a partial fill on cancel", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "longbow-options-gate-")), "app.sqlite");
+    const clock = { now: () => NOW };
+    const store = openStore(path, clock);
+    store.patchSettings({ risk: { maxSpreadBps: 100, maxRiskPerTradePct: 2 } });
     const sent: string[] = [];
     const cancelled: string[] = [];
     const f = setup({ mode: "auto", optionBroker: {
@@ -309,7 +317,7 @@ describe("long options in the shared order gate", () => {
         noAlerts: true, approvalRequired: false,
         place: async (id) => {
           sent.push(id);
-          assert.equal(f.store.getOrder(id)?.status, "triggering");
+          assert.equal(openStore(path, clock).getOrder(id)?.status, "triggering");
           throw new Error("accepted but response lost");
         },
       }),
@@ -321,13 +329,12 @@ describe("long options in the shared order gate", () => {
       },
       cancel: async (o) => { cancelled.push(o.brokerOrderId!); },
     } });
-    f.store.settings.risk.maxSpreadBps = 100;
-    f.store.settings.risk.maxRiskPerTradePct = 2;
+    const initialGate = f.createGateForStore(store);
     const intent = optionIntent();
-    const o = await f.gate.submit({ ...intent, quantity: 2, longOption: { ...intent.longOption!, contracts: 2 } });
+    const o = await initialGate.submit({ ...intent, quantity: 2, longOption: { ...intent.longOption!, contracts: 2 } });
     assert.equal(o.status, "pending_approval");
-    assert.equal((await f.gate.approve(o.id)).status, "triggering");
-    const gate = f.restartGate();
+    assert.equal((await initialGate.approve(o.id)).status, "triggering");
+    const gate = f.createGateForStore(openStore(path, clock));
     await assert.rejects(gate.approve(o.id), /not pending approval/);
     assert.deepEqual(sent, [o.id]);
     await gate.sync();
