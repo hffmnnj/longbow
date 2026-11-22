@@ -114,23 +114,23 @@ test("real OAuth flow preserves a grant on server_error and clears it on invalid
 });
 
 function tool(name: string): Tool { return { name, inputSchema: { type: "object", properties: {} } }; }
-test("model exposure hides place tools, retains reads and review, and installs a blocking hook", () => {
+test("model exposure retains known reads but leaves order review and placement to the gate", () => {
   const extension = robinhoodExtension({ tools: [tool("place_equity_order"), tool("review_equity_order"), tool("get_portfolio")],
     status: () => ({ state: "needs_auth", tools: [] }), call: async () => { throw new Error("must not call"); },
   });
-  assert.deepEqual(extension.tools?.map((tool) => tool.name), ["rh_status", "rh_review_equity_order", "rh_get_portfolio"]);
+  assert.deepEqual(extension.tools?.map((tool) => tool.name), ["rh_status", "rh_get_portfolio"]);
   const handler = extension.hooks?.[0]?.handlers as { beforeTool(call: { name: string }): unknown };
-  assert.deepEqual(handler.beforeTool({ name: "rh_place_equity_order" }), { block: "Order placement is only available through the deterministic order gate." });
-  assert.equal(handler.beforeTool({ name: "rh_review_equity_order" }), undefined);
+  assert.ok(handler.beforeTool({ name: "rh_place_equity_order" }));
+  assert.ok(handler.beforeTool({ name: "rh_review_equity_order" }));
 });
 
 test("registry reinstall replaces removed tools rather than accumulating stale proxies", () => {
   const registry = createRegistry();
   const options = { status: () => ({ state: "needs_auth" as const, tools: [] }), call: async () => ({ content: [] }) };
   registry.install(robinhoodExtension({ ...options, tools: [tool("get_portfolio")] }));
-  registry.install(robinhoodExtension({ ...options, tools: [tool("get_quote")] }));
+  registry.install(robinhoodExtension({ ...options, tools: [tool("get_equity_quotes")] }));
   assert.equal(registry.snapshot().installed().length, 1);
-  assert.deepEqual(registry.snapshot().tools().map(({ tool }) => tool.name), ["rh_status", "rh_get_quote"]);
+  assert.deepEqual(registry.snapshot().tools().map(({ tool }) => tool.name), ["rh_status", "rh_get_equity_quotes"]);
 });
 
 test("rh_status works disconnected", async () => {
@@ -250,8 +250,9 @@ test("fractional execution refuses the observed SPY buy ceiling below the ask wi
   assert.deepEqual(fractionalExecution({ ...order, limitPrice: 770.53 }, quote, true), { market: true });
 });
 test("mutating Robinhood tools are neither exposed nor callable", () => {
-  const forbidden = ["exercise_option", "cancel_equity_order", "place_equity_order", "create_alert", "review_option_order", "get_limited_margin_upgrade_info"];
-  assert.deepEqual(modelTools([...forbidden, "get_accounts", "search", "review_equity_order"].map(tool)).map((t) => t.name), ["get_accounts", "search", "review_equity_order"]);
+  const forbidden = ["exercise_option", "cancel_equity_order", "place_equity_order", "create_alert", "review_option_order", "place_option_order",
+    "review_equity_order", "get_limited_margin_upgrade_info", "get_bank_accounts", "get_credit_transactions", "get_new_unknown_tool"];
+  assert.deepEqual(modelTools([...forbidden, "get_accounts", "search", "get_option_quotes"].map(tool)).map((t) => t.name), ["get_accounts", "search", "get_option_quotes"]);
   for (const name of forbidden) assert.ok(beforeRobinhoodTool({ name: `rh_${name}` })?.block);
   assert.equal(beforeRobinhoodTool({ name: "rh_get_accounts" }), undefined);
 });

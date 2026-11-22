@@ -374,7 +374,13 @@ export function createRobinhoodBroker(deps: {
       return place(intent, await execution(intent, "place"));
     },
     onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    extension() { return robinhoodExtension({ tools, status: () => broker.status(), call }); },
+    extension() {
+      return robinhoodExtension({ tools, status: () => broker.status(), call, marketClock: () => {
+        const now = clock.now();
+        const session = calendar.clock(now);
+        return { now, date: calendar.etDate(now), isOpen: session.isOpen, sessionOpen: session.nextOpen };
+      } });
+    },
     attach(registry) { registries.add(registry); registry.install(broker.extension()); },
   };
   void serial(async () => {

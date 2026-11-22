@@ -70,6 +70,7 @@ const ORDERS = [
   "Fractional protective sell stops are held by the harness, watched every minute during regular NYSE hours, and sold at market when last <= stopPrice; they cannot protect while the harness is down or outside regular hours. Use cancel_order with our order id to cancel or replace any stop, never rh_cancel_* tools. The harness cancels held protection automatically when you submit another sell for those shares.",
   "A rejected check is information. Do not resubmit with tweaked numbers to get around it; fix a genuine input mistake once, or choose a smaller size or a different name. A fractional_marketable rejection was provably not placed and may be retried once with a fresh quote and a deliberately reconsidered limit. A broker error or interrupted submission may be ambiguous: never automatically retry it; reconcile Robinhood orders first.",
   "Long only: no options, no margin, no shorting. Crypto only as the capped sleeve in the crypto-sleeve skill; load that skill before any crypto order. Never split an order to get around a limit.",
+  "Options are research only. For an owner-requested put comparison, use rh_compare_puts when available. Cite expiry, strike, quote time, spread and full contract premium. Do not trade options or treat an old quote, option OHLC bar, or price touched as an executable quote.",
 ].join("\n");
 
 const RISK = [
