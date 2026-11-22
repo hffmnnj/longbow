@@ -73,6 +73,28 @@ test("an early-close tape has 210 minutes and reports its last close at 13:00", 
   at(day, 13);
   assert.equal((await broker.quote("SPY")).last, 410, "the early close uses the last of 210 closes");
 });
+test("a pre-open quote carries the same recorded close as the prior session", async () => {
+  const nextDay = "2026-07-02";
+  const bars = [...dailyBars(), { date: nextDay, open: 105, low: 104, high: 109, close: 108, volume: 10_000_000 }];
+  const recorded = (open: number, close: number) => ({ open, closes: Array<number>(REGULAR_MINUTES).fill(close) });
+  const { broker, at } = fixture((symbol, date) => {
+    if (symbol !== "SPY") return undefined;
+    if (date === DAY) return recorded(96, 98);
+    if (date === nextDay) return recorded(105, 108);
+    return undefined;
+  }, { bars });
+  at(DAY, 16);
+  assert.equal((await broker.quote("SPY")).last, 98);
+  at(nextDay, 9, 29);
+  assert.equal((await broker.quote("SPY")).last, 98, "no price change before an opening print");
+  assert.equal((await broker.quote("QQQ")).last, 95, "unrecorded symbols use the prior daily close");
+  at(nextDay, 9, 30);
+  assert.equal((await broker.quote("SPY")).last, 105);
+
+  const noPriorBar = fixture(() => recorded(105, 108), { day: nextDay, bars: [bars.at(-1)!] });
+  noPriorBar.at(nextDay, 9, 29);
+  await assert.rejects(noPriorBar.broker.quote("SPY"), /No historical quote/, "do not expose the new open with no prior bar");
+});
 test("a delayed realistic fractional fill prices from the observed minute at its latency due", async () => {
   const { broker, at } = fixture((symbol, day) => symbol === "SPY" && day === DAY ? ramp() : undefined);
   at(DAY, 10, 14, 30);
@@ -139,7 +161,7 @@ test("a selected tape with a missing minute fails instead of falling back, while
 });
 
 test("rejects recorded prices on a different split basis from the daily tape", async () => {
-  const { broker, at } = fixture(() => ramp(950, 951));
+  const { broker, at } = fixture((_, date) => date === DAY ? ramp(950, 951) : undefined);
   at(DAY, 9, 29);
   assert.equal((await broker.quote("SPY")).last, 99, "the current session is not yet used");
   at(DAY, 9, 30);
