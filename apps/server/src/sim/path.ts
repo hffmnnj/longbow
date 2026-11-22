@@ -58,6 +58,9 @@ export function assertReplayBenchmarkCoverage(dates: string[], startDate: string
 /** Intraday grid for realistic execution: 78 five-minute intervals from 09:30 to 16:00 ET. */
 export const REALISTIC_INTERVALS = 78;
 
+// Different seeds and price tapes can create new paths for the same session.
+// Keep recent insertions for replay without retaining every prior experiment.
+const MAX_CACHED_PATHS = 1024;
 const realisticCache = new Map<string, { at: number; price: number }[]>();
 
 function hashSeed(value: string): number {
@@ -172,6 +175,10 @@ export function realisticPath(bar: Bar, symbol: string, seed: number, close = et
   const cached = realisticCache.get(key);
   if (cached !== undefined) return cached.map((p) => ({ ...p }));
   const points = buildRealisticPath(bar, symbol, seed, close);
+  if (realisticCache.size >= MAX_CACHED_PATHS) {
+    const oldest = realisticCache.keys().next();
+    if (!oldest.done) realisticCache.delete(oldest.value);
+  }
   realisticCache.set(key, points);
   return points.map((p) => ({ ...p }));
 }
