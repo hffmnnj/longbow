@@ -329,9 +329,14 @@ export function earningsSessionsUntil(todayEt: string, reportEt: string, trading
   return reportEt === todayEt ? 0 : tradingDaysBetween(todayEt, reportEt) + 1;
 }
 
-export function createNyseCalendar(): MarketCalendar {
+export function createNyseCalendar({ reuseRegularSession = false } = {}): MarketCalendar {
+  let regular: Pick<MarketClock, "tradingDay" | "nextOpen" | "nextClose" | "earlyClose"> | undefined;
+  const knownSession = (now: number) =>
+    regular !== undefined && now >= regular.nextOpen && now < regular.nextClose ? regular : undefined;
   return {
     clock(now: number): MarketClock {
+      const known = knownSession(now);
+      if (known !== undefined) return { now, session: "regular", isOpen: true, ...known };
       const today = etWall(now).date;
       // The relevant session: today while its post-market is still ahead,
       // otherwise the next trading day.
@@ -352,6 +357,9 @@ export function createNyseCalendar(): MarketCalendar {
         } else if (now >= nextOpen && now < nextClose) {
           session = "regular";
           isOpen = true;
+          // Paper runs step through one session minute by minute; only reuse
+          // the calendar bounds inside the exact regular session we resolved.
+          if (reuseRegularSession) regular = { tradingDay: day, nextOpen, nextClose, earlyClose };
         } else if (now >= nextClose && now < postEnd) {
           session = "post";
         }
@@ -360,7 +368,7 @@ export function createNyseCalendar(): MarketCalendar {
     },
 
     etDate(now: number): string {
-      return etWall(now).date;
+      return knownSession(now)?.tradingDay ?? etWall(now).date;
     },
 
     tradingDaysBetween(fromEtDate: string, toEtDate: string): number {
