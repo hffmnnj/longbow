@@ -85,6 +85,19 @@ void main() {
     expect(suite.comparison!.metric, 'excessReturnPct');
     expect(suite.comparison!.pairs, 3);
     expect(suite.runs.length, lessThanOrEqualTo(5));
+    expect(suite.summary.every((s) => s.noFillRuns == null), isTrue);
+  });
+
+  test('sim_parsesSuiteNoFillCount', () {
+    final json = {'label': 'A', 'runs': 3, 'done': 3, 'failed': 0};
+    expect(
+      SimSuiteVariantSummary.fromJson({...json, 'noFillRuns': 2}).noFillRuns,
+      2,
+    );
+    expect(
+      SimSuiteVariantSummary.fromJson({...json, 'noFillRuns': 0}).noFillRuns,
+      0,
+    );
   });
 
   test('sim_parsesScenarios', () {

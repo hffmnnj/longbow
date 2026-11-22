@@ -72,6 +72,7 @@
   }
   const summaryRows: SummaryRow[] = [
     { label: "Runs done", get: (s) => `${s.done}/${s.runs}` },
+    { label: "Finished without fills", get: (s) => (s.noFillRuns === undefined ? "—" : `${s.noFillRuns}`) },
     { label: "Mean return", get: (s) => fmt(s.meanReturnPct, "%"), pnl: (s) => s.meanReturnPct },
     { label: "Median return", get: (s) => fmt(s.medianReturnPct, "%"), pnl: (s) => s.medianReturnPct },
     {

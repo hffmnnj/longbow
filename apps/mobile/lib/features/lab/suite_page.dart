@@ -246,6 +246,10 @@ class _SummaryRow {
 final List<_SummaryRow> _summaryRows = [
   _SummaryRow('Runs done', (s) => '${s.done}/${s.runs}'),
   _SummaryRow(
+    'Finished without fills',
+    (s) => s.noFillRuns == null ? simDash : '${s.noFillRuns}',
+  ),
+  _SummaryRow(
     'Mean return',
     (s) => _fmt(s.meanReturnPct, '%'),
     pnl: (s) => s.meanReturnPct,
