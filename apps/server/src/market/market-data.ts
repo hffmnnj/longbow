@@ -250,7 +250,8 @@ export function createPointInTimeMarketData(base: Pick<MarketData, "history">, a
       const bars = underlying.bars.filter((b) => b.date <= cutoff);
       const want = isCryptoSymbol(symbol) ? RANGE_CALENDAR_DAYS[range] : RANGE_SESSIONS[range];
       const window = bars.length > want ? bars.slice(bars.length - want) : bars;
-      return { symbol, bars: window, source: underlying.source, asOf: endOfEtDateMs(cutoff) };
+      // Replay callers must not be able to modify the paper broker's input tape.
+      return { symbol, bars: window.map((bar) => ({ ...bar })), source: underlying.source, asOf: endOfEtDateMs(cutoff) };
     },
     nextEarnings: async () => undefined,
     avgDollarVolume: async (symbol, days) => {
