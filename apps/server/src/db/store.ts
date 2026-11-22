@@ -10,7 +10,7 @@ import {
   type Report,
   type ReportKind,
 } from "@rh/shared";
-import type { Clock, Store } from "../ports.ts";
+import type { Clock, OptionApprovalReceipt, Store } from "../ports.ts";
 import { summarizeReport } from "../reports/ids.ts";
 
 /**
@@ -54,6 +54,12 @@ export function openStore(path: string, _clock: Clock, { reuseReplayReads = fals
       body TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS orders_created ON orders (created_at DESC);
+    CREATE TABLE IF NOT EXISTS option_approval_receipts (
+      order_id TEXT PRIMARY KEY REFERENCES orders(id),
+      account_pin TEXT NOT NULL,
+      approval_id TEXT NOT NULL,
+      UNIQUE (account_pin, approval_id)
+    );
     CREATE TABLE IF NOT EXISTS owner_messages (
       id TEXT PRIMARY KEY,
       at INTEGER NOT NULL,
@@ -223,6 +229,17 @@ export function openStore(path: string, _clock: Clock, { reuseReplayReads = fals
       const rows = (replayReads?.ordersSince ?? db.prepare(selectOrdersSince))
         .all(since) as { body: string }[];
       return rows.map((row) => JSON.parse(row.body) as OrderRecord);
+    },
+
+    optionApprovals: {
+      get(orderId) {
+        return db.prepare("SELECT account_pin AS accountPin, approval_id AS approvalId FROM option_approval_receipts WHERE order_id = ?")
+          .get(orderId) as OptionApprovalReceipt | undefined;
+      },
+      save(orderId, receipt) {
+        db.prepare("INSERT INTO option_approval_receipts (order_id, account_pin, approval_id) VALUES (?, ?, ?)")
+          .run(orderId, receipt.accountPin, receipt.approvalId);
+      },
     },
 
     markEquity(_at: number, etDate: string, equity: number): void {

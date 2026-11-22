@@ -17,7 +17,7 @@ const diagnosticOperations = new Set([
   "get_crypto_positions", "get_crypto_quotes", "get_crypto_orders", "get_pnl_trade_history",
   "review_equity_order", "place_equity_order", "cancel_equity_order", "preview_crypto_order",
   "place_crypto_order", "cancel_crypto_order", "search", "run_scan", "preview_scan",
-  "get_trade_approval_setting", "get_option_instruments", "get_option_chains", "review_option_order",
+  "get_trade_approval_setting", "get_trade_approvals", "get_option_instruments", "get_option_chains", "review_option_order",
   "get_option_quotes", "get_option_positions", "get_option_orders", "place_option_order", "cancel_option_order",
 ]);
 const diagnosticOperation = (name: string): string => diagnosticOperations.has(name) ? name : "unknown";

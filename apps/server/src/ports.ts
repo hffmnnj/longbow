@@ -118,6 +118,11 @@ export interface Store {
   listOrders(limit: number): OrderRecord[];
   /** Oldest first, createdAt >= since. */
   ordersSince(since: number): OrderRecord[];
+  /** Private broker receipt; not part of the API's OrderRecord. */
+  optionApprovals?: {
+    get(orderId: string): OptionApprovalReceipt | undefined;
+    save(orderId: string, receipt: OptionApprovalReceipt): void;
+  };
 
   /** Records an equity observation; the first of each ET day and the max of each ET month are kept. */
   markEquity(at: number, etDate: string, equity: number): void;
@@ -132,6 +137,11 @@ export interface Store {
   report(id: string): Report | undefined;
   /** Report summaries, newest first. */
   reports(query: { kind?: ReportKind; limit: number }): ReportSummary[];
+}
+
+export interface OptionApprovalReceipt {
+  accountPin: string;
+  approvalId: string;
 }
 
 /**

@@ -364,6 +364,100 @@ describe("long options in the shared order gate", () => {
   });
 });
 
+describe("uncertain option attempts", () => {
+  type OptionBroker = NonNullable<Parameters<typeof createOrderGate>[0]["options"]>;
+  const otherInstrument = "10000000-0000-0000-0000-000000000002";
+  const closeIntent = (base: OrderIntent): OrderIntent => ({
+    ...base, side: "sell", longOption: { ...base.longOption!, side: "sell-to-close" },
+  });
+  const otherContract = (): OrderIntent => {
+    const base = optionIntent();
+    return { ...base, symbol: "MSFT", longOption: {
+      ...base.longOption!, instrumentId: otherInstrument, symbol: "MSFT", strikeCents: 40_000, contractType: "call",
+    } };
+  };
+  const seedUncertain = (f: ReturnType<typeof setup>): OrderRecord => f.store.addOrder({
+    createdAt: NOW, updatedAt: NOW, intent: optionIntent(),
+    verdict: { approved: true, isExit: false, checks: [] },
+    status: "triggering",
+    error: "Option submission is uncertain. Reconcile with Robinhood before any retry.",
+  });
+  const unusedReview: OptionBroker["review"] = async () => assert.fail("a blocked ticket must not reach broker review");
+
+  it("keeps an ambiguous send triggering and never retries it", async () => {
+    let reviews = 0;
+    let places = 0;
+    const f = setup({ optionBroker: {
+      facts: optionFacts,
+      review: async () => {
+        reviews += 1;
+        return { noAlerts: true, approvalRequired: false,
+          place: async () => { places += 1; throw new Error("accepted but response lost"); } };
+      },
+      reconcile: async () => undefined, cancel: async () => {},
+    } });
+    f.store.settings.risk.maxSpreadBps = 100;
+    const order = await f.gate.submit(optionIntent());
+    assert.equal(order.status, "pending_approval");
+    const uncertain = await f.gate.approve(order.id);
+    assert.equal(uncertain.status, "triggering");
+    assert.match(uncertain.error ?? "", /uncertain/i);
+    assert.match(uncertain.error ?? "", /reconcile/i);
+    assert.equal(places, 1);
+    await assert.rejects(f.gate.approve(order.id), /not pending approval/);
+    await f.gate.sync();
+    await f.gate.tick();
+    assert.equal(f.store.getOrder(order.id)?.status, "triggering");
+    assert.equal(places, 1);
+    assert.equal(reviews, 1);
+    const retry = await f.gate.submit(optionIntent());
+    assert.equal(retry.status, "rejected_risk");
+    assert.ok(retry.verdict.checks.some((check) => check.rule === "options_unreconciled" && !check.ok));
+    assert.equal(places, 1);
+  });
+
+  it("blocks another open and a close of the same contract while the attempt is unresolved", async () => {
+    let factsCalls = 0;
+    const f = setup({ optionBroker: {
+      facts: async (...args) => { factsCalls += 1; return optionFacts(...args); },
+      review: unusedReview, reconcile: async () => undefined, cancel: async () => {},
+    } });
+    const uncertain = seedUncertain(f);
+    const open = await f.gate.submit(optionIntent());
+    assert.equal(open.status, "rejected_risk");
+    assert.equal(open.verdict.checks.find((check) => check.rule === "options_unreconciled")?.ok, false);
+    const close = await f.gate.submit(closeIntent(optionIntent()));
+    assert.equal(close.status, "rejected_risk");
+    assert.equal(close.verdict.checks.find((check) => check.rule === "options_unreconciled")?.ok, false);
+    assert.equal(factsCalls, 0);
+    assert.equal(f.store.getOrder(uncertain.id)?.status, "triggering");
+    assert.equal(f.broker.placeCalls, 0);
+  });
+
+  it("lets an unrelated exact close proceed under its normal approval tap", async () => {
+    let places = 0;
+    const f = setup({ optionBroker: {
+      facts: async (ticket, orders) => ({ ...await optionFacts(ticket, orders), sellableContracts: 1 }),
+      review: async (ticket) => {
+        assert.equal(ticket.instrumentId, otherInstrument);
+        return { noAlerts: true, approvalRequired: false,
+          place: async () => { places += 1; return { brokerOrderId: "option-close-1" }; } };
+      },
+      reconcile: async () => undefined, cancel: async () => {},
+    } });
+    const uncertain = seedUncertain(f);
+    const close = await f.gate.submit(closeIntent(otherContract()));
+    assert.equal(close.status, "pending_approval", JSON.stringify(close.verdict));
+    assert.equal(places, 0);
+    assert.equal(f.store.getOrder(uncertain.id)?.status, "triggering");
+    const submitted = await f.gate.approve(close.id);
+    assert.equal(submitted.status, "submitted", JSON.stringify(submitted.verdict));
+    assert.equal(submitted.brokerOrderId, "option-close-1");
+    assert.equal(places, 1);
+    assert.equal(f.store.getOrder(uncertain.id)?.status, "triggering");
+  });
+});
+
 describe("owner-routed orders", () => {
   const ownerMessages = [{ id: "owner-1", at: NOW - 1000, text: "Please BUY 100 shares of AAPL" }];
   const intent = (): OrderIntent => ({ ...baseIntent(), quantity: 100, ownerInstruction: "buy 100   shares of AAPL" });

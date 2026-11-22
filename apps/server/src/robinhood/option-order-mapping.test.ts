@@ -43,10 +43,15 @@ test("an approval or ambiguous broker reply is not treated as an order acknowled
   assert.deepEqual(optionPlacementAcknowledgment({
     customer_approval_required: false, order: { id: BROKER_ORDER, ref_id: "different-broker-reference" },
   }), { brokerOrderId: BROKER_ORDER });
+  assert.deepEqual(optionPlacementAcknowledgment({
+    customer_approval_required: true, approval_id: BROKER_ORDER,
+  }), { approvalId: BROKER_ORDER });
+  assert.deepEqual(optionPlacementAcknowledgment({
+    customer_approval_required: false, approval_id: BROKER_ORDER,
+  }), { approvalId: BROKER_ORDER });
   for (const ambiguous of [
     { customer_approval_required: true, order: { id: BROKER_ORDER } },
     { order: { id: BROKER_ORDER } },
-    { customer_approval_required: false, approval_id: BROKER_ORDER },
     { customer_approval_required: false, order: { id: BROKER_ORDER, order_id: SPY_PUT } },
   ]) assert.equal(optionPlacementAcknowledgment(ambiguous), undefined);
 });

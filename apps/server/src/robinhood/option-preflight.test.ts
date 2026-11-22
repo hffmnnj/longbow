@@ -196,7 +196,6 @@ test("exact XSP index preview is cash-settled; AM, deliverable, or other index r
     account_number: dedicated,
     legs: [{ option_id: instrumentId, side: "buy", position_effect: "open", ratio_quantity: 1 }],
     type: "limit", quantity: "3", price: "2.50", time_in_force: "gfd", market_hours: "regular_hours",
-    chain_symbol: "XSP", underlying_type: "index",
   };
 
   const allowed = broker({
