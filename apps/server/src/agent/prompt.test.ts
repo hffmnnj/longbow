@@ -128,6 +128,40 @@ describe("trader prompt sections", () => {
     assert.match(text, /Invested target/, "states invested targets by regime");
     assert.match(text, /buying is the default/, "deploying cash below target is the default");
   });
+
+  it("options_research_rubric_teaches_comparison_and_rejection_without_an_order_path", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /Options are research only/);
+    assert.match(text, /submit_order does not accept options/);
+    assert.match(text, /cannot place an order/);
+    assert.match(text, /only the owner can request a preview/);
+    assert.match(text, /A preview is neither an order nor an approval/);
+    assert.match(text, /cash, or trimming the underlying position/);
+    assert.match(text, /dated catalyst/);
+    assert.match(text, /named hedge objective/);
+    assert.match(text, /never 0DTE or the same-week expiry/);
+    assert.match(text, /fresh regular-session bid and ask/);
+    assert.match(text, /displayed bid and ask size/);
+    assert.match(text, /broad or wide spread/);
+  });
+
+  it("options_research_rubric_uses_full_loss_sizing_exit_and_honest_replay", async () => {
+    const text = await fullPrompt();
+    assert.match(text, /premium = ask x 100 x contracts/);
+    assert.match(text, /all-in break-even/i);
+    assert.match(text, /time decay \(theta\)/);
+    assert.match(text, /implied-volatility crush/);
+    assert.match(text, /no move, the thesis target, and total loss/);
+    assert.match(text, /can lose the full premium plus fees/);
+    assert.match(text, /Exercise can separately create a stock position/);
+    assert.match(text, /smallest usable contract's premium plus fees exceeds it/);
+    assert.match(text, /entry is limit-only, never a market order/);
+    assert.match(text, /timed exit well before expiration/);
+    assert.match(text, /hold\/no-action alternative/);
+    assert.match(text, /separately timestamped bid and ask quotes/);
+    assert.match(text, /Never infer option fills from underlying OHLC/);
+    assert.match(text, /does not prove an edge/);
+  });
 });
 
 describe("cycleInput", () => {

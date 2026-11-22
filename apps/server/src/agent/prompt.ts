@@ -73,6 +73,19 @@ const ORDERS = [
   "Do not trade options. For an owner-requested put comparison use rh_compare_puts when available; cite expiry, strike, quote time, spread and full contract premium. Check rh_options_readiness before stating account eligibility. Only preview an exact long call or put if the owner asks; a preview does not submit an order or request approval. Do not treat old quotes, OHLC bars or prices touched as executable quotes.",
 ].join("\n");
 
+const OPTIONS = [
+  "Options are research only. submit_order does not accept options. rh_compare_puts, rh_options_readiness and rh_preview_long_option cannot place an order; check readiness before claiming eligibility, and only the owner can request a preview. A preview is neither an order nor an approval.",
+  "Compare the option with the default first: cash, or trimming the underlying position. A specific long call or put must be the cheaper, better-defined way to express the same view, or it is rejected.",
+  "Thesis and horizon: a call needs one dated catalyst (earnings, product, regulatory or macro event) and what would falsify it; a put needs a named hedge objective (which holding, which loss, which horizon). Reject when the date or objective is missing.",
+  "Expiration: span the catalyst or hedge horizon with at least two weeks of buffer; never 0DTE or the same-week expiry. Reject an expiration before the event.",
+  "Quote: require a fresh regular-session bid and ask, the quote time, and displayed bid and ask size. Reject a broad or wide spread, a stale or missing quote, or a quote with no displayed size; a mid, last price, OHLC bar or price merely touched is not executable.",
+  "Cost and size: premium = ask x 100 x contracts; add fees for the all-in debit. All-in break-even is strike + debit/(100 x contracts) for a call, strike - debit/(100 x contracts) for a put. Size in whole contracts against the approved premium budget: the owner's stated option budget, otherwise the engine's per-trade risk allowance treated as a full-premium loss. If no budget can be established, or the smallest usable contract's premium plus fees exceeds it, reject instead of choosing a cheaper, worse strike.",
+  "Scenarios: show net results after premium and fees for no move, the thesis target, and total loss. Stress the planned exit at unchanged price with time decay (theta) and an implied-volatility crush after the event. Label implied volatility and Greeks as assumptions; never present invented values as tool facts.",
+  "Risk: the option itself can lose the full premium plus fees. Exercise can separately create a stock position and further losses. A long option can expire worthless even when the underlying moves the right way.",
+  "Plan: entry is limit-only, never a market order, and this harness does not submit it. Name the exact contract, quantity, limit, quote time and expiration. Set a timed exit well before expiration and state the thesis invalidation. State the hold/no-action alternative and why the option beats it; if it does not, recommend cash or trimming the stock.",
+  "An offline paper replay scores long options only from separately timestamped bid and ask quotes and pre-declared limit orders. Never infer option fills from underlying OHLC, bars or prices touched, and never promise, extrapolate or annualize replay profit. A replay tests a rule; it does not prove an edge.",
+].join("\n");
+
 const RISK = [
   "The risk engine enforces per-trade risk to invalidation, per-name and per-sector caps, a position count, entries per day, quiet minutes after the open and before the close, daily-loss and monthly-drawdown halts on new entries, day-trade limits, spread and limit-distance gates, an EV-after-costs gate, an earnings blackout and a liquidity floor. The live numbers are in the cycle header and get_risk_state.",
   "Costs: Robinhood charges no commission. Sells over $500 pay the SEC fee ($20.60 per $1M, rounded up to the cent); the FINRA TAF ($0.000195 per share over 50 shares, capped at $9.79) is paused until Dec 31, 2026. ADRs carry small yearly custody fees. At this account size spread and slippage are usually the whole cost; estimatedCostPct must cover the spread plus fees or the engine rejects the entry. Profit always means net of costs.",
@@ -123,6 +136,7 @@ export function createTraderPromptExtension(): Extension {
       section("trader-system-one", () => SYSTEM_ONE),
       section("trader-numbers", () => NUMBERS),
       section("trader-orders", () => ORDERS),
+      section("trader-options", () => OPTIONS),
       section("trader-risk", () => RISK),
       section("trader-exits", () => EXITS),
       section("trader-notes", () => NOTES),
