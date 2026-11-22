@@ -273,7 +273,7 @@ final List<_SummaryRow> _summaryRows = [
         : '${s.beatBenchmarkPct!.round()}%',
   ),
   _SummaryRow(
-    'Worst drawdown',
+    'Worst closing drawdown',
     (s) => s.worstDrawdownPct == null
         ? simDash
         : '${s.worstDrawdownPct!.toStringAsFixed(2)}%',
@@ -284,7 +284,7 @@ final List<_SummaryRow> _summaryRows = [
         s.medianSharpe == null ? simDash : s.medianSharpe!.toStringAsFixed(2),
   ),
   _SummaryRow(
-    'Win rate',
+    'Closed-lot win rate',
     (s) => s.winRatePct == null ? simDash : '${s.winRatePct!.round()}%',
   ),
   _SummaryRow(
