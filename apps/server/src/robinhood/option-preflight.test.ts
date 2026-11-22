@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BrokerMappingError } from "./mapping.ts";
 import { getOptionReadiness, optionPreviewTools, previewLongOption } from "./option-preflight.ts";
+import { prepareOptionPlacement } from "./option-order-transport.ts";
 
 const instrumentId = "10000000-0000-0000-0000-000000000001";
 const chainId = "20000000-0000-0000-0000-000000000001";
@@ -181,5 +182,31 @@ test("preview refuses adjusted, mismatched, or close-only chains before broker r
     const { call, calls } = broker({ get_option_chains: () => ({ chains: [candidate] }) });
     await expectMappingError(previewLongOption(valid, call, session), /did not confirm an eligible 100-multiplier chain/);
     assert.deepEqual(calls.map(([name]) => name), ["get_accounts", "get_option_instruments", "get_option_chains"]);
+  }
+});
+
+test("private placement handle sends pinned terms once; alerts never reach placement", async () => {
+  for (const blocked of [true, false]) {
+    const mock = broker({ review_option_order: () => ({
+      order_checks: blocked ? [{ action: "stop" }] : [], customer_approval_required: false,
+    }) });
+    const sends: Record<string, unknown>[] = [];
+    const prepared = await prepareOptionPlacement(valid, async (name, args) => {
+      if (name !== "place_option_order") return mock.call(name, args);
+      sends.push(args);
+      return { customer_approval_required: false, order: { id: "30000000-0000-0000-0000-000000000001" } };
+    }, session);
+    assert.equal(sends.length, 0);
+    if (blocked) {
+      await assert.rejects(prepared.place("persisted-order"), /not eligible/);
+      assert.equal(sends.length, 0);
+    } else {
+      assert.deepEqual(await prepared.place("persisted-order"), { brokerOrderId: "30000000-0000-0000-0000-000000000001" });
+      await assert.rejects(prepared.place("persisted-order"), /not eligible/);
+      const [{ ref_id: refId, ...terms }] = sends as [Record<string, unknown>];
+      assert.match(String(refId), /^[0-9a-f]{64}$/);
+      assert.deepEqual(terms, mock.calls.at(-1)?.[1]);
+      assert.equal(sends.length, 1);
+    }
   }
 });

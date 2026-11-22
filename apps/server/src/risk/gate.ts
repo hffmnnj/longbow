@@ -5,6 +5,7 @@ import {
   type HaltReason,
   type OrderIntent,
   type OrderRecord,
+  type LongOptionTicket,
   type Quote,
   type RiskCheck,
   type RiskVerdict,
@@ -16,6 +17,7 @@ import { supportsTrading, isHeldStop, cancelOrder, watchStops, syncOrders, order
 import type { Broker, Clock, EventBus, Logger, MarketCalendar, MarketData, OrderGate, Store } from "../ports.ts";
 import type { SectorDirectory } from "../market/sectors.ts";
 import { FractionalPreflightError, PlacementQuoteUnavailableError } from "../robinhood/mapping.ts";
+import { evaluateLongOption, type LongOptionRiskInputs } from "./long-option.ts";
 
 /**
  * Order gate: validates the intent, gathers a fresh snapshot and quote,
@@ -47,6 +49,17 @@ export interface OrderGateDeps {
    * `gate` is "block" and the model reports a high-confidence concern.
    */
   entryReview?: (intent: OrderIntent, gate: SystemOneGate) => Promise<RiskCheck | undefined>;
+  /** None until an option adapter can supply authoritative account, quote and lifecycle facts. */
+  options?: {
+    facts(ticket: LongOptionTicket, orders: OrderRecord[]): Promise<Omit<LongOptionRiskInputs, "market" | "settings">>;
+    review(ticket: LongOptionTicket): Promise<{
+      noAlerts: boolean;
+      approvalRequired: boolean;
+      place(localOrderId: string): Promise<{ brokerOrderId: string } | undefined>;
+    }>;
+    reconcile(order: OrderRecord): Promise<Partial<Pick<OrderRecord, "status" | "brokerOrderId" | "filledQuantity" | "averageFillPrice" | "error">> | undefined>;
+    cancel(order: OrderRecord): Promise<void>;
+  };
 }
 
 function shortError(error: unknown, max = 200): string {
@@ -80,6 +93,7 @@ function sameCent(a: number | undefined, b: number | undefined): boolean {
 /** Same tradable shape: symbol, side, order type, quantity, prices, and lifetime. Cycle and thesis ignored. */
 function isIdenticalRetry(a: OrderIntent, b: OrderIntent): boolean {
   return (
+    a.longOption?.instrumentId === b.longOption?.instrumentId &&
     a.symbol === b.symbol &&
     a.side === b.side &&
     a.orderType === b.orderType &&
@@ -166,6 +180,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
   const { store, broker, calendar, clock, bus, log, market: marketData } = deps;
   let tail: Promise<unknown> = Promise.resolve();
   let latestSnapshot: AccountSnapshot | null = null;
+  const shareOrders = (since: number) => store.ordersSince(since).filter((order) => !order.intent.longOption);
 
   function enqueue<T>(work: () => Promise<T>): Promise<T> {
     const next = tail.then(work, work);
@@ -180,10 +195,103 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
     bus.publish({ type: "order", order });
   }
 
+  async function checkOption(intent: OrderIntent, currentId?: string): Promise<RiskVerdict> {
+    const ticket = intent.longOption!;
+    const isExit = ticket.side === "sell-to-close";
+    function refused(rule: string, detail: string): RiskVerdict {
+      return { approved: false, isExit, checks: [{ rule, ok: false, detail }] };
+    }
+    if (intent.symbol !== ticket.symbol || intent.side !== (isExit ? "sell" : "buy") ||
+        intent.quantity !== ticket.contracts || intent.limitPrice !== ticket.limitCents / 100 ||
+        intent.orderType !== "limit" || intent.timeInForce !== "day" || intent.stopPrice !== undefined) {
+      return refused("options_intent", "Contract details must agree with the order ticket; options require a whole-contract day limit.");
+    }
+    const adapter = deps.options;
+    if (!adapter) return refused("options_adapter", "Option order execution is unavailable.");
+    const orders = store.ordersSince(0).filter((order) => order.id !== currentId);
+    if (orders.some((o) => o.intent.longOption && o.status === "triggering")) {
+      return refused("options_unreconciled", "Reconcile the outstanding option order before sending another.");
+    }
+    try {
+      const facts = await adapter.facts(ticket, orders);
+      return evaluateLongOption(ticket, { ...facts, settings: store.getSettings(), market: calendar.clock(clock.now()) });
+    } catch {
+      return refused("options_facts", "The broker did not provide enough current contract and account facts.");
+    }
+  }
+
+  async function approveLongOption(existing: OrderRecord): Promise<OrderRecord> {
+    const ticket = existing.intent.longOption!;
+    function update(patch: Parameters<Store["updateOrder"]>[1]): OrderRecord {
+      const order = store.updateOrder(existing.id, { ...patch, updatedAt: clock.now() });
+      publish(order);
+      return order;
+    }
+    const verdict = await checkOption(existing.intent, existing.id);
+    if (!verdict.approved || !deps.options) return update({ verdict, status: "rejected_risk" });
+    let reviewed: Awaited<ReturnType<NonNullable<OrderGateDeps["options"]>["review"]>>;
+    try {
+      reviewed = await deps.options.review(ticket);
+    } catch {
+      return update({ verdict, status: "failed", error: "Broker options review failed; no placement attempted." });
+    }
+    const finalVerdict = await checkOption(existing.intent, existing.id);
+    const settings = store.getSettings();
+    if (settings.killSwitch || settings.mode === "off" || !calendar.clock(clock.now()).isOpen ||
+        settings.drawdownHalted && ticket.side === "buy-to-open" || isExpired(existing, clock.now()) ||
+        !finalVerdict.approved || reviewed.noAlerts !== true || reviewed.approvalRequired !== false) {
+      return update({ verdict: finalVerdict, status: "rejected_risk", error: "Option review, approval rules, or trading controls prevented placement." });
+    }
+    // Claim before the first possible send. A crash/timeout never turns a claim
+    // into a retryable approval, and the UUID of this record fixes the ref_id.
+    update({ verdict: finalVerdict, status: "triggering" });
+    try {
+      const ack = await reviewed.place(existing.id);
+      if (ack?.brokerOrderId) return update({ status: "submitted", brokerOrderId: ack.brokerOrderId });
+    } catch { /* May have reached Robinhood. Keep the durable claim. */ }
+    return update({ error: "Option submission is uncertain. Reconcile with Robinhood before any retry." });
+  }
+
+  async function syncLongOptions(): Promise<void> {
+    const adapter = deps.options;
+    if (!adapter) return;
+    for (const order of store.ordersSince(0)) {
+      if (!order.intent.longOption || !["triggering", "submitted", "partially_filled"].includes(order.status)) continue;
+      try {
+        const patch = await adapter.reconcile(order);
+        if (patch) applyOptionUpdate(order, patch);
+      } catch { log.warn("options reconciliation unavailable", { orderId: order.id }); }
+    }
+  }
+
+  function applyOptionUpdate(order: OrderRecord, patch: NonNullable<Awaited<ReturnType<NonNullable<OrderGateDeps["options"]>["reconcile"]>>>): OrderRecord {
+    const id = patch.brokerOrderId ?? order.brokerOrderId;
+    const quantity = patch.filledQuantity ?? order.filledQuantity ?? 0;
+    const averagePrice = patch.averageFillPrice ?? order.averageFillPrice;
+    const status = patch.status ?? order.status;
+    if (!id || (order.brokerOrderId !== undefined && order.brokerOrderId !== id) ||
+        !["submitted", "partially_filled", "filled", "cancelled", "failed"].includes(status) ||
+        !Number.isInteger(quantity) || quantity < (order.filledQuantity ?? 0) || quantity > order.intent.quantity ||
+        status === "filled" && quantity !== order.intent.quantity ||
+        status === "partially_filled" && (quantity <= 0 || quantity >= order.intent.quantity) ||
+        status === "submitted" && quantity !== 0 ||
+        quantity > 0 && (averagePrice === undefined || !Number.isFinite(averagePrice) || averagePrice <= 0)) {
+      log.warn("options reconciliation returned inconsistent order data", { orderId: order.id });
+      return order;
+    }
+    if (id === order.brokerOrderId && status === order.status &&
+        quantity === (order.filledQuantity ?? 0) && averagePrice === order.averageFillPrice && patch.error === order.error) {
+      return order;
+    }
+    const updated = store.updateOrder(order.id, { ...patch, updatedAt: clock.now() });
+    publish(updated);
+    return updated;
+  }
+
   async function placeWithStopCancellation(intent: OrderIntent): ReturnType<Broker["placeOrder"]> {
     const cancelledHeld: OrderRecord[] = [];
     if (supportsTrading(broker) && intent.side === "sell") {
-      for (const stop of store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === intent.symbol)) {
+      for (const stop of shareOrders(0).filter((o) => o.status === "held" && o.intent.symbol === intent.symbol)) {
         cancelledHeld.push(await cancelOrder({ ...deps, broker }, stop.id));
       }
       // A resting native crypto stop locks the coins, so clear it before an exit by limit.
@@ -280,6 +388,15 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
         return order;
       }
       const valid = parsed.data;
+      if (valid.longOption) {
+        const verdict = await checkOption(valid);
+        const order = store.addOrder({
+          createdAt: now, updatedAt: clock.now(), ...(cycleId === undefined ? {} : { cycleId }),
+          intent: valid, verdict, status: verdict.approved ? "pending_approval" : "rejected_risk",
+        });
+        publish(order);
+        return order;
+      }
       let ownerMessageId: string | undefined;
       if (valid.ownerInstruction !== undefined) {
         const instruction = normalizeInstruction(valid.ownerInstruction);
@@ -371,8 +488,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       const settings = store.getSettings();
       const market = calendar.clock(now);
       const recentOrders = store.ordersSince(sevenDaysAgo(now)).filter(countsAsSubmitted);
-      const lotOpenedEtDate = store
-        .ordersSince(0)
+      const lotOpenedEtDate = shareOrders(0)
         .filter(
           (o) =>
             countsAsSubmitted(o) && o.intent.side === "buy" && o.intent.symbol === valid.symbol,
@@ -472,7 +588,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
 
       let review: string | undefined;
       if (supportsTrading(broker) && isHeldStop(valid)) {
-        const reserved = store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
+        const reserved = shareOrders(0).filter((o) => o.status === "held" && o.intent.symbol === valid.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
         const available = snapshot.positions.find((p) => p.symbol === valid.symbol)?.sharesAvailableForSells ?? 0;
         const sufficient = reserved + valid.quantity <= available;
         const order = store.addOrder({ createdAt: now, updatedAt: clock.now(), ...(cycleId ? { cycleId } : {}), ...ownerMetadata, intent: valid, verdict,
@@ -549,6 +665,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       if (existing.status !== "pending_approval") {
         throw new Error(`order ${id} is ${existing.status}, not pending approval`);
       }
+      if (existing.intent.longOption) return approveLongOption(existing);
 
       let snapshot: AccountSnapshot;
       try {
@@ -593,8 +710,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       const recentOrders = store
         .ordersSince(sevenDaysAgo(checkAt))
         .filter(countsAsSubmitted);
-      const lotOpenedEtDate = store
-        .ordersSince(0)
+      const lotOpenedEtDate = shareOrders(0)
         .filter(
           (o) =>
             countsAsSubmitted(o) &&
@@ -650,7 +766,7 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
 
       let review: string | undefined;
       if (supportsTrading(broker) && isHeldStop(existing.intent)) {
-        const reserved = store.ordersSince(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
+        const reserved = shareOrders(0).filter((o) => o.status === "held" && o.intent.symbol === existing.intent.symbol).reduce((sum, o) => sum + o.intent.quantity, 0);
         const available = snapshot.positions.find((p) => p.symbol === existing.intent.symbol)?.sharesAvailableForSells ?? 0;
         const sufficient = reserved + existing.intent.quantity <= available;
         const order = store.updateOrder(id, { verdict, status: sufficient ? "held" : "failed", updatedAt: clock.now(), ...(!sufficient ? { error: "Insufficient unreserved shares for held stop" } : {}) });
@@ -762,10 +878,20 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
 
   return { submit, approve, reject, halts,
     cancel: (id) => enqueue(async () => {
+      const order = store.getOrder(id);
+      if (order?.intent.longOption) {
+        if (!deps.options || !order.brokerOrderId || !["submitted", "partially_filled"].includes(order.status)) {
+          throw new Error("Options cancellation requires a confirmed live broker order");
+        }
+        await deps.options.cancel(order);
+        const patch = await deps.options.reconcile(order);
+        if (!patch) return order;
+        return applyOptionUpdate(order, patch);
+      }
       if (!supportsTrading(broker)) throw new Error("Broker does not support cancellation");
       return cancelOrder({ ...deps, broker }, id);
     }),
-    tick: () => enqueue(async () => { if (supportsTrading(broker)) await watchStops({ ...deps, broker }); }),
-    sync: () => enqueue(async () => { if (supportsTrading(broker)) await syncOrders({ ...deps, broker }); }),
+    tick: () => enqueue(async () => { await syncLongOptions(); if (supportsTrading(broker)) await watchStops({ ...deps, broker }); }),
+    sync: () => enqueue(async () => { await syncLongOptions(); if (supportsTrading(broker)) await syncOrders({ ...deps, broker }); }),
   };
 }

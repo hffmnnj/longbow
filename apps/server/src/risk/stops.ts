@@ -9,7 +9,7 @@ export function supportsTrading(broker: Broker): broker is TradingBroker {
 }
 export function isHeldStop(intent: OrderIntent): boolean {
   // Crypto stops rest natively at Robinhood; only fractional shares need the harness to watch them.
-  return intent.side === "sell" && intent.orderType === "stop_limit" && !Number.isInteger(intent.quantity) && !isCryptoSymbol(intent.symbol);
+  return !intent.longOption && intent.side === "sell" && intent.orderType === "stop_limit" && !Number.isInteger(intent.quantity) && !isCryptoSymbol(intent.symbol);
 }
 export interface StopDeps { broker: TradingBroker; store: Store; clock: Clock; calendar: MarketCalendar; bus: EventBus; log?: Logger }
 export function orderChanged(deps: Pick<StopDeps, "store" | "clock" | "bus">, order: OrderRecord): void {
@@ -20,7 +20,7 @@ export function orderChanged(deps: Pick<StopDeps, "store" | "clock" | "bus">, or
   deps.bus.publish({ type: "journal", entry });
 }
 export async function syncOrders(deps: StopDeps): Promise<void> {
-  for (const order of deps.store.ordersSince(0).filter((o) => o.brokerOrderId && ["submitted", "partially_filled", "triggering"].includes(o.status))) {
+  for (const order of deps.store.ordersSince(0).filter((o) => !o.intent.longOption && o.brokerOrderId && ["submitted", "partially_filled", "triggering"].includes(o.status))) {
     try {
       const patch = await deps.broker.orderState(order.brokerOrderId!, order.intent.symbol);
       if (patch.status !== order.status || patch.filledQuantity !== order.filledQuantity || patch.averageFillPrice !== order.averageFillPrice) {
@@ -32,6 +32,7 @@ export async function syncOrders(deps: StopDeps): Promise<void> {
 export async function cancelOrder(deps: StopDeps, id: string): Promise<OrderRecord> {
   const order = deps.store.getOrder(id);
   if (!order) throw new Error(`unknown order ${id}`);
+  if (order.intent.longOption) throw new Error("Options orders use contract-specific cancellation");
   if (order.status === "held") {
     const cancelled = deps.store.updateOrder(id, { status: "cancelled", updatedAt: deps.clock.now() });
     orderChanged(deps, cancelled);
@@ -46,7 +47,7 @@ export async function cancelOrder(deps: StopDeps, id: string): Promise<OrderReco
 }
 /** Native crypto stop orders resting at Robinhood for a symbol. They lock the coins until cancelled. */
 export function restingCryptoStops(store: Store, symbol: string): OrderRecord[] {
-  return store.ordersSince(0).filter((o) => o.intent.symbol === symbol && o.intent.side === "sell" && o.intent.orderType === "stop_limit" && ["submitted", "partially_filled"].includes(o.status));
+  return store.ordersSince(0).filter((o) => !o.intent.longOption && o.intent.symbol === symbol && o.intent.side === "sell" && o.intent.orderType === "stop_limit" && ["submitted", "partially_filled"].includes(o.status));
 }
 export async function watchStops(deps: StopDeps): Promise<void> {
   let stage: "sync" | "settings" | "held" | "quotes" = "sync";
@@ -77,7 +78,7 @@ export async function watchStops(deps: StopDeps): Promise<void> {
     try {
       const snapshot = await deps.broker.snapshot();
       const position = snapshot.positions.find((p) => p.symbol === order.intent.symbol);
-      const reserved = deps.store.ordersSince(0).filter((o) => o.id !== order.id && o.intent.symbol === order.intent.symbol && o.intent.side === "sell" && ["submitted", "partially_filled", "triggering"].includes(o.status)).reduce((sum, o) => sum + Math.max(0, o.intent.quantity - (o.filledQuantity ?? 0)), 0);
+      const reserved = deps.store.ordersSince(0).filter((o) => !o.intent.longOption && o.id !== order.id && o.intent.symbol === order.intent.symbol && o.intent.side === "sell" && ["submitted", "partially_filled", "triggering"].includes(o.status)).reduce((sum, o) => sum + Math.max(0, o.intent.quantity - (o.filledQuantity ?? 0)), 0);
       const available = Math.max(0, Math.min(position?.quantity ?? 0, position?.sharesAvailableForSells ?? 0) - reserved);
       const bound = Math.min(order.intent.quantity, available);
       // Compare in shares, not in multiplied floating-point units: 4.1701

@@ -224,9 +224,27 @@ export interface Quote {
 // ---------------------------------------------------------------------------
 // Orders and the risk gate
 
+/** The limit is cents per share, never cents per contract. Only standard 100-share long contracts. */
+export const LongOptionTicketSchema = z.strictObject({
+  instrumentId: z.string().regex(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i),
+  symbol: z.string().regex(/^[A-Z][A-Z0-9.]{0,9}$/),
+  expiration: z.string().regex(/^\d{4}-\d\d-\d\d$/).refine((value) => {
+    const at = Date.parse(`${value}T00:00:00Z`);
+    return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === value;
+  }, "Expiration must be a real calendar date"),
+  strikeCents: z.number().int().min(1).max(10_000_000),
+  contractType: z.enum(["call", "put"]),
+  side: z.enum(["buy-to-open", "sell-to-close"]),
+  contracts: z.number().int().min(1).max(100),
+  limitCents: z.number().int().min(1).max(1_000_000),
+});
+export type LongOptionTicket = z.infer<typeof LongOptionTicketSchema>;
+
 export const OrderIntentSchema = z.object({
   /** A ticker (AAPL, BRK.B) or a crypto pair (BTC-USD). Crypto quantity is in coins. */
   symbol: z.string().regex(/^([A-Z.]{1,10}|[A-Z]{2,10}-USD)$/),
+  /** When present, quantity counts contracts and limitPrice is dollars per underlying share. */
+  longOption: LongOptionTicketSchema.optional(),
   side: z.enum(["buy", "sell"]),
   quantity: z.number().positive(),
   orderType: z.enum(["limit", "stop_limit"]),

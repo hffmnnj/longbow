@@ -212,6 +212,7 @@ function setup(options?: {
   systemOne?: Settings["systemOne"];
   entryReview?: Parameters<typeof createOrderGate>[0]["entryReview"];
   haltEquity?: Parameters<typeof createOrderGate>[0]["haltEquity"];
+  optionBroker?: Parameters<typeof createOrderGate>[0]["options"];
   ownerMessages?: { id: string; at: number; text: string }[];
 }) {
   const store = new FakeStore();
@@ -234,7 +235,7 @@ function setup(options?: {
     error: () => {},
     child: () => log,
   };
-  const gate = createOrderGate({
+  const deps = {
     store,
     broker,
     calendar: createNyseCalendar(),
@@ -245,10 +246,98 @@ function setup(options?: {
     ...(options?.sectors === undefined ? {} : { sectors: options.sectors }),
     ...(options?.entryReview === undefined ? {} : { entryReview: options.entryReview }),
     ...(options?.haltEquity === undefined ? {} : { haltEquity: options.haltEquity }),
+    ...(options?.optionBroker === undefined ? {} : { options: options.optionBroker }),
     ...(options?.ownerMessages === undefined ? {} : { ownerMessagesSince: (since: number) => options.ownerMessages!.filter((message) => message.at >= since) }),
-  });
-  return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
+  };
+  const gate = createOrderGate(deps);
+  return { store, broker, gate, events, market, restartGate: () => createOrderGate(deps), setNow: (t: number) => (now = t) };
 }
+
+const optionIntent = (): OrderIntent => ({
+  ...baseIntent(), quantity: 1, limitPrice: 1.75,
+  longOption: {
+    instrumentId: "10000000-0000-0000-0000-000000000001", symbol: "AAPL", expiration: "2026-12-18",
+    strikeCents: 15_000, contractType: "put", side: "buy-to-open", contracts: 1, limitCents: 175,
+  },
+});
+const optionFacts: NonNullable<Parameters<typeof createOrderGate>[0]["options"]>["facts"] = async (ticket) => ({
+  quote: { instrumentId: ticket.instrumentId, bidCents: 174, askCents: 175, bidSize: 2, askSize: 2, at: NOW - 1000 },
+  equityCents: 2_000_000, settledUnreservedCashCents: 500_000, sellableContracts: 0,
+  expirySession: ticket.expiration, sessionsUntilExpiry: 20, feeReservePerContractCents: 10,
+  entriesUsed: 0, entryHalted: false, exerciseRiskControlled: true,
+});
+
+describe("long options in the shared order gate", () => {
+  it("never diverts a contract to the stock path and measures full premium risk in cash", async () => {
+    const absent = setup();
+    assert.equal((await absent.gate.submit(optionIntent())).status, "rejected_risk");
+    assert.equal(absent.broker.quoteCalls, 0);
+    const optionBroker = { facts: async (...args: Parameters<typeof optionFacts>) => ({
+      ...await optionFacts(...args), settledUnreservedCashCents: 17_500,
+    }), review: async () => assert.fail("no review on an over-budget order"), reconcile: async () => undefined, cancel: async () => {} };
+    const f = setup({ optionBroker });
+    const order = await f.gate.submit(optionIntent());
+    assert.equal(order.status, "rejected_risk");
+    assert.equal(order.verdict.checks.find((c) => c.rule === "options_premium_at_risk")?.ok, false);
+    assert.equal(order.verdict.maxQuantity, 0);
+    assert.equal(f.broker.placeCalls, 0);
+  });
+
+  it("auto still waits for an owner tap and a kill switch during review prevents the first send", async () => {
+    const f = setup({ mode: "auto", optionBroker: {
+      facts: optionFacts,
+      review: async () => {
+        f.store.patchSettings({ killSwitch: true });
+        return { noAlerts: true, approvalRequired: false, place: async () => assert.fail("kill switch prevented send") };
+      },
+      reconcile: async () => undefined, cancel: async () => {},
+    } });
+    f.store.settings.risk.maxSpreadBps = 100;
+    const order = await f.gate.submit(optionIntent());
+    assert.equal(order.status, "pending_approval");
+    const rejected = await f.gate.approve(order.id);
+    assert.equal(rejected.status, "rejected_risk");
+    assert.match(rejected.error!, /prevented placement/);
+  });
+
+  it("claims the order before sending, refuses a second tap after restart, and preserves a partial fill on cancel", async () => {
+    const sent: string[] = [];
+    const cancelled: string[] = [];
+    const f = setup({ mode: "auto", optionBroker: {
+      facts: optionFacts,
+      review: async () => ({
+        noAlerts: true, approvalRequired: false,
+        place: async (id) => {
+          sent.push(id);
+          assert.equal(f.store.getOrder(id)?.status, "triggering");
+          throw new Error("accepted but response lost");
+        },
+      }),
+      reconcile: async (o) => {
+        assert.equal(o.id, sent[0], "uses the same persisted attempt");
+        return cancelled.length
+          ? { status: "cancelled", filledQuantity: 1, averageFillPrice: 1.75 }
+          : { status: "partially_filled", brokerOrderId: "broker-option", filledQuantity: 1, averageFillPrice: 1.75 };
+      },
+      cancel: async (o) => { cancelled.push(o.brokerOrderId!); },
+    } });
+    f.store.settings.risk.maxSpreadBps = 100;
+    f.store.settings.risk.maxRiskPerTradePct = 2;
+    const intent = optionIntent();
+    const o = await f.gate.submit({ ...intent, quantity: 2, longOption: { ...intent.longOption!, contracts: 2 } });
+    assert.equal(o.status, "pending_approval");
+    assert.equal((await f.gate.approve(o.id)).status, "triggering");
+    const gate = f.restartGate();
+    await assert.rejects(gate.approve(o.id), /not pending approval/);
+    assert.deepEqual(sent, [o.id]);
+    await gate.sync();
+    const final = await gate.cancel(o.id);
+    assert.deepEqual(cancelled, ["broker-option"]);
+    assert.equal(final.status, "cancelled");
+    assert.equal(final.filledQuantity, 1);
+    assert.equal(f.broker.placeCalls, 0);
+  });
+});
 
 describe("owner-routed orders", () => {
   const ownerMessages = [{ id: "owner-1", at: NOW - 1000, text: "Please BUY 100 shares of AAPL" }];
