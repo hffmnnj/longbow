@@ -23,7 +23,7 @@ import { createQuantExtension } from "../quant/extension.ts";
 import type { SystemOneClient } from "../systemone/client.ts";
 import { createEntryReview } from "../systemone/review.ts";
 import { createSystemOneExtension } from "../systemone/extension.ts";
-import { createPaperBroker, type ObservedMinutes, type PaperBroker } from "./broker.ts";
+import { createPaperBroker, type CashDividend, type ObservedMinutes, type PaperBroker } from "./broker.ts";
 import { createSimEventBus } from "./events.ts";
 import { calculateMetrics } from "./metrics.ts";
 import { assertReplayBenchmarkCoverage, etInstant, tradingDays } from "./path.ts";
@@ -83,6 +83,8 @@ export interface SimServiceDeps {
   fetchBars?: (symbol: string, from: string, to: string) => Promise<Bar[]>;
   /** Local historical replay seam for explicitly supplied minute observations. */
   observedMinutes?: (symbol: string, date: string) => ObservedMinutes | undefined;
+  /** Local historical cash distributions, normalized to the tape's share basis. Benchmark marks stay price-only. */
+  cashDividends?: (exDate: string) => readonly CashDividend[];
   /** Wall clock for market source dates, independent of the simulated clock. */
   wallNow?: () => number;
   /** Test seam: replaces the TradingAgent cycle run (which needs model credentials). */
@@ -350,22 +352,31 @@ export function createSimService(deps: SimServiceDeps): SimService {
         }
         return agent!.runCycleAndWait(kind, 8 * 60_000);
       };
-      async function advanceTo(date: string, target: number): Promise<void> {
+      async function advanceTo(date: string, target: number, cashDividends?: readonly CashDividend[]): Promise<void> {
         const market = deps.calendar.clock(etInstant(date, 12));
+        const moveClock = (at: number) => {
+          if (cashDividends?.length && now < market.nextOpen && at >= market.nextOpen) {
+            // Book from prior-close inventory before an opening order can execute.
+            // Pre-open snapshots still mark at the cum-dividend previous close.
+            now = market.nextOpen;
+            broker.bookCashDividends(date, cashDividends);
+          }
+          now = at;
+        };
         if (market.tradingDay === date) {
           // Fractional protection is harness-watched, not a resting limit. Only
           // simulate quote checks while a local stop is armed.
           const first = Math.max(market.nextOpen, now + 60_000);
           for (let at = first; at <= target && at < market.nextClose && run.status === "running"; at += 60_000) {
             if (!store.ordersSince(0).some((order) => order.status === "held")) break;
-            now = at;
+            moveClock(at);
             await broker.advance();
             await gate.tick();
           }
         }
         if (run.status !== "running") return;
         if (now === target) return; // Already advanced and reconciled in the watcher.
-        now = target;
+        moveClock(target);
         await broker.advance();
         await gate.sync();
       }
@@ -373,6 +384,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         const date = simDays[i]!;
         const session = deps.calendar.clock(etInstant(date, 12));
         if (session.tradingDay !== date) throw new Error(`No regular session for replay date ${date}`);
+        const cashDividends = blindish ? undefined : deps.cashDividends?.(date);
         const close = session.nextClose;
         const times: [number, CycleKind][] = [
           ...(run.config.cyclesPerDay >= 3 ? [[etInstant(date, 9), "pre_open"] as [number, CycleKind]] : []),
@@ -384,7 +396,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
         run.progress.day = i + 1;
         for (let j = 0; j < times.length && run.status === "running"; j++) {
           const [at, kind] = times[j]!;
-          await advanceTo(date, at);
+          await advanceTo(date, at, cashDividends);
           if (run.status !== "running") break;
           run.progress.cycle = j + 1;
           save(run);
