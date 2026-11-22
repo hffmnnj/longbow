@@ -132,7 +132,7 @@ Import `lib/core/charts/charts.dart` only; charts take plain Dart inputs and rea
 
 Feed (live transcript with decision cards and tool traces, composer, approvals, halt banner), Portfolio (equity hero, positions, orders, latest report), Markets (regime, indices, sectors, VIX, yields, breadth, calendar, earnings), Performance (equity vs SPY, trades, calibration, exposure, sectors), Agent control room (fleet, models, cycle controls, subagents, notes, skills), Reports (list and brief), Journal and orders, Lab (runs, suites, compare, new run), Settings (mode, kill switch, risk limits, crypto sleeve, cycle cadence, watchlist, Robinhood connection, notifications, theme, server address, Android app download, about).
 
-Lab uses the web metric labels: closing drawdown is based on daily equity marks, and closed-lot win rate excludes positions still open at the end of a run.
+Lab uses the web metric labels: closing drawdown is based on daily equity marks, and closed-lot win rate excludes positions still open at the end of a run. A completed run with zero fills says so alongside the metrics; if there were risk refusals, point to Orders.
 
 ## Decisions
 

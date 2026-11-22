@@ -303,7 +303,32 @@ export function simFixtures(now = Date.now()): SimRun[] {
     finishedAt: now - 7 * 3_600_000,
   };
 
-  return [running, done, blind, boot, byAgent];
+  const noFillEquity = doneEq.map((p) => ({ ...p, equity: 2400, cash: 2400, benchmark: p.benchmark * 2 }));
+  const noFill: SimRun = {
+    ...done,
+    id: "sim-no-fill",
+    config: { ...done.config, name: "Order cap test", startingCash: 2400 },
+    equity: noFillEquity,
+    fills: [],
+    positions: [],
+    metrics: {
+      returnPct: 0,
+      benchmarkReturnPct: (noFillEquity.at(-1)!.benchmark / 2400 - 1) * 100,
+      priorCloseExposureBenchmarkReturnPct: 0,
+      maxDrawdownPct: 0,
+      volatilityPct: 0,
+      trades: 0,
+      roundTrips: 0,
+      exposurePct: 0,
+      ordersSubmitted: 0,
+      ordersRejected: 1,
+      turnoverPct: 0,
+      costsPaid: 0,
+      costsPct: 0,
+      riskBlocks: { notional_cap: 1 },
+    },
+  };
+  return [running, done, blind, boot, byAgent, noFill];
 }
 
 /** Deterministic suite member: one variant on one market. */
@@ -473,7 +498,14 @@ export function createMockSim(host: SimHost) {
         .slice(0, 8)
         .map((m) => ({ ...m, id: `${id}-${m.id}`, text: m.text.replace(/2026-10-23/g, runs.get(id)?.currentDate ?? "2026-10-02") }));
       const journal = fixtureJournal().slice(0, 3).map((j) => ({ ...j, id: `${id}-${j.id}`, at: t - 600_000 }));
-      const orders = [fixtureOrder(`${id}-ord-1`, "submitted")];
+      const orders = id === "sim-no-fill"
+        ? [fixtureOrder(`${id}-ord-1`, "rejected_risk", {
+            verdict: { approved: false, isExit: false, checks: [
+              { rule: "notional_cap", ok: false, detail: "Buy notional exceeds the paper order cap." },
+            ] },
+            review: undefined,
+          })]
+        : [fixtureOrder(`${id}-ord-1`, "submitted")];
       f = { messages, journal, orders };
       feeds.set(id, f);
     }
