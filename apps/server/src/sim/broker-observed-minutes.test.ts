@@ -145,3 +145,19 @@ test("rejects recorded prices on a different split basis from the daily tape", a
   at(DAY, 9, 30);
   await assert.rejects(broker.quote("SPY"), /price basis/);
 });
+
+test("rejects a materially out-of-range minute even when the recorded open matches", async () => {
+  const bars = dailyBars();
+  for (const price of [bars[1]!.low * 0.9, bars[1]!.high * 1.1]) {
+    const { broker, at } = fixture(() => {
+      const closes = Array<number>(REGULAR_MINUTES).fill(96);
+      closes[0] = price;
+      return { open: 96, closes };
+    }, { bars });
+    at(DAY, 9, 31);
+    await assert.rejects(broker.quote("SPY"), /outside the daily range/);
+  }
+  const { broker, at } = fixture(() => ({ open: 96, closes: Array<number>(REGULAR_MINUTES).fill(79) }), { bars });
+  at(DAY, 9, 31);
+  assert.equal((await broker.quote("SPY")).last, 79, "small feed differences from the daily low stay valid");
+});

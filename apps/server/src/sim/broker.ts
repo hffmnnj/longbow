@@ -49,6 +49,7 @@ export interface PaperBrokerDeps {
 }
 
 const LIQUID = new Set(["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "AVGO"]);
+const RECORDED_PRICE_TOLERANCE = 0.05;
 export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
   const execution: SimExecution = deps.execution ?? "realistic";
   const seed = deps.seed ?? 1;
@@ -85,8 +86,14 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
       // Allow ordinary vendor differences in the opening print, not a
       // materially different open. Do not guess a corporate-action adjustment.
       const openRatio = data.open / bar.open;
-      if (!Number.isFinite(openRatio) || openRatio < 0.95 || openRatio > 1.05) {
+      if (!Number.isFinite(openRatio) || openRatio < 1 - RECORDED_PRICE_TOLERANCE || openRatio > 1 + RECORDED_PRICE_TOLERANCE) {
         throw new Error(`Recorded minute open differs from the daily open by more than 5% for ${symbol} on ${day}; verify the price basis`);
+      }
+      // A matching open cannot validate a bad print later in the session.
+      const low = bar.low * (1 - RECORDED_PRICE_TOLERANCE);
+      const high = bar.high * (1 + RECORDED_PRICE_TOLERANCE);
+      if (data.closes.some((price) => price < low || price > high)) {
+        throw new Error(`Recorded minute close is outside the daily range by more than 5% for ${symbol} on ${day}; verify the price feed`);
       }
       observed.set(key, { open: data.open, closes: [...data.closes] });
     } else {
