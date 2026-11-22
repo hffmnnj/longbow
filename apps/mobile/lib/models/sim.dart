@@ -526,6 +526,7 @@ class SimSuiteVariantSummary {
     required this.runs,
     required this.done,
     required this.failed,
+    this.noFillRuns,
     this.meanReturnPct,
     this.medianReturnPct,
     this.p10ReturnPct,
@@ -547,6 +548,9 @@ class SimSuiteVariantSummary {
   final int runs;
   final int done;
   final int failed;
+
+  /// Completed runs without fills, or null for older saved summaries.
+  final int? noFillRuns;
   final double? meanReturnPct;
   final double? medianReturnPct;
   final double? p10ReturnPct;

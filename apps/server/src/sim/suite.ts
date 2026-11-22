@@ -112,12 +112,14 @@ function marketKey(entry: { scenario?: string; seed?: number }): string {
 }
 
 function summarizeVariant(label: string, runs: SimRun[]): SimSuiteVariantSummary {
-  const withMetrics = runs.filter((r) => r.status === "done" && r.metrics !== undefined);
+  const completed = runs.filter((r) => r.status === "done");
+  const withMetrics = completed.filter((r) => r.metrics !== undefined);
   const summary: SimSuiteVariantSummary = {
     label,
     runs: runs.length,
-    done: runs.filter((r) => r.status === "done").length,
+    done: completed.length,
     failed: runs.filter((r) => r.status === "failed" || r.status === "stopped").length,
+    noFillRuns: completed.filter((r) => r.fills.length === 0).length,
   };
   if (withMetrics.length === 0) return summary;
   const returns = withMetrics.map((r) => r.metrics!.returnPct).sort((a, b) => a - b);

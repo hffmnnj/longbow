@@ -388,6 +388,7 @@ function summarize(label: string, members: SimRun[]): SimSuiteVariantSummary {
     runs: members.length,
     done: finished.length,
     failed: members.filter((r) => r.status === "failed").length,
+    noFillRuns: members.filter((r) => r.status === "done" && r.fills.length === 0).length,
     meanReturnPct: mean !== undefined ? +mean.toFixed(2) : undefined,
     medianReturnPct: median !== undefined ? +median.toFixed(2) : undefined,
     p10ReturnPct: quant(0.1) !== undefined ? +quant(0.1)!.toFixed(2) : undefined,

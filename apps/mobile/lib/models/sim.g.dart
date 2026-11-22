@@ -309,6 +309,7 @@ SimSuiteVariantSummary _$SimSuiteVariantSummaryFromJson(
   runs: (json['runs'] as num).toInt(),
   done: (json['done'] as num).toInt(),
   failed: (json['failed'] as num).toInt(),
+  noFillRuns: (json['noFillRuns'] as num?)?.toInt(),
   meanReturnPct: (json['meanReturnPct'] as num?)?.toDouble(),
   medianReturnPct: (json['medianReturnPct'] as num?)?.toDouble(),
   p10ReturnPct: (json['p10ReturnPct'] as num?)?.toDouble(),

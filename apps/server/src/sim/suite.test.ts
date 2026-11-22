@@ -161,6 +161,33 @@ test("two variants compare on paired markets with a seeded bootstrap interval", 
   } finally { done(); }
 });
 
+test("no-fill counts include completed runs only, without changing their financial results", async () => {
+  const { runner, suites, done } = setup();
+  try {
+    const suite = await suites.start({ name: "Fill coverage", scenarios: ["covid-crash-2020", "steady-bull-2021"],
+      startingCash: 1200, variants }, "user");
+    const member = (variant: string, scenario: string) =>
+      suite.runs.find((entry) => entry.variant === variant && entry.scenario === scenario)!.runId;
+    const traded = member("B", "covid-crash-2020");
+    runner.runs.get(traded)!.fills.push({
+      date: "2020-01-02", at: 1, orderId: "test-buy", side: "buy", symbol: "AAA",
+      price: 100, quantity: 1, mid: 100, cost: 0,
+    });
+    runner.finish(member("A", "covid-crash-2020"), { returnPct: 0, benchmarkReturnPct: -4 });
+    runner.finish(traded, { returnPct: 1, benchmarkReturnPct: -4 });
+    runner.finish(member("B", "steady-bull-2021"), { returnPct: 0, status: "stopped" });
+
+    const [a, b] = suites.get(suite.id)!.summary;
+    assert.equal(a?.done, 1);
+    assert.equal(a?.noFillRuns, 1, "the still-queued A run is not counted");
+    assert.equal(a.meanReturnPct, 0);
+    assert.equal(a.beatBenchmarkPct, 100, "cash can outperform a falling benchmark");
+    assert.equal(b?.done, 1);
+    assert.equal(b?.noFillRuns, 0, "the stopped B run is not counted");
+    assert.equal(b.meanReturnPct, 1);
+  } finally { done(); }
+});
+
 test("partial metrics cannot enter a suite comparison", async () => {
   const { runner, suites, done } = setup();
   try {

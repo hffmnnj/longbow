@@ -914,6 +914,8 @@ export interface SimSuiteVariantSummary {
   runs: number;
   done: number;
   failed: number;
+  /** Completed runs without fills. Absent in older saved summaries. */
+  noFillRuns?: number;
   meanReturnPct?: number;
   medianReturnPct?: number;
   p10ReturnPct?: number;
