@@ -282,7 +282,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       execution: run.config.execution, seed: run.seed, fictionalDates: blindish, observedMinutes: deps.observedMinutes });
     const openBuyCommitments = () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent);
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
-      openBuyCommitments,
+      openBuyCommitments, haltEquity: async () => (await broker.snapshot()).equity,
       ...(deps.systemOne === undefined ? {} : { entryReview: createEntryReview({ client: deps.systemOne, clock, log: deps.log }) }),
       ...(scenario === undefined ? {} : { sectors: createStaticSectorDirectory(Object.fromEntries(scenario.symbols.map((s) => [s, scenario!.sectorOf(s)]))) }) });
     let agent: TradingAgent | undefined;

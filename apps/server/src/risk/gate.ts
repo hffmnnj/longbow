@@ -39,6 +39,8 @@ export interface OrderGateDeps {
   sectors?: SectorDirectory;
   /** Optional paper broker snapshot of entry commitments. No simulated executions become inventory early. */
   openBuyCommitments?: () => readonly Pick<OrderIntent, "symbol" | "sector" | "quantity" | "limitPrice">[];
+  /** Current paper equity for risk summaries, independent of order checks and the drawdown latch. */
+  haltEquity?: () => Promise<number>;
   /**
    * System One review of an approved entry. Returns the `system_one` check to append, or undefined to skip.
    * It must fail open (an outage returns a passing check or undefined) and only fails the check when
@@ -736,18 +738,19 @@ export function createOrderGate(deps: OrderGateDeps): OrderGate & { cancel(id: s
       if (settings.killSwitch) out.push("kill_switch");
       if (settings.mode === "off") out.push("mode_off");
       if (broker.status().state !== "connected") out.push("broker_disconnected");
-      if (latestSnapshot !== null) {
+      const equity = deps.haltEquity === undefined ? latestSnapshot?.equity : await deps.haltEquity();
+      if (equity !== undefined) {
         const marks = store.equityMarks(calendar.etDate(now));
         if (
           marks.dayStart !== undefined &&
-          latestSnapshot.equity <= marks.dayStart * (1 - settings.risk.dailyLossHaltPct / 100)
+          equity <= marks.dayStart * (1 - settings.risk.dailyLossHaltPct / 100)
         ) {
           out.push("daily_loss");
         }
         if (
           settings.drawdownHalted ||
           (marks.monthPeak !== undefined &&
-            latestSnapshot.equity <=
+            equity <=
               marks.monthPeak * (1 - settings.risk.monthlyDrawdownHaltPct / 100))
         ) {
           out.push("drawdown");

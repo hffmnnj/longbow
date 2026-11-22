@@ -211,6 +211,7 @@ function setup(options?: {
   sectors?: SectorDirectory;
   systemOne?: Settings["systemOne"];
   entryReview?: Parameters<typeof createOrderGate>[0]["entryReview"];
+  haltEquity?: Parameters<typeof createOrderGate>[0]["haltEquity"];
   ownerMessages?: { id: string; at: number; text: string }[];
 }) {
   const store = new FakeStore();
@@ -243,6 +244,7 @@ function setup(options?: {
     ...(market === null ? {} : { market }),
     ...(options?.sectors === undefined ? {} : { sectors: options.sectors }),
     ...(options?.entryReview === undefined ? {} : { entryReview: options.entryReview }),
+    ...(options?.haltEquity === undefined ? {} : { haltEquity: options.haltEquity }),
     ...(options?.ownerMessages === undefined ? {} : { ownerMessagesSince: (since: number) => options.ownerMessages!.filter((message) => message.at >= since) }),
   });
   return { store, broker, gate, events, market, setNow: (t: number) => (now = t) };
@@ -875,6 +877,28 @@ describe("order gate", () => {
     assert.ok(halts.includes("kill_switch"));
     assert.equal(broker.snapshotCalls, 0);
     assert.equal(broker.quoteCalls, 0);
+  });
+
+  it("halts on fresh paper equity across day and month thresholds without an order, then clears on recovery", async () => {
+    let equity = 96_500;
+    const f = setup({ haltEquity: async () => equity });
+    f.store.markEquity(NOW, "2026-11-01", 102_000);
+    f.store.markEquity(NOW, "2026-11-02", 100_000);
+
+    // 3.5% below the day's start, but only 5.4% below the month peak.
+    assert.deepEqual(await f.gate.halts(), ["daily_loss"]);
+    // 7.0% day loss and 8.8% drawdown from the month peak.
+    equity = 93_000;
+    assert.deepEqual(await f.gate.halts(), ["daily_loss", "drawdown"]);
+    assert.equal(f.store.settings.drawdownHalted, false);
+    assert.equal(f.store.patchCalls, 0);
+    assert.equal(f.store.orders.size, 0);
+    assert.equal(f.broker.snapshotCalls, 0);
+    assert.equal(f.broker.reviewCalls, 0);
+    assert.equal(f.broker.placeCalls, 0);
+
+    equity = 100_100;
+    assert.deepEqual(await f.gate.halts(), []);
   });
 });
 
