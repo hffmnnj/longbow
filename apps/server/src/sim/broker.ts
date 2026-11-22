@@ -178,8 +178,10 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const previous = bars.filter((b) => b.date < day).at(-1);
     const { nextOpen: open, nextClose: close } = session(day);
     let last: number | undefined;
-    if (at < open) last = previous?.close;
-    else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at, close)) : realisticLast(current, symbol, at);
+    if (at < open) {
+      // Keep the prior session's actual paper mark until the next opening print.
+      if (previous !== undefined) last = minutes(symbol, previous)?.closes.at(-1) ?? previous.close;
+    } else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at, close)) : realisticLast(current, symbol, at);
     if (last === undefined || !Number.isFinite(last) || last <= 0) throw new Error(`No historical quote for ${symbol} on ${day}`);
     const spread = execution === "ideal"
       ? last * (LIQUID.has(symbol) ? 1 : 3) / 10_000
