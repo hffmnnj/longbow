@@ -23,7 +23,7 @@ import { createQuantExtension } from "../quant/extension.ts";
 import type { SystemOneClient } from "../systemone/client.ts";
 import { createEntryReview } from "../systemone/review.ts";
 import { createSystemOneExtension } from "../systemone/extension.ts";
-import { createPaperBroker, type PaperBroker } from "./broker.ts";
+import { createPaperBroker, type ObservedMinutes, type PaperBroker } from "./broker.ts";
 import { createSimEventBus } from "./events.ts";
 import { calculateMetrics } from "./metrics.ts";
 import { assertReplayBenchmarkCoverage, etInstant, tradingDays } from "./path.ts";
@@ -81,6 +81,8 @@ export interface SimServiceDeps {
   credentialFile?: string;
   /** Test seam: source bars without Nasdaq (defaults to the replay market). */
   fetchBars?: (symbol: string, from: string, to: string) => Promise<Bar[]>;
+  /** Local historical replay seam for explicitly supplied minute observations. */
+  observedMinutes?: (symbol: string, date: string) => ObservedMinutes | undefined;
   /** Wall clock for market source dates, independent of the simulated clock. */
   wallNow?: () => number;
   /** Test seam: replaces the TradingAgent cycle run (which needs model credentials). */
@@ -274,7 +276,7 @@ export function createSimService(deps: SimServiceDeps): SimService {
       // The paper broker only knows stocks and ETFs.
       crypto: { ...settings.crypto, enabled: false } });
     const broker = createPaperBroker({ startingCash: run.config.startingCash, clock, calendar: deps.calendar, bars,
-      execution: run.config.execution, seed: run.seed, fictionalDates: blindish });
+      execution: run.config.execution, seed: run.seed, fictionalDates: blindish, observedMinutes: deps.observedMinutes });
     const openBuyCommitments = () => broker.orders().filter((o) => o.status === "open" && o.intent.side === "buy").map((o) => o.intent);
     const gate = createOrderGate({ store, broker, calendar: deps.calendar, clock, bus, log: deps.log, market, ownerMessagesSince: () => [],
       openBuyCommitments,

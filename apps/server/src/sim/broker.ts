@@ -22,6 +22,11 @@ export interface PaperBroker extends TradingBroker {
   fills(): SimFill[];
   cancelOrder(id: string): Promise<void>;
 }
+export interface ObservedMinutes {
+  open: number;
+  /** In order from the start of the session; each close becomes known one minute later. */
+  closes: readonly number[];
+}
 export interface PaperBrokerDeps {
   startingCash: number;
   clock: Clock;
@@ -33,6 +38,8 @@ export interface PaperBrokerDeps {
   seed?: number;
   /** Blind/bootstrap dates are fictional weekdays, not historical clearing dates. */
   fictionalDates?: boolean;
+  /** Local historical observations, not quotes. Return undefined only to model that session. */
+  observedMinutes?: (symbol: string, date: string) => ObservedMinutes | undefined;
 }
 
 const LIQUID = new Set(["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "AVGO"]);
@@ -53,6 +60,41 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const bounds = deps.calendar.clock(etInstant(day, 12));
     sessions.set(day, bounds);
     return bounds;
+  }
+  const observed = new Map<string, ObservedMinutes | undefined>();
+  function minutes(symbol: string, day: string): ObservedMinutes | undefined {
+    if (execution !== "realistic" || deps.fictionalDates || deps.observedMinutes === undefined) return undefined;
+    const key = `${symbol}:${day}`;
+    if (observed.has(key)) return observed.get(key);
+    const data = deps.observedMinutes(symbol, day);
+    if (data !== undefined) {
+      const bounds = session(day);
+      const count = (bounds.nextClose - bounds.nextOpen) / 60_000;
+      if (bounds.tradingDay !== day || data.closes.length !== count ||
+          ![data.open, ...data.closes].every((price) => Number.isFinite(price) && price > 0)) {
+        throw new Error(`Invalid recorded minute tape for ${symbol} on ${day}`);
+      }
+      observed.set(key, { open: data.open, closes: [...data.closes] });
+    } else {
+      observed.set(key, undefined);
+    }
+    return observed.get(key);
+  }
+  function realisticLast(bar: Bar, symbol: string, at: number): number {
+    const bounds = session(bar.date);
+    const tape = minutes(symbol, bar.date);
+    if (tape === undefined) return realisticPrice(bar, symbol, seed, at, bounds.nextClose);
+    const complete = Math.floor((at - bounds.nextOpen) / 60_000);
+    return complete <= 0 ? tape.open : tape.closes[Math.min(complete, tape.closes.length) - 1]!;
+  }
+  function minuteObservations(tape: ObservedMinutes, open: number, from: number, to: number) {
+    const first = Math.max(0, Math.ceil((from - open) / 60_000));
+    const last = Math.min(tape.closes.length, Math.floor((to - open) / 60_000));
+    const points: { at: number; price: number }[] = [];
+    for (let i = first; i <= last; i++) {
+      points.push({ at: open + 60_000 * i, price: i === 0 ? tape.open : tape.closes[i - 1]! });
+    }
+    return points;
   }
   function settle(day = date()): void {
     for (let i = proceeds.length - 1; i >= 0; i--) {
@@ -95,7 +137,7 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
     const { nextOpen: open, nextClose: close } = session(day);
     let last: number | undefined;
     if (at < open) last = previous?.close;
-    else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at, close)) : realisticPrice(current, symbol, seed, at, close);
+    else if (current !== undefined) last = execution === "ideal" ? pathPrice(current, sessionFraction(day, at, close)) : realisticLast(current, symbol, at);
     if (last === undefined || !Number.isFinite(last) || last <= 0) throw new Error(`No historical quote for ${symbol} on ${day}`);
     const spread = execution === "ideal"
       ? last * (LIQUID.has(symbol) ? 1 : 3) / 10_000
@@ -141,15 +183,17 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         if (bounds.tradingDay !== bar.date) continue;
         const close = bounds.nextClose;
         const from = Math.max(order.checkedAt, order.createdAt);
-        const points = execution === "ideal"
-          ? pathSegment(bar, from, now, close)
-          : realisticSegment(bar, intent.symbol, seed, from, now, close);
+        const tape = minutes(intent.symbol, bar.date);
+        const points = tape !== undefined
+          ? minuteObservations(tape, bounds.nextOpen, from, now)
+          : execution === "ideal" ? pathSegment(bar, from, now, close) : realisticSegment(bar, intent.symbol, seed, from, now, close);
         // A resting limit fills only on a trade through the limit: a touch is
         // not enough in realistic mode, so the level sits a cent beyond it.
         const through = execution === "ideal" ? intent.limitPrice : intent.limitPrice + (intent.side === "sell" ? 0.01 : -0.01);
         for (let i = 0; i < points.length && order.status === "open"; i++) {
           let a = points[i]!;
-          const b = points[i + 1] ?? a;
+          // The minute observations do not tell us what traded between the samples.
+          const b = tape === undefined ? (points[i + 1] ?? a) : a;
           let triggerPrice: number | undefined;
           if (!order.triggered) {
             const ratio = cross(a.price, b.price, intent.stopPrice!, intent.side === "buy");
@@ -205,9 +249,9 @@ export function createPaperBroker(deps: PaperBrokerDeps): PaperBroker {
         if (order.status !== "open" || attempt?.at !== at) continue;
         const { intent } = order;
         const history = await deps.bars(intent.symbol);
-        delayed.delete(order.id);
         const bar = history.find((b) => b.date === day);
-        const mid = bar === undefined ? undefined : realisticPrice(bar, intent.symbol, seed, at, session(day).nextClose);
+        const mid = bar === undefined ? undefined : realisticLast(bar, intent.symbol, at);
+        delayed.delete(order.id);
         if (mid !== undefined) {
           const price = attempt.market
             ? marketPrice(intent.side, intent.quantity * mid, history, day, at, mid)
