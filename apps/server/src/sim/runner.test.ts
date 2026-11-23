@@ -237,6 +237,7 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     probabilityWin: 0.6, expectedGainPct: 10, expectedLossPct: 5, estimatedCostPct: 0.1, evidence: ["fixture quote"],
   };
   let paper: PaperBroker;
+  let entryId: string | undefined;
   let protectionId: string | undefined;
   const sim = createSimService({
     config: { ...loadConfig(), DATA_DIR: dataDir }, log, bus: createEventBus(), market, skills, calendar: createNyseCalendar(),
@@ -252,8 +253,9 @@ test("a fractional protective stop exits on the first simulated quote after a ga
         } finally {
           db.close();
         }
-        const order = await paper.placeOrder(entry);
-        assert.equal((await paper.orderState(order.brokerOrderId)).status, "submitted");
+        const order = await ctx.submit(entry);
+        assert.equal(order.status, "submitted", JSON.stringify(order.verdict.checks.filter((c) => !c.ok)));
+        entryId = order.id;
         assert.deepEqual(paper.fills(), []);
         assert.deepEqual((await paper.snapshot()).positions, []);
         return;
@@ -266,9 +268,17 @@ test("a fractional protective stop exits on the first simulated quote after a ga
     },
   });
   try {
-    const run = await sim.start({ startDate: dates[1]!, days: 2, startingCash: 1200, cyclesPerDay: 2, execution: "realistic" }, "user");
+    const run = await sim.start({
+      startDate: dates[1]!, days: 2, startingCash: 1200, cyclesPerDay: 2, execution: "realistic",
+      // This three-bar fixture has no earnings schedule or 20-day volume history.
+      risk: { earningsBlackoutDays: 0, minAvgDollarVolumeUsd: 0 },
+    }, "user");
     const result = await waitForDone(sim, run.id);
     assert.equal(result.status, "done", result.error ?? "paper replay did not finish");
+    const reconciledEntry = sim.orders(run.id).find((o) => o.id === entryId);
+    assert.equal(reconciledEntry?.status, "filled");
+    assert.equal(reconciledEntry.updatedAt, etInstant(dates[1]!, 10, 16),
+      "the first delayed fill must be reconciled at its minute, before any stop exists");
     assert.deepEqual(result.positions, []);
     const sells = result.fills.filter((f) => f.side === "sell");
     assert.equal(sells.length, 1);

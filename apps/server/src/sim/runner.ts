@@ -378,11 +378,13 @@ export function createSimService(deps: SimServiceDeps): SimService {
           now = at;
         };
         if (market.tradingDay === date) {
-          // Fractional protection is harness-watched, not a resting limit. Only
-          // simulate quote checks while a local stop is armed.
+          // Reconcile entries between cycles even before the first local stop
+          // is armed. With neither an entry nor a held stop, the broker can batch.
           const first = Math.max(market.nextOpen, now + 60_000);
           for (let at = first; at <= target && at < market.nextClose && run.status === "running"; at += 60_000) {
-            if (!store.ordersSince(0).some((order) => order.status === "held")) break;
+            if (!store.ordersSince(0).some((order) => order.status === "held" ||
+                (order.intent.side === "buy" && !order.intent.longOption && order.brokerOrderId !== undefined &&
+                  (order.status === "submitted" || order.status === "partially_filled")))) break;
             moveClock(at);
             await broker.advance();
             await gate.tick();
