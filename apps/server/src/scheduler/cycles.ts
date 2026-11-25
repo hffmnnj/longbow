@@ -73,6 +73,8 @@ function alignUp(now: number, intervalMs: number): number {
 const PRE_OPEN_MIN = 9 * 60;
 const INTRADAY_FIRST_MIN = 9 * 60 + 45;
 const INTRADAY_LAST_MIN = 15 * 60 + 45;
+const WALL_CLOCK_CHECK_MS = 30_000;
+const MAX_CYCLE_LATENESS_MS = 60_000;
 
 /**
  * The next cycle after `now`, all in America/New_York. On a trading day the
@@ -142,6 +144,7 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; next(): Cyc
     onNext?.(point);
 
     function wait(delay: number): void {
+      // Node's delay may stop advancing during host sleep; the wall clock does not.
       timer = setTimeout(() => {
         if (stopped || gen !== generation) return;
         const remaining = point.at - clock.now();
@@ -153,10 +156,14 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; next(): Cyc
         }
         // Re-arm before running so a slow cycle cannot shift the next one.
         arm();
+        if (remaining < -MAX_CYCLE_LATENESS_MS) {
+          log.warn("missed scheduled cycle; re-armed without replay", { at: point.at, kind: point.kind });
+          return;
+        }
         agent.runCycle(point.kind).catch((error: unknown) => {
           log.warn("scheduled cycle failed", { kind: point.kind, error: error instanceof Error ? error.message : "unknown" });
         });
-      }, delay);
+      }, Math.min(delay, WALL_CLOCK_CHECK_MS));
       timer.unref?.();
     }
 
