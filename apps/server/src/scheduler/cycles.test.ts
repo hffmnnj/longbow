@@ -97,6 +97,33 @@ it("waits for the armed slot if the timer wakes before the wall clock is due", (
   assert.deepEqual(scheduler.next(), { at: Date.parse("2026-11-22T00:00:00Z"), kind: "overnight" });
 });
 
+it("re-arms promptly after a long sleep without dispatching the missed cycle", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let now = Date.parse("2026-10-26T06:00:00Z");
+  const ran: string[] = [];
+  const log = { info() {}, warn() {}, error() {}, child() { return log; } };
+  const scheduler = startScheduler({
+    agent: { async runCycle(kind) { ran.push(kind); } },
+    calendar: fakeCalendar(week),
+    store: { getSettings: () => ({ ...DEFAULT_SETTINGS, ...settings }) },
+    bus: { publish() {}, subscribe: () => () => {} },
+    clock: { now: () => now },
+    log,
+  });
+  t.after(() => scheduler.stop());
+
+  assert.deepEqual(scheduler.next(), { at: Date.parse("2026-10-26T08:00:00Z"), kind: "overnight" });
+  now = Date.parse("2026-10-26T14:14:30Z");
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(ran, []);
+  assert.deepEqual(scheduler.next(), { at: Date.parse("2026-10-26T14:15:00Z"), kind: "intraday" });
+
+  now = Date.parse("2026-10-26T14:15:05Z");
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(ran, ["intraday"]);
+  assert.deepEqual(scheduler.next(), { at: Date.parse("2026-10-26T14:45:00Z"), kind: "intraday" });
+});
+
 describe("nextCycle", () => {
   it("schedules pre-open before 09:00 on a trading day", () => {
     const at = nextCycle(etToMs("2026-10-26", 8 * 60), fakeCalendar(week), settings);
